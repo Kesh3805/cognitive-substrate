@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::{AgentId, EvidenceId, UserId};
+use crate::{AgentId, EvidenceId, ObservationId, UserId};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Provenance {
@@ -19,14 +19,31 @@ pub struct Provenance {
     pub extraction: Option<ExtractionInfo>,
     #[serde(default)]
     pub parent_evidence: Vec<EvidenceId>,
+    /// Independent sources that asserted the same content (recorded when
+    /// duplicates are merged). A memory survives the purge of its primary
+    /// source if a corroborating source remains.
+    #[serde(default)]
+    pub corroborations: Vec<SourceRef>,
 }
 
 impl Provenance {
-    /// Model-derived content must pass an explicit validation path before it
-    /// becomes trusted knowledge.
-    pub fn is_model_derived(&self) -> bool {
-        self.extraction.as_ref().is_some_and(|e| e.model.is_some())
-            || matches!(self.source, SourceRef::AgentOutput { .. })
+    /// Extracted or agent-produced content must pass an explicit validation
+    /// path before it becomes trusted knowledge. Any extraction counts, not
+    /// only model extraction: a rule-based extractor is still an inference.
+    pub fn requires_validation(&self) -> bool {
+        self.extraction.is_some()
+            || matches!(
+                self.source,
+                SourceRef::AgentOutput { .. } | SourceRef::Observation { .. }
+            )
+    }
+
+    /// The observation this content was extracted from, if any.
+    pub fn observation(&self) -> Option<ObservationId> {
+        match self.source {
+            SourceRef::Observation { observation_id } => Some(observation_id),
+            _ => None,
+        }
     }
 }
 
@@ -54,11 +71,16 @@ pub enum SourceRef {
     SystemDerived {
         derivation: String,
     },
+    /// Extracted from a stored raw observation.
+    Observation {
+        observation_id: ObservationId,
+    },
 }
 
 impl SourceRef {
     pub const fn kind(&self) -> &'static str {
         match self {
+            Self::Observation { .. } => "observation",
             Self::UserInput { .. } => "user_input",
             Self::AgentOutput { .. } => "agent_output",
             Self::ToolOutput { .. } => "tool_output",
