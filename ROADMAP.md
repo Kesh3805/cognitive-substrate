@@ -32,11 +32,14 @@ The substrate can observe, extract, detect, propose and recall. Authoritative kn
 
 **Exit gate:** 22 conformance scenarios pass on both stores. The calibration suite proves no hard negative merges. The HTTP flow is covered end to end, and the extractor contract is tested against a mock server.
 
-## M3.x — Deferred from M3
+## ✅ M3.x — Embeddings & operations
 
-- A model-backed `Embedder` adapter (FastEmbed / ONNX), with per-model threshold calibration.
-- A dedicated worker binary and horizontal worker deployment guidance.
-- Persisted belief embeddings.
+- Async, batch-capable embedders with an enforced contract; immutable embedding spaces including prefixes; deterministic projection capping and content hashes (ADR-0016).
+- OpenAI-compatible and Ollama-native HTTP embedder (2D batching, poison bisection, index ordering, no silent truncation) and an optional local FastEmbed/ONNX embedder.
+- Embedder-independent writes with atomic backfill jobs; persisted belief vectors; availability-time filtering so replays stay exact; explicit dense fallback and neutral imputation.
+- Shadow-space migration with newest-first reindex, coverage reporting and a startup cutover gate; calibration provenance for duplicate thresholds; `api` / `worker` / `all` process roles (ADR-0017).
+
+**Exit gate:** 27 conformance scenarios pass on both stores (including provider outage, backfill-vs-replay, fallback replay, shadow migration and purge-before-backfill). Both embedder adapters pass mock-server contract tests, and FastEmbed runs real local inference behind an opt-in test.
 
 ## M4 — Learning systems
 
