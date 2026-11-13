@@ -1,0 +1,21 @@
+[package]
+name = "cs-embedder-fastembed"
+description = "Local ONNX embeddings via FastEmbed (optional; not built by default)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cs-engine.workspace = true
+async-trait.workspace = true
+fastembed = "7"
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+time.workspace = true
+
+[lints]
+workspace = true

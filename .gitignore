@@ -7,3 +7,6 @@
 .idea/
 .vscode/
 .DS_Store
+
+# Model caches downloaded by local embedders
+.fastembed_cache/

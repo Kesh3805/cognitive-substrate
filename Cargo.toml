@@ -10,6 +10,21 @@ members = [
     "crates/cs-server",
     "crates/cs-extractor-http",
     "crates/cs-embedder-http",
+    "crates/cs-embedder-fastembed",
+    "tests/conformance",
+]
+# The ONNX embedder pulls in a native runtime and downloads models; it is
+# built on demand (and in its own CI job), never by default.
+default-members = [
+    "crates/cs-core",
+    "crates/cs-memory",
+    "crates/cs-policy",
+    "crates/cs-storage",
+    "crates/cs-postgres",
+    "crates/cs-engine",
+    "crates/cs-server",
+    "crates/cs-extractor-http",
+    "crates/cs-embedder-http",
     "tests/conformance",
 ]
 
