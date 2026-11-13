@@ -1,0 +1,26 @@
+[package]
+name = "cs-extractor-http"
+description = "Model-backed extractor for OpenAI-compatible chat endpoints (including Ollama)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cs-engine.workspace = true
+cs-memory.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+cs-core.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
