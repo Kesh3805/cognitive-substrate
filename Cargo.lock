@@ -224,12 +224,14 @@ dependencies = [
 name = "cs-conformance"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cs-core",
  "cs-engine",
  "cs-memory",
  "cs-policy",
  "cs-postgres",
  "cs-storage",
+ "serde_json",
  "sqlx",
  "time",
  "tokio",
@@ -335,6 +337,7 @@ dependencies = [
  "async-trait",
  "cs-core",
  "cs-memory",
+ "serde_json",
  "thiserror",
  "time",
  "uuid",
