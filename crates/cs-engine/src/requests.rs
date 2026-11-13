@@ -192,6 +192,13 @@ pub struct RecallSummary {
     pub belief_candidates_considered: usize,
     #[serde(default)]
     pub beliefs_selected: usize,
+    /// Whether the dense channel ran (and why not, if it did not).
+    #[serde(default)]
+    pub dense: cs_memory::DenseStatus,
+    /// Share of memory candidates that had a vector in the active space;
+    /// the rest were scored with an imputed neutral dense score.
+    #[serde(default)]
+    pub dense_coverage: Option<f64>,
     pub data_snapshot: String,
 }
 

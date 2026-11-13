@@ -122,6 +122,7 @@ impl Worker {
         let handled = match job.kind {
             JobKind::Perceive => self.engine.perceive(job, self.extractor.as_ref()).await,
             JobKind::Resolve => self.engine.resolve(job).await,
+            JobKind::Embed => self.engine.embed(job).await,
         };
         let now = self.engine.now();
         let (outcome, effects, kind) = match handled {

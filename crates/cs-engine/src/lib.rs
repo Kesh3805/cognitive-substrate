@@ -10,6 +10,7 @@
 //! 3. is persisted atomically with a cognitive event.
 
 pub mod embedding;
+mod embeddings;
 pub mod extract;
 mod processing;
 pub mod requests;
@@ -26,14 +27,18 @@ use cs_core::{
     Provenance, RecallTraceId, Result, Scope, SystemClock, TimeInterval, temporal::truncate_micros,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, EmbeddingRecord, Evidence,
-    EvidenceDirection, MemoryDomain, MemoryRecord, MemoryStatus, RecallBeliefCandidate,
+    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, Evidence,
+    DenseStatus, EvidenceDirection, MemoryDomain, MemoryRecord, MemoryStatus, RecallBeliefCandidate,
     RecallCandidate, RecallPolicy, RecallTrace, recall::SCORING_VERSION,
 };
 use cs_policy::{BeliefScoringInput, DebtInputs, ScoringInput};
 pub use cs_policy::{CognitiveDebtReport, DebtConfig};
 use cs_storage::{BeliefQuery, CognitiveStore, IdempotencyKey, MemoryQuery};
-pub use embedding::{Embedder, HashingEmbedder};
+pub use embedding::{EmbedError, EmbedKind, Embedder, EmbeddingSpace, HashingEmbedder};
+pub use embeddings::{
+    EmbeddingCoverageView, JobCountView, ProcessingStatus, ReindexReport, ReindexRequest, SpaceCoverage,
+    SpaceRole,
+};
 pub use extract::{ExtractError, Extractor, RuleExtractor};
 pub use processing::ProcessingConfig;
 pub use requests::*;
@@ -51,12 +56,16 @@ struct RecallRun {
     records: BTreeMap<MemoryRevisionId, MemoryRecord>,
     belief_candidates: Vec<RecallBeliefCandidate>,
     beliefs: BTreeMap<BeliefId, Belief>,
+    dense: DenseStatus,
+    query_embedding: Option<Vec<f32>>,
+    dense_coverage: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CognitiveEngine {
     store: Arc<dyn CognitiveStore>,
     embedder: Option<Arc<dyn Embedder>>,
+    shadow: Option<Arc<dyn Embedder>>,
     clock: Arc<dyn Clock>,
     debt_config: DebtConfig,
     processing: ProcessingConfig,
@@ -67,6 +76,7 @@ pub struct CognitiveEngine {
 pub struct EngineBuilder {
     store: Arc<dyn CognitiveStore>,
     embedder: Option<Arc<dyn Embedder>>,
+    shadow: Option<Arc<dyn Embedder>>,
     clock: Arc<dyn Clock>,
     debt_config: DebtConfig,
     processing: ProcessingConfig,
@@ -80,6 +90,13 @@ impl EngineBuilder {
 
     pub fn without_embedder(mut self) -> Self {
         self.embedder = None;
+        self
+    }
+
+    /// A second embedding space written alongside the active one while a
+    /// model migration backfills (see ADR-0016).
+    pub fn shadow_embedder(mut self, embedder: Arc<dyn Embedder>) -> Self {
+        self.shadow = Some(embedder);
         self
     }
 
@@ -102,6 +119,7 @@ impl EngineBuilder {
         CognitiveEngine {
             store: self.store,
             embedder: self.embedder,
+            shadow: self.shadow,
             clock: self.clock,
             debt_config: self.debt_config,
             processing: self.processing,
@@ -138,6 +156,7 @@ impl CognitiveEngine {
         EngineBuilder {
             store,
             embedder: Some(Arc::new(HashingEmbedder::default())),
+            shadow: None,
             clock: Arc::new(SystemClock),
             debt_config: DebtConfig::default(),
             processing: ProcessingConfig::default(),
@@ -190,15 +209,6 @@ impl CognitiveEngine {
             causation_id: None,
             correlation_id: None,
         }
-    }
-
-    fn embed(&self, record: &MemoryRecord) -> Option<EmbeddingRecord> {
-        if record.status == MemoryStatus::Tombstoned {
-            return None;
-        }
-        self.embedder
-            .as_ref()
-            .map(|e| e.record(&record.content.index_text()))
     }
 
     fn provenance(
@@ -282,9 +292,12 @@ impl CognitiveEngine {
             kind: "memory",
             key,
         });
+        // Embed outside the storage transaction; a failure becomes a backfill
+        // job that commits atomically with the write.
+        let (embedding, follow_up) = self.memory_embedding_plan(ctx, &record).await;
         match self
             .store
-            .insert_memory(&record, self.embed(&record).as_ref(), key, event)
+            .insert_memory(&record, embedding.as_ref(), key, &follow_up, event)
             .await
         {
             Ok(_) => {
@@ -381,14 +394,9 @@ impl CognitiveEngine {
             }),
             at,
         );
+        let (embedding, follow_up) = self.memory_embedding_plan(ctx, &next).await;
         self.store
-            .supersede_memory(
-                current.revision_id,
-                at,
-                &next,
-                self.embed(&next).as_ref(),
-                event,
-            )
+            .supersede_memory(current.revision_id, at, &next, embedding.as_ref(), &follow_up, event)
             .await?;
         if next.status != MemoryStatus::Tombstoned {
             self.auto_resolve_memory(ctx, &next).await;
@@ -565,11 +573,48 @@ impl CognitiveEngine {
         Ok(policy)
     }
 
+    /// Embed the query, or reuse a trace's recorded vector, and say whether
+    /// the dense channel runs.
+    async fn query_vector(
+        &self,
+        query: &str,
+        policy: &RecallPolicy,
+        recorded: Option<(&DenseStatus, Option<&Vec<f32>>)>,
+    ) -> (Option<Vec<f32>>, DenseStatus) {
+        let Some(e) = &self.embedder else {
+            return (None, DenseStatus::Disabled);
+        };
+        let space = e.space().id();
+        if policy.dense_weight == 0.0 {
+            return (None, DenseStatus::Disabled);
+        }
+        match recorded {
+            // Exact replay: reuse the very vector the original recall used.
+            Some((DenseStatus::Used { space: s }, Some(v))) if *s == space => {
+                return (Some(v.clone()), DenseStatus::Used { space });
+            }
+            // The original ran without a dense channel: replay it the same way.
+            Some((DenseStatus::Unavailable { space: s, reason }, _)) if *s == space => {
+                return (None, DenseStatus::Unavailable { space, reason: reason.clone() });
+            }
+            Some((DenseStatus::Disabled, _)) => return (None, DenseStatus::Disabled),
+            _ => {}
+        }
+        match embedding::embed_one(e.as_ref(), query, EmbedKind::Query, self.now()).await {
+            Ok(v) => (Some(v.vector), DenseStatus::Used { space }),
+            Err(err) => {
+                tracing::warn!(error = %err, %space, "query embedding failed; lexical+recency fallback");
+                (None, DenseStatus::Unavailable { space, reason: err.to_string() })
+            }
+        }
+    }
+
     async fn execute_recall(
         &self,
         ctx: &AccessContext,
         query: &str,
         policy: &RecallPolicy,
+        recorded: Option<(&DenseStatus, Option<&Vec<f32>>)>,
     ) -> Result<RecallRun> {
         let as_of_tx = policy.as_of_transaction_time.unwrap_or_else(|| self.now());
         let as_of_valid = policy.as_of_valid_time.unwrap_or(as_of_tx);
@@ -577,6 +622,7 @@ impl CognitiveEngine {
         if policy.include_candidates {
             statuses.push(MemoryStatus::Candidate);
         }
+        let space_key = self.space_key();
         let stored = self
             .store
             .query_memories(&MemoryQuery {
@@ -588,18 +634,13 @@ impl CognitiveEngine {
                 as_of_transaction_time: as_of_tx,
                 include_superseded: policy.include_superseded,
                 ignore_valid_time: false,
-                embedding_model: self
-                    .embedder
-                    .as_ref()
-                    .map(|e| (e.model_name().to_owned(), e.model_version().to_owned())),
+                embedding_model: space_key.clone(),
                 limit: policy.max_candidates,
             })
             .await?;
+        let (query_embedding, dense) = self.query_vector(query, policy, recorded).await;
 
-        let texts: Vec<String> = stored
-            .iter()
-            .map(|s| s.record.content.index_text())
-            .collect();
+        let texts: Vec<String> = stored.iter().map(|s| s.record.content.index_text()).collect();
         let inputs: Vec<ScoringInput<'_>> = stored
             .iter()
             .zip(&texts)
@@ -611,18 +652,12 @@ impl CognitiveEngine {
                 observed_at: s.record.provenance.observed_at,
             })
             .collect();
-        let query_embedding = self.embedder.as_ref().map(|e| e.embed(query));
-        let candidates = cs_policy::score_candidates(
-            policy,
-            query,
-            query_embedding.as_deref(),
-            as_of_tx,
-            &inputs,
-        );
-        let records = stored
-            .into_iter()
-            .map(|s| (s.record.revision_id, s.record))
-            .collect();
+        let candidates =
+            cs_policy::score_candidates(policy, query, query_embedding.as_deref(), as_of_tx, &inputs);
+        let embedded = stored.iter().filter(|s| s.embedding.is_some()).count();
+        let dense_coverage = (dense.is_used() && !stored.is_empty())
+            .then(|| embedded as f64 / stored.len() as f64);
+        let records = stored.into_iter().map(|s| (s.record.revision_id, s.record)).collect();
 
         let (belief_candidates, beliefs) = if policy.include_beliefs {
             let mut statuses = vec![BeliefStatus::Active];
@@ -642,24 +677,18 @@ impl CognitiveEngine {
                     as_of_transaction_time: as_of_tx,
                     include_superseded: policy.include_superseded,
                     ignore_valid_time: false,
+                    embedding_model: space_key,
                     limit: policy.max_candidates,
                 })
                 .await?;
-            // Belief embeddings are derived on the fly (deterministic for a
-            // fixed embedder); they are short propositions.
-            let embeddings: Vec<Option<Vec<f32>>> = found
-                .iter()
-                .map(|b| self.embedder.as_ref().map(|e| e.embed(&b.proposition)))
-                .collect();
             let inputs: Vec<BeliefScoringInput<'_>> = found
                 .iter()
-                .zip(&embeddings)
-                .map(|(b, e)| BeliefScoringInput {
-                    lineage_id: b.lineage_id,
-                    belief_id: b.id,
-                    text: &b.proposition,
-                    embedding: e.as_deref(),
-                    observed_at: b.temporal.transaction_time.start,
+                .map(|s| BeliefScoringInput {
+                    lineage_id: s.belief.lineage_id,
+                    belief_id: s.belief.id,
+                    text: &s.belief.proposition,
+                    embedding: s.embedding.as_deref(),
+                    observed_at: s.belief.temporal.transaction_time.start,
                 })
                 .collect();
             let scored = cs_policy::score_belief_candidates(
@@ -669,7 +698,7 @@ impl CognitiveEngine {
                 as_of_tx,
                 &inputs,
             );
-            (scored, found.into_iter().map(|b| (b.id, b)).collect())
+            (scored, found.into_iter().map(|s| (s.belief.id, s.belief)).collect())
         } else {
             (Vec::new(), BTreeMap::new())
         };
@@ -678,20 +707,21 @@ impl CognitiveEngine {
             records,
             belief_candidates,
             beliefs,
+            dense,
+            query_embedding,
+            dense_coverage,
         })
     }
 
-    fn snapshot(&self, policy: &RecallPolicy) -> String {
-        let embedder = self.embedder.as_ref().map_or_else(
-            || "none".to_owned(),
-            |e| format!("{}@{}", e.model_name(), e.model_version()),
-        );
+    fn snapshot(&self, policy: &RecallPolicy, dense: &DenseStatus) -> String {
+        let embedder = match dense {
+            DenseStatus::Used { space } => space.clone(),
+            DenseStatus::Unavailable { space, .. } => format!("{space}(unavailable)"),
+            DenseStatus::Disabled => "none".to_owned(),
+        };
         format!(
             "tx={};valid={};scoring=v{};embedder={}",
-            policy
-                .as_of_transaction_time
-                .map(rfc3339)
-                .unwrap_or_default(),
+            policy.as_of_transaction_time.map(rfc3339).unwrap_or_default(),
             policy.as_of_valid_time.map(rfc3339).unwrap_or_default(),
             SCORING_VERSION,
             embedder
@@ -704,21 +734,32 @@ impl CognitiveEngine {
         id: RecallTraceId,
         query: &str,
         policy: RecallPolicy,
-        candidates: Vec<RecallCandidate>,
-        belief_candidates: Vec<RecallBeliefCandidate>,
+        run: &mut RecallRun,
     ) -> RecallTrace {
+        let space = match &run.dense {
+            DenseStatus::Used { space } | DenseStatus::Unavailable { space, .. } => Some(space.clone()),
+            DenseStatus::Disabled => None,
+        };
+        let (model, version) = space
+            .as_deref()
+            .and_then(|s| s.split_once('@'))
+            .map(|(m, v)| (Some(m.to_owned()), Some(v.to_owned())))
+            .unwrap_or((None, None));
         RecallTrace {
             id,
             tenant_id: ctx.tenant_id,
-            data_snapshot: self.snapshot(&policy),
+            data_snapshot: self.snapshot(&policy, &run.dense),
             query_text: policy.retain_query_text.then(|| query.to_owned()),
+            // The query vector encodes the query: retained only with it.
+            query_embedding: if policy.retain_query_text { run.query_embedding.clone() } else { None },
             policy,
             scoring_version: SCORING_VERSION,
             query_hash: cs_policy::query_hash(query),
-            embedding_model: self.embedder.as_ref().map(|e| e.model_name().to_owned()),
-            embedding_version: self.embedder.as_ref().map(|e| e.model_version().to_owned()),
-            candidates,
-            belief_candidates,
+            embedding_model: model,
+            embedding_version: version,
+            candidates: std::mem::take(&mut run.candidates),
+            belief_candidates: std::mem::take(&mut run.belief_candidates),
+            dense: run.dense.clone(),
             executed_at: self.now(),
         }
     }
@@ -732,15 +773,8 @@ impl CognitiveEngine {
             return Err(Error::validation("query must be 1..=8192 characters"));
         }
         let policy = self.resolve_policy(req.policy)?;
-        let run = self.execute_recall(ctx, query, &policy).await?;
-        let trace = self.build_trace(
-            ctx,
-            RecallTraceId::new_v7(),
-            query,
-            policy,
-            run.candidates,
-            run.belief_candidates,
-        );
+        let mut run = self.execute_recall(ctx, query, &policy, None).await?;
+        let trace = self.build_trace(ctx, RecallTraceId::new_v7(), query, policy, &mut run);
 
         let results: Vec<RecalledMemory> = trace
             .selected()
@@ -753,11 +787,8 @@ impl CognitiveEngine {
             })
             .collect();
 
-        let selected_beliefs: Vec<&RecallBeliefCandidate> = trace
-            .belief_candidates
-            .iter()
-            .filter(|c| c.selected)
-            .collect();
+        let selected_beliefs: Vec<&RecallBeliefCandidate> =
+            trace.belief_candidates.iter().filter(|c| c.selected).collect();
         let ids: Vec<BeliefId> = selected_beliefs.iter().map(|c| c.belief_id).collect();
         let mut links: BTreeMap<BeliefId, Vec<BeliefEvidence>> = BTreeMap::new();
         if !ids.is_empty() {
@@ -772,12 +803,7 @@ impl CognitiveEngine {
                 let of = |d: EvidenceDirection| -> Vec<EvidenceId> {
                     links
                         .get(&c.belief_id)
-                        .map(|ls| {
-                            ls.iter()
-                                .filter(|l| l.direction == d)
-                                .map(|l| l.evidence_id)
-                                .collect()
-                        })
+                        .map(|ls| ls.iter().filter(|l| l.direction == d).map(|l| l.evidence_id).collect())
                         .unwrap_or_default()
                 };
                 Some(RecalledBelief {
@@ -797,6 +823,8 @@ impl CognitiveEngine {
             selected_count: results.len(),
             belief_candidates_considered: trace.belief_candidates.len(),
             beliefs_selected: beliefs.len(),
+            dense: trace.dense.clone(),
+            dense_coverage: run.dense_coverage,
             data_snapshot: trace.data_snapshot.clone(),
         };
         let mut event = self.draft(
@@ -810,6 +838,7 @@ impl CognitiveEngine {
                 "candidates": summary.candidates_considered,
                 "selected": summary.selected_count,
                 "beliefs_selected": summary.beliefs_selected,
+                "dense": trace.dense,
             }),
             trace.executed_at,
         );
@@ -822,12 +851,7 @@ impl CognitiveEngine {
             (None, None) => Scope::tenant(ctx.tenant_id),
         };
         self.store.insert_trace(&trace, event).await?;
-        Ok(RecallResponse {
-            trace_id: trace.id,
-            results,
-            beliefs,
-            trace: summary,
-        })
+        Ok(RecallResponse { trace_id: trace.id, results, beliefs, trace: summary })
     }
 
     pub async fn get_trace(&self, ctx: &AccessContext, id: RecallTraceId) -> Result<RecallTrace> {
@@ -838,7 +862,9 @@ impl CognitiveEngine {
     }
 
     /// Re-execute a recorded recall against the same snapshot (exact replay)
-    /// or with substituted policy parameters (counterfactual replay).
+    /// or with substituted policy parameters (counterfactual replay). Exact
+    /// replay reuses the recorded query vector and only sees vectors that
+    /// existed at the recorded as-of time.
     pub async fn replay_recall(
         &self,
         ctx: &AccessContext,
@@ -851,9 +877,7 @@ impl CognitiveEngine {
             .clone()
             .ok_or_else(|| Error::validation("trace did not retain its query text"))?;
         let counterfactual = req.policy_override.is_some();
-        let mut policy = req
-            .policy_override
-            .unwrap_or_else(|| original.policy.clone());
+        let mut policy = req.policy_override.unwrap_or_else(|| original.policy.clone());
         if policy.as_of_transaction_time.is_none() {
             policy.as_of_transaction_time = original.policy.as_of_transaction_time;
         }
@@ -861,25 +885,15 @@ impl CognitiveEngine {
             policy.as_of_valid_time = original.policy.as_of_valid_time;
         }
         let policy = self.resolve_policy(policy)?;
-        let run = self.execute_recall(ctx, &query, &policy).await?;
-        let replay = self.build_trace(
-            ctx,
-            RecallTraceId::new_v7(),
-            &query,
-            policy,
-            run.candidates,
-            run.belief_candidates,
-        );
+        let recorded = Some((&original.dense, original.query_embedding.as_ref()));
+        let mut run = self.execute_recall(ctx, &query, &policy, recorded).await?;
+        let replay = self.build_trace(ctx, RecallTraceId::new_v7(), &query, policy, &mut run);
 
         let pick = |t: &RecallTrace| -> Vec<(MemoryId, MemoryRevisionId)> {
             t.selected().map(|c| (c.memory_id, c.revision_id)).collect()
         };
         let pick_beliefs = |t: &RecallTrace| -> Vec<BeliefId> {
-            t.belief_candidates
-                .iter()
-                .filter(|c| c.selected)
-                .map(|c| c.belief_id)
-                .collect()
+            t.belief_candidates.iter().filter(|c| c.selected).map(|c| c.belief_id).collect()
         };
         let original_selected = pick(&original);
         let replayed_selected = pick(&replay);
@@ -890,8 +904,7 @@ impl CognitiveEngine {
         Ok(ReplayReport {
             trace_id: id,
             counterfactual,
-            identical: original_selected == replayed_selected
-                && original_beliefs == replayed_beliefs,
+            identical: original_selected == replayed_selected && original_beliefs == replayed_beliefs,
             added: after.difference(&before).copied().collect(),
             removed: before.difference(&after).copied().collect(),
             original_selected,
@@ -1048,8 +1061,17 @@ impl CognitiveEngine {
             kind: "belief",
             key,
         });
+        let (embedding, follow_up) = self.belief_embedding_plan(ctx, &belief).await;
         self.store
-            .insert_belief(&belief, &req.evidence, &dependencies, key, event)
+            .insert_belief(
+                &belief,
+                &req.evidence,
+                &dependencies,
+                embedding.as_ref(),
+                key,
+                &follow_up,
+                event,
+            )
             .await?;
         self.auto_resolve_belief(ctx, &belief).await;
         Ok(belief)
@@ -1211,8 +1233,18 @@ impl CognitiveEngine {
             }),
             at,
         );
+        let (embedding, follow_up) = self.belief_embedding_plan(ctx, &next).await;
         self.store
-            .supersede_belief(current.id, at, &next, &links, &inherited, event)
+            .supersede_belief(
+                current.id,
+                at,
+                &next,
+                &links,
+                &inherited,
+                embedding.as_ref(),
+                &follow_up,
+                event,
+            )
             .await?;
 
         let needs_reevaluation = self.reliant_closure(current.id).await?;

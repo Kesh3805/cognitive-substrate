@@ -38,6 +38,10 @@ pub struct ProcessingConfig {
     pub auto_resolve: bool,
     pub resolution: ResolutionConfig,
     pub retry: RetryPolicy,
+    /// Embed new revisions inline (best effort) before writing. When false,
+    /// every write defers its vector to a backfill job (recommended for
+    /// remote embedders with significant latency).
+    pub embed_inline: bool,
     /// Candidates compared per resolution job.
     pub resolution_window: u32,
 }
@@ -48,6 +52,7 @@ impl Default for ProcessingConfig {
             auto_resolve: false,
             resolution: ResolutionConfig::default(),
             retry: RetryPolicy::default(),
+            embed_inline: true,
             resolution_window: 500,
         }
     }
@@ -368,7 +373,8 @@ impl CognitiveEngine {
                     json!({ "memory_id": record.id }),
                 ));
             }
-            let embedding = self.embed(&record);
+            let (embedding, follow_up) = self.memory_embedding_plan(ctx, &record).await;
+            effects.jobs.extend(follow_up);
             effects.memories.push((record, embedding));
         }
         effects.extraction_run = Some(ExtractionRun {
@@ -490,10 +496,7 @@ impl CognitiveEngine {
                     json!({ "skipped": "memory_missing" }),
                 ));
             };
-            let model = self
-                .embedder
-                .as_ref()
-                .map(|e| (e.model_name().to_owned(), e.model_version().to_owned()));
+            let model = self.space_key();
             // Compare across all valid time: the detector itself decides
             // overlap (duplicates, contradictions) or ordering
             // (supersession).
@@ -512,11 +515,13 @@ impl CognitiveEngine {
                     limit: self.processing.resolution_window,
                 })
                 .await?;
-            // The target's own embedding, if stored for the model.
-            let target_embedding = self
-                .embed(&target)
-                .map(|e| e.vector)
-                .filter(|_| self.embedder.is_some());
+            // The target's own stored vector in the active space, if any;
+            // without one, only the structural rules apply (the embed job
+            // re-queues resolution once the vector lands).
+            let target_embedding: Option<Vec<f32>> = window
+                .iter()
+                .find(|s| s.record.revision_id == target.revision_id)
+                .and_then(|s| s.embedding.clone());
             let others: Vec<cs_policy::resolve::Candidate<'_>> = window
                 .iter()
                 .map(|s| cs_policy::resolve::Candidate {
@@ -524,10 +529,7 @@ impl CognitiveEngine {
                     embedding: s.embedding.as_deref(),
                 })
                 .collect();
-            let model_key = self
-                .embedder
-                .as_ref()
-                .map(|e| format!("{}@{}", e.model_name(), e.model_version()));
+            let model_key = self.active_space();
             cs_policy::detect_memory(
                 &self.processing.resolution,
                 model_key.as_deref(),
@@ -564,9 +566,13 @@ impl CognitiveEngine {
                     as_of_transaction_time: now,
                     include_superseded: false,
                     ignore_valid_time: true,
+                    embedding_model: None,
                     limit: self.processing.resolution_window,
                 })
-                .await?;
+                .await?
+                .into_iter()
+                .map(|s| s.belief)
+                .collect::<Vec<_>>();
             let disputed = |v: &RecordVersion| {
                 others.iter().chain(std::iter::once(&target)).any(|b| {
                     *v == RecordVersion::Belief {
@@ -792,7 +798,8 @@ impl CognitiveEngine {
             mutations.memories.push(MemorySupersede {
                 current: m.revision_id,
                 closed_at,
-                embedding: self.embed(&next),
+                embedding: None,
+                follow_up: Vec::new(),
                 next,
             });
             Ok(())
@@ -912,6 +919,8 @@ impl CognitiveEngine {
                         next,
                         evidence,
                         dependencies,
+                        embedding: None,
+                        follow_up: Vec::new(),
                     });
                 }
             }
@@ -924,6 +933,18 @@ impl CognitiveEngine {
             json!({ "proposal_id": id, "operation": p.operation }),
             at,
         ));
+        // Embed the new revisions outside the transaction; failures become
+        // backfill jobs committed with the decision.
+        for m in &mut mutations.memories {
+            let (e, jobs) = self.memory_embedding_plan(ctx, &m.next).await;
+            m.embedding = e;
+            m.follow_up = jobs;
+        }
+        for b in &mut mutations.beliefs {
+            let (e, jobs) = self.belief_embedding_plan(ctx, &b.next).await;
+            b.embedding = e;
+            b.follow_up = jobs;
+        }
         self.store
             .decide_proposal(id, &decision, mutations, events)
             .await
@@ -1124,7 +1145,8 @@ impl CognitiveEngine {
             rehome.push(MemorySupersede {
                 current: current.revision_id,
                 closed_at,
-                embedding: self.embed(&next),
+                embedding: None,
+                follow_up: Vec::new(),
                 next,
             });
             rehomed.push(mid);
@@ -1142,6 +1164,12 @@ impl CognitiveEngine {
             }),
             now,
         );
+        let mut rehome = rehome;
+        for m in &mut rehome {
+            let (e, jobs) = self.memory_embedding_plan(ctx, &m.next).await;
+            m.embedding = e;
+            m.follow_up = jobs;
+        }
         self.store
             .purge_observation(id, now, &delete, rehome, event)
             .await?;
