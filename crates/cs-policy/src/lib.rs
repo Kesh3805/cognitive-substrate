@@ -6,10 +6,15 @@
 
 pub mod debt;
 pub mod lexical;
+pub mod resolve;
 pub mod scoring;
 
 pub use debt::{
     CognitiveDebtReport, DebtCategory, DebtCategoryScore, DebtConfig, DebtInputs, DebtItem,
     evaluate_debt,
 };
-pub use scoring::{ScoringInput, cosine_similarity, query_hash, score_candidates};
+pub use resolve::{ProposalDraft, ResolutionConfig, detect_beliefs, detect_memory};
+pub use scoring::{
+    BeliefScoringInput, ScoringInput, cosine_similarity, query_hash, score_belief_candidates,
+    score_candidates,
+};
