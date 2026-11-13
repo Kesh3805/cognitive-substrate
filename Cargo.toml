@@ -5,6 +5,7 @@ members = [
     "crates/cs-memory",
     "crates/cs-policy",
     "crates/cs-storage",
+    "crates/cs-postgres",
 ]
 
 [workspace.package]

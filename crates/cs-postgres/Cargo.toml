@@ -1,0 +1,25 @@
+[package]
+name = "cs-postgres"
+description = "PostgreSQL + pgvector persistence for Cognitive Substrate."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cs-core.workspace = true
+cs-memory.workspace = true
+cs-storage = { workspace = true, default-features = false }
+async-trait.workspace = true
+pgvector.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
