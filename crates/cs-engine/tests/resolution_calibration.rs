@@ -10,7 +10,7 @@ use cs_core::{
     ActorRef, Bitemporal, MemoryId, MemoryRevisionId, Provenance, Scope, SourceRef, TenantId,
     TimeInterval, UserId,
 };
-use cs_engine::{Embedder, HashingEmbedder};
+use cs_engine::HashingEmbedder;
 use cs_memory::{
     EpisodicMemory, MemoryContent, MemoryRecord, MemoryStatus, ResolutionKind, SemanticMemory,
 };
@@ -71,13 +71,13 @@ fn duplicate(a: MemoryContent, b: MemoryContent) -> (bool, f64) {
     let e = HashingEmbedder::default();
     let (ra, rb) = (record(1, a), record(2, b));
     let (ea, eb) = (
-        e.embed(&ra.content.index_text()),
-        e.embed(&rb.content.index_text()),
+        e.embed_text(&ra.content.index_text()),
+        e.embed_text(&rb.content.index_text()),
     );
     let cos = cs_policy::cosine_similarity(&ea, &eb).unwrap();
     let found = detect_memory(
         &ResolutionConfig::default(),
-        Some("cs-hashing@1"),
+        Some(cs_policy::resolve::HASHING_SPACE_384),
         Candidate {
             record: &rb,
             embedding: Some(&eb),
