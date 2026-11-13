@@ -7,12 +7,15 @@
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EventDraft, EventQuery, EvidenceId, MemoryId,
-    MemoryRevisionId, RecallTraceId, Result, ScopeFilter, TenantId,
+    AccessContext, BeliefId, CognitiveEvent, EventDraft, EventQuery, EvidenceId, JobId,
+    MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter,
+    TenantId,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, EmbeddingRecord, Evidence, MemoryDomain,
-    MemoryRecord, MemoryStatus, RecallTrace,
+    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord,
+    Evidence, ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain,
+    MemoryRecord, MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace,
+    RecordVersion, ResolutionProposal,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -172,4 +175,199 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     async fn insert_trace(&self, trace: &RecallTrace, event: EventDraft) -> Result<CognitiveEvent>;
 
     async fn get_trace(&self, id: RecallTraceId) -> Result<Option<RecallTrace>>;
+
+    // ---- beliefs for recall (M3) ---------------------------------------------
+
+    /// Belief revisions visible at the as-of times, filtered by status and
+    /// authorization inside the query. Ordered by transaction start DESC,
+    /// then id ASC.
+    async fn query_beliefs(&self, query: &BeliefQuery) -> Result<Vec<Belief>>;
+
+    // ---- jobs (M3) -----------------------------------------------------------
+
+    /// Insert a job, or return the *active* (queued or leased) job with the
+    /// same `(tenant, kind, dedupe_key)`. Terminal jobs never block a new
+    /// submission; work-level idempotency lives in domain constraints.
+    async fn enqueue_job(&self, job: &Job) -> Result<Job>;
+
+    /// Lease up to `limit` claimable jobs of the given kinds. Each claim
+    /// increments the job's lease generation and attempt count.
+    async fn claim_jobs(&self, claim: &JobClaim) -> Result<Vec<ClaimedJob>>;
+
+    /// Extend a lease. Fails with `Conflict` if the lease is no longer held.
+    async fn heartbeat_job(&self, lease: Lease, until: OffsetDateTime) -> Result<()>;
+
+    /// Record an attempt's outcome *and* its effects atomically, fenced by
+    /// the lease generation. A stale lease fails with `Conflict` and nothing
+    /// is written. If an effect precondition no longer holds (read skew),
+    /// the effects are discarded and the job succeeds with a `discarded`
+    /// result. If applying effects violates a constraint, the effects are
+    /// rolled back and the job is dead-lettered.
+    async fn finish_job(
+        &self,
+        lease: Lease,
+        now: OffsetDateTime,
+        outcome: JobOutcome,
+        effects: JobEffects,
+    ) -> Result<Job>;
+
+    /// Return a leased job to the queue without consuming an attempt
+    /// (graceful shutdown).
+    async fn release_job(&self, lease: Lease, now: OffsetDateTime) -> Result<()>;
+
+    async fn get_job(&self, id: JobId) -> Result<Option<Job>>;
+
+    async fn list_jobs(
+        &self,
+        tenant_id: TenantId,
+        status: Option<JobStatus>,
+        limit: u32,
+    ) -> Result<Vec<Job>>;
+
+    // ---- observations (M3) ---------------------------------------------------
+
+    /// Persist an observation and enqueue its perception job atomically.
+    async fn insert_observation(
+        &self,
+        observation: &Observation,
+        job: &Job,
+        idempotency: Option<IdempotencyKey<'_>>,
+        event: EventDraft,
+    ) -> Result<CognitiveEvent>;
+
+    async fn get_observation(&self, id: ObservationId) -> Result<Option<Observation>>;
+
+    async fn extraction_runs(&self, id: ObservationId) -> Result<Vec<ExtractionRun>>;
+
+    /// Erase an observation's content, delete the memories derived only
+    /// from it (all revisions and embeddings), re-home corroborated ones to
+    /// a surviving source, record the purge, append `event`.
+    async fn purge_observation(
+        &self,
+        id: ObservationId,
+        now: OffsetDateTime,
+        delete: &[MemoryId],
+        rehome: Vec<MemorySupersede>,
+        event: EventDraft,
+    ) -> Result<CognitiveEvent>;
+
+    // ---- proposals (M3) ------------------------------------------------------
+
+    async fn get_proposal(&self, id: ProposalId) -> Result<Option<ResolutionProposal>>;
+
+    async fn list_proposals(
+        &self,
+        access: &AccessContext,
+        status: Option<ProposalStatus>,
+        limit: u32,
+    ) -> Result<Vec<ResolutionProposal>>;
+
+    /// Decide a pending proposal and apply its mutations in one transaction.
+    /// Fails with `Conflict` if the proposal is no longer pending or any
+    /// supersede finds its revision no longer current.
+    async fn decide_proposal(
+        &self,
+        id: ProposalId,
+        decision: &ProposalDecision,
+        mutations: ProposalMutations,
+        events: Vec<EventDraft>,
+    ) -> Result<ResolutionProposal>;
+
+    // ---- governance (M3) -----------------------------------------------------
+
+    /// When (if ever) a record was purged.
+    async fn purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>>;
+
+    /// Erase evidence content and its belief links; record the purge.
+    /// Returns the belief revisions that lost a link.
+    async fn purge_evidence(
+        &self,
+        id: EvidenceId,
+        now: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Vec<BeliefId>>;
+}
+
+/// Belief recall filter (see [`MemoryQuery`]).
+#[derive(Debug, Clone)]
+pub struct BeliefQuery {
+    pub access: AccessContext,
+    pub statuses: Vec<BeliefStatus>,
+    pub scope_filter: Option<ScopeFilter>,
+    pub as_of_valid_time: OffsetDateTime,
+    pub as_of_transaction_time: OffsetDateTime,
+    pub include_superseded: bool,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobClaim {
+    pub kinds: Vec<JobKind>,
+    pub owner: String,
+    pub now: OffsetDateTime,
+    pub lease_until: OffsetDateTime,
+    pub limit: u32,
+}
+
+/// Inserts a successful attempt commits together with its job transition.
+#[derive(Debug, Clone, Default)]
+pub struct JobEffects {
+    pub memories: Vec<(MemoryRecord, Option<EmbeddingRecord>)>,
+    pub extraction_run: Option<ExtractionRun>,
+    /// Proposals whose fingerprint already exists (any status) are skipped.
+    pub proposals: Vec<ResolutionProposal>,
+    pub events: Vec<EventDraft>,
+    /// Read-skew guards checked inside the commit: the observation must
+    /// still exist unpurged, and these revisions must still be current.
+    pub require_unpurged_observation: Option<ObservationId>,
+    pub require_current: Vec<RecordVersion>,
+}
+
+impl JobEffects {
+    pub fn is_empty(&self) -> bool {
+        self.memories.is_empty()
+            && self.extraction_run.is_none()
+            && self.proposals.is_empty()
+            && self.events.is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MemorySupersede {
+    pub current: MemoryRevisionId,
+    pub closed_at: OffsetDateTime,
+    pub next: MemoryRecord,
+    pub embedding: Option<EmbeddingRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BeliefSupersede {
+    pub current: BeliefId,
+    pub closed_at: OffsetDateTime,
+    pub next: Belief,
+    pub evidence: Vec<BeliefEvidence>,
+    pub dependencies: Vec<BeliefDependency>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProposalMutations {
+    pub memories: Vec<MemorySupersede>,
+    pub beliefs: Vec<BeliefSupersede>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PurgeKind {
+    Memory,
+    Evidence,
+    Observation,
+}
+
+impl PurgeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Evidence => "evidence",
+            Self::Observation => "observation",
+        }
+    }
 }
