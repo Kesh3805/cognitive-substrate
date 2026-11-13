@@ -17,6 +17,8 @@ services:
       timeout: 3s
       retries: 30
 
+  # API nodes never claim jobs (CS_ROLE=api); workers serve no HTTP. Both
+  # may run migrations: sqlx serializes them with an advisory lock.
   substrate:
     build:
       context: ..
@@ -26,10 +28,31 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://cs:cs@postgres:5432/cs
+      CS_ROLE: api
       RUST_LOG: info
       # CS_API_KEY: change-me
     ports:
       - "8080:8080"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cs:cs@postgres:5432/cs
+      RUST_LOG: info
+      # Embedding settings must be identical on API and worker processes.
+      # Local model via Ollama on the host, for example:
+      # CS_EMBEDDER: ollama
+      # CS_EMBEDDER_URL: http://host.docker.internal:11434
+      # CS_EMBEDDER_MODEL: nomic-embed-text
+      # CS_EMBEDDER_DIMENSIONS: "768"
+      # CS_EMBEDDER_DOCUMENT_PREFIX: "search_document: "
+      # CS_EMBEDDER_QUERY_PREFIX: "search_query: "
 
 volumes:
   pgdata:
