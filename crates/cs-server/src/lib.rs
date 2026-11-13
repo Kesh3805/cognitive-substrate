@@ -13,9 +13,12 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use cs_core::{BeliefId, CognitiveEventType, EventQuery, EventStreamId, MemoryId, RecallTraceId};
+use cs_core::{
+    BeliefId, CognitiveEventType, EventQuery, EventStreamId, EvidenceId, JobId, MemoryId,
+    ObservationId, ProposalId, RecallTraceId,
+};
 use cs_engine::{
-    CognitiveEngine, NewBelief, NewDependency, NewEvidence, NewMemory, RecallRequest,
+    CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation, RecallRequest,
     ReplayRequest, ReviseBelief, ReviseMemory, StatusChange,
 };
 use serde::{Deserialize, de::DeserializeOwned};
@@ -97,7 +100,19 @@ pub fn router(state: AppState) -> Router {
         .route("/beliefs/{id}/retract", post(retract_belief))
         .route("/dependencies", post(add_dependency))
         .route("/events", get(events))
-        .route("/debt", get(debt));
+        .route("/debt", get(debt))
+        .route("/observations", post(submit_observation))
+        .route("/observations/{id}", get(get_observation))
+        .route("/observations/{id}/purge", post(purge_observation))
+        .route("/evidence/{id}/purge", post(purge_evidence))
+        .route("/memories/{id}/resolve", post(resolve_memory))
+        .route("/beliefs/{id}/resolve", post(resolve_belief))
+        .route("/proposals", get(list_proposals))
+        .route("/proposals/{id}", get(get_proposal))
+        .route("/proposals/{id}/accept", post(accept_proposal))
+        .route("/proposals/{id}/reject", post(reject_proposal))
+        .route("/jobs", get(list_jobs))
+        .route("/jobs/{id}", get(get_job));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -327,4 +342,124 @@ async fn debt(
     Caller(ctx): Caller,
 ) -> ApiResult<cs_engine::CognitiveDebtReport> {
     ok(s.engine.cognitive_debt(&ctx).await?)
+}
+
+// ---- governed processing (M3) ---------------------------------------------------
+
+async fn submit_observation(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    ApiJson(req): ApiJson<NewObservation>,
+) -> ApiResult<cs_engine::ObservationView> {
+    // 202: the observation is stored; perception runs in the background.
+    Ok((StatusCode::ACCEPTED, Json(s.engine.submit_observation(&ctx, req).await?)))
+}
+
+async fn get_observation(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_engine::ObservationView> {
+    ok(s.engine.get_observation(&ctx, ObservationId(id)).await?)
+}
+
+async fn purge_observation(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<Decision>,
+) -> ApiResult<cs_engine::PurgeReport> {
+    ok(s.engine.purge_observation(&ctx, ObservationId(id), req).await?)
+}
+
+async fn purge_evidence(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<Decision>,
+) -> ApiResult<cs_engine::PurgeReport> {
+    ok(s.engine.purge_evidence(&ctx, EvidenceId(id), req).await?)
+}
+
+async fn resolve_memory(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::Job> {
+    Ok((StatusCode::ACCEPTED, Json(s.engine.request_memory_resolution(&ctx, MemoryId(id)).await?)))
+}
+
+async fn resolve_belief(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::Job> {
+    Ok((StatusCode::ACCEPTED, Json(s.engine.request_belief_resolution(&ctx, BeliefId(id)).await?)))
+}
+
+#[derive(Debug, Deserialize)]
+struct ListParams {
+    status: Option<String>,
+    limit: Option<u32>,
+}
+
+fn parse_status<T>(v: Option<&str>, f: impl Fn(&str) -> Option<T>) -> Result<Option<T>, ApiError> {
+    v.map(|s| {
+        f(s).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", "unknown status"))
+    })
+    .transpose()
+}
+
+async fn list_proposals(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::ResolutionProposal>> {
+    let Query(p) = params.map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    let status = parse_status(p.status.as_deref(), cs_memory::ProposalStatus::parse)?;
+    ok(s.engine.list_proposals(&ctx, status, p.limit).await?)
+}
+
+async fn get_proposal(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::ResolutionProposal> {
+    ok(s.engine.get_proposal(&ctx, ProposalId(id)).await?)
+}
+
+async fn accept_proposal(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<Decision>,
+) -> ApiResult<cs_memory::ResolutionProposal> {
+    ok(s.engine.accept_proposal(&ctx, ProposalId(id), req).await?)
+}
+
+async fn reject_proposal(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<Decision>,
+) -> ApiResult<cs_memory::ResolutionProposal> {
+    ok(s.engine.reject_proposal(&ctx, ProposalId(id), req).await?)
+}
+
+async fn list_jobs(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::Job>> {
+    let Query(p) = params.map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    let status = parse_status(p.status.as_deref(), cs_memory::JobStatus::parse)?;
+    ok(s.engine.list_jobs(&ctx, status, p.limit).await?)
+}
+
+async fn get_job(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::Job> {
+    ok(s.engine.get_job(&ctx, JobId(id)).await?)
 }
