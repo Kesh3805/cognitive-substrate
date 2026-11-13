@@ -8,6 +8,8 @@
     missing_debug_implementations
 )]
 
+pub mod m3;
+
 use std::sync::Arc;
 
 use cs_core::{
@@ -850,5 +852,20 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         working_memory_is_ephemeral,
         belief_revision_and_cognitive_debt,
         refuting_evidence_disputes,
+    );
+    use m3::*;
+    scenario!(
+        perception_creates_candidates_idempotently,
+        leases_are_fenced,
+        retries_back_off_then_dead_letter,
+        purge_during_extraction_discards_effects,
+        duplicate_merge_unions_provenance,
+        stale_proposals_are_never_applied,
+        rejected_findings_are_not_reproposed,
+        contradiction_quarantines_memories,
+        belief_contradictions_are_disputed,
+        beliefs_are_recalled_with_evidence,
+        evidence_purge_flags_beliefs,
+        observation_purge_keeps_corroborated_facts,
     );
 }
