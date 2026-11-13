@@ -1,0 +1,24 @@
+[package]
+name = "cs-policy"
+description = "Deterministic recall scoring and cognitive-debt evaluation for Cognitive Substrate."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cs-core.workspace = true
+cs-memory.workspace = true
+serde.workspace = true
+time.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

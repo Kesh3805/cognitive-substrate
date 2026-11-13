@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/cs-core",
     "crates/cs-memory",
+    "crates/cs-policy",
 ]
 
 [workspace.package]
