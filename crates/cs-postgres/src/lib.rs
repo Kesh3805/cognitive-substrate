@@ -385,18 +385,57 @@ async fn insert_memory_row(
     .map_err(db_err)?;
 
     if let Some(e) = embedding {
-        sqlx::query(
-            "INSERT INTO memory_embeddings (revision_id, model_name, model_version, dimensions, embedding) \
-             VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(r.revision_id.0)
+        upsert_embedding(tx, EmbeddingTarget::Memory, r.revision_id.0, e).await?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum EmbeddingTarget {
+    Memory,
+    Belief,
+}
+
+/// Idempotently attach a vector to an exact revision. A revision that no
+/// longer exists (purged) is skipped, never resurrected.
+pub(crate) async fn upsert_embedding(
+    tx: &mut Tx<'_>,
+    target: EmbeddingTarget,
+    id: Uuid,
+    e: &EmbeddingRecord,
+) -> Result<()> {
+    let sql = match target {
+        EmbeddingTarget::Memory => {
+            "INSERT INTO memory_embeddings (revision_id, model_name, model_version, dimensions, \
+             embedding, content_hash, embedded_at) \
+             SELECT $1, $2, $3, $4, $5, $6, $7 WHERE EXISTS \
+                 (SELECT 1 FROM memory_records WHERE revision_id = $1) \
+             ON CONFLICT (revision_id, model_name, model_version) DO NOTHING"
+        }
+        EmbeddingTarget::Belief => {
+            "INSERT INTO belief_embeddings (belief_id, model_name, model_version, dimensions, \
+             embedding, content_hash, embedded_at) \
+             SELECT $1, $2, $3, $4, $5, $6, $7 WHERE EXISTS (SELECT 1 FROM beliefs WHERE id = $1) \
+             ON CONFLICT (belief_id, model_name, model_version) DO NOTHING"
+        }
+    };
+    sqlx::query(sql)
+        .bind(id)
         .bind(&e.model_name)
         .bind(&e.model_version)
         .bind(i32::try_from(e.dimensions()).map_err(Error::storage)?)
         .bind(pgvector::Vector::from(e.vector.clone()))
+        .bind(&e.content_hash)
+        .bind(e.embedded_at)
         .execute(&mut **tx)
         .await
         .map_err(db_err)?;
+    Ok(())
+}
+
+pub(crate) async fn enqueue_all(tx: &mut Tx<'_>, jobs: &[cs_memory::Job]) -> Result<()> {
+    for j in jobs {
+        m3::insert_job(tx, j).await?;
     }
     Ok(())
 }
@@ -535,11 +574,13 @@ impl CognitiveStore for PgStore {
         record: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[cs_memory::Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         register_key(&mut tx, idempotency, record.id.0).await?;
         insert_memory_row(&mut tx, record, embedding).await?;
+        enqueue_all(&mut tx, follow_up).await?;
         let event = append_event(&mut tx, event).await?;
         tx.commit().await.map_err(db_err)?;
         Ok(event)
@@ -551,6 +592,7 @@ impl CognitiveStore for PgStore {
         closed_at: OffsetDateTime,
         next: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
+        follow_up: &[cs_memory::Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
@@ -571,6 +613,7 @@ impl CognitiveStore for PgStore {
             return Err(Error::conflict("revision is no longer current"));
         }
         insert_memory_row(&mut tx, next, embedding).await?;
+        enqueue_all(&mut tx, follow_up).await?;
         let event = append_event(&mut tx, event).await?;
         tx.commit().await.map_err(db_err)?;
         Ok(event)
@@ -617,6 +660,7 @@ impl CognitiveStore for PgStore {
             "SELECT {MEMORY_COLS}, e.embedding FROM memory_records m \
              LEFT JOIN memory_embeddings e ON e.revision_id = m.revision_id \
                  AND e.model_name = $5 AND e.model_version = $6 \
+                 AND (e.embedded_at IS NULL OR e.embedded_at <= $9) \
              WHERE {access} \
                AND m.domain::text = ANY($7) \
                AND m.status::text = ANY($8) \
@@ -751,12 +795,18 @@ impl CognitiveStore for PgStore {
         belief: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[cs_memory::Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         register_key(&mut tx, idempotency, belief.id.0).await?;
         insert_belief_rows(&mut tx, belief, evidence, dependencies).await?;
+        if let Some(e) = embedding {
+            upsert_embedding(&mut tx, EmbeddingTarget::Belief, belief.id.0, e).await?;
+        }
+        enqueue_all(&mut tx, follow_up).await?;
         let event = append_event(&mut tx, event).await?;
         tx.commit().await.map_err(db_err)?;
         Ok(event)
@@ -769,6 +819,8 @@ impl CognitiveStore for PgStore {
         next: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
+        follow_up: &[cs_memory::Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
@@ -788,6 +840,10 @@ impl CognitiveStore for PgStore {
             return Err(Error::conflict("belief revision is no longer current"));
         }
         insert_belief_rows(&mut tx, next, evidence, dependencies).await?;
+        if let Some(e) = embedding {
+            upsert_embedding(&mut tx, EmbeddingTarget::Belief, next.id.0, e).await?;
+        }
+        enqueue_all(&mut tx, follow_up).await?;
         let event = append_event(&mut tx, event).await?;
         tx.commit().await.map_err(db_err)?;
         Ok(event)
@@ -978,8 +1034,8 @@ impl CognitiveStore for PgStore {
         sqlx::query(
             "INSERT INTO recall_traces (id, tenant_id, policy, scoring_version, query_hash, \
              query_text, embedding_model, embedding_version, data_snapshot, executed_at, \
-             belief_candidates) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+             belief_candidates, dense, query_embedding) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(t.id.0)
         .bind(t.tenant_id.0)
@@ -992,6 +1048,8 @@ impl CognitiveStore for PgStore {
         .bind(&t.data_snapshot)
         .bind(t.executed_at)
         .bind(Json(&t.belief_candidates))
+        .bind(Json(&t.dense))
+        .bind(t.query_embedding.clone().map(pgvector::Vector::from))
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1060,6 +1118,9 @@ impl CognitiveStore for PgStore {
         let Json(policy): Json<RecallPolicy> = row.try_get("policy").map_err(db_err)?;
         let Json(belief_candidates): Json<Vec<cs_memory::RecallBeliefCandidate>> =
             row.try_get("belief_candidates").map_err(db_err)?;
+        let Json(dense): Json<cs_memory::DenseStatus> = row.try_get("dense").map_err(db_err)?;
+        let query_embedding: Option<pgvector::Vector> =
+            row.try_get("query_embedding").map_err(db_err)?;
         Ok(Some(RecallTrace {
             id,
             tenant_id: TenantId(row.try_get("tenant_id").map_err(db_err)?),
@@ -1074,14 +1135,29 @@ impl CognitiveStore for PgStore {
             embedding_version: row.try_get("embedding_version").map_err(db_err)?,
             candidates,
             belief_candidates,
+            dense,
+            query_embedding: query_embedding.map(|v| v.to_vec()),
             data_snapshot: row.try_get("data_snapshot").map_err(db_err)?,
             executed_at: row.try_get("executed_at").map_err(db_err)?,
         }))
     }
     // ---- M3 (implemented in m3.rs) -------------------------------------------
 
-    async fn query_beliefs(&self, q: &cs_storage::BeliefQuery) -> Result<Vec<Belief>> {
+    async fn query_beliefs(&self, q: &cs_storage::BeliefQuery) -> Result<Vec<cs_storage::StoredBelief>> {
         self.m3_query_beliefs(q).await
+    }
+
+    async fn job_counts(&self, tenant_id: TenantId) -> Result<Vec<cs_storage::JobCount>> {
+        self.m3_job_counts(tenant_id).await
+    }
+
+    async fn embedding_coverage(
+        &self,
+        tenant: Option<TenantId>,
+        model_name: &str,
+        model_version: &str,
+    ) -> Result<cs_storage::EmbeddingCoverage> {
+        self.m3_embedding_coverage(tenant, model_name, model_version).await
     }
 
     async fn enqueue_job(&self, job: &cs_memory::Job) -> Result<cs_memory::Job> {

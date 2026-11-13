@@ -10,21 +10,23 @@ use cs_core::{
     ObservationId, ProposalId, Result, TenantId,
 };
 use cs_memory::{
-    Belief, ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome, JobStatus, Lease,
+    ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome, JobStatus, Lease,
     Observation, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
     ResolutionProposal,
 };
 use cs_storage::{
-    BeliefQuery, BeliefSupersede, IdempotencyKey, JobClaim, JobEffects, MemorySupersede,
-    ProposalMutations, PurgeKind,
+    BeliefQuery, BeliefSupersede, EmbeddingCoverage, IdempotencyKey, JobClaim, JobCount, JobEffects,
+    MemorySupersede,
+    ProposalMutations, PurgeKind, StoredBelief,
 };
 use sqlx::{Row, postgres::PgRow, types::Json};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    BELIEF_COLS, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event, belief_from_row, db_err,
+    BELIEF_COLS, EmbeddingTarget, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event, belief_from_row, db_err,
     insert_belief_rows, insert_memory_row, parse, project_ids, register_key, scope_from_row,
+    upsert_embedding,
 };
 
 // ---- rows ---------------------------------------------------------------------
@@ -109,7 +111,7 @@ fn proposal_from_row(r: &PgRow) -> Result<ResolutionProposal> {
 
 // ---- helpers ------------------------------------------------------------------
 
-async fn insert_job(tx: &mut Tx<'_>, j: &Job) -> Result<Job> {
+pub(crate) async fn insert_job(tx: &mut Tx<'_>, j: &Job) -> Result<Job> {
     // Return the active job with the same dedupe key, if any.
     let existing = sqlx::query(&format!(
         "SELECT {JOB_COLS} FROM processing_jobs \
@@ -322,6 +324,16 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
     for j in &jobs {
         insert_job(tx, j).await?;
     }
+    let mut vectors = e.memory_embeddings;
+    vectors.sort_by_key(|(r, _)| *r);
+    for (rev, emb) in &vectors {
+        upsert_embedding(tx, EmbeddingTarget::Memory, rev.0, emb).await?;
+    }
+    let mut vectors = e.belief_embeddings;
+    vectors.sort_by_key(|(b, _)| *b);
+    for (id, emb) in &vectors {
+        upsert_embedding(tx, EmbeddingTarget::Belief, id.0, emb).await?;
+    }
     Ok(())
 }
 
@@ -341,7 +353,8 @@ async fn supersede_memory_in(tx: &mut Tx<'_>, m: &MemorySupersede) -> Result<()>
     if closed.rows_affected() != 1 {
         return Err(Error::conflict("revision is no longer current"));
     }
-    insert_memory_row(tx, &m.next, m.embedding.as_ref()).await
+    insert_memory_row(tx, &m.next, m.embedding.as_ref()).await?;
+    super::enqueue_all(tx, &m.follow_up).await
 }
 
 async fn supersede_belief_in(tx: &mut Tx<'_>, b: &BeliefSupersede) -> Result<()> {
@@ -360,7 +373,11 @@ async fn supersede_belief_in(tx: &mut Tx<'_>, b: &BeliefSupersede) -> Result<()>
     if closed.rows_affected() != 1 {
         return Err(Error::conflict("belief revision is no longer current"));
     }
-    insert_belief_rows(tx, &b.next, &b.evidence, &b.dependencies).await
+    insert_belief_rows(tx, &b.next, &b.evidence, &b.dependencies).await?;
+    if let Some(e) = &b.embedding {
+        upsert_embedding(tx, EmbeddingTarget::Belief, b.next.id.0, e).await?;
+    }
+    super::enqueue_all(tx, &b.follow_up).await
 }
 
 async fn ledger(tx: &mut Tx<'_>, kind: PurgeKind, id: Uuid, at: OffsetDateTime) -> Result<()> {
@@ -380,20 +397,30 @@ async fn ledger(tx: &mut Tx<'_>, kind: PurgeKind, id: Uuid, at: OffsetDateTime) 
 // ---- operations (called from the CognitiveStore impl) --------------------------
 
 impl PgStore {
-    pub(crate) async fn m3_query_beliefs(&self, q: &BeliefQuery) -> Result<Vec<Belief>> {
-        let clause = access_sql(TABLE_ACCESS_COLS, [1, 2, 3, 4]);
+    pub(crate) async fn m3_query_beliefs(&self, q: &BeliefQuery) -> Result<Vec<StoredBelief>> {
+        let clause = access_sql(
+            ["b.tenant_id", "b.owner_user_id", "b.agent_id", "b.project_id", "b.visibility::text"],
+            [1, 2, 3, 4],
+        );
+        let (model, version) = q.embedding_model.clone().unwrap_or_default();
         let filter = q.scope_filter.clone().unwrap_or_default();
         let statuses: Vec<&str> = q.statuses.iter().map(|s| s.as_str()).collect();
         sqlx::query(&format!(
-            "SELECT {BELIEF_COLS} FROM beliefs WHERE {clause} \
-               AND status::text = ANY($5) \
-               AND lower(transaction_time) <= $6 \
-               AND ($7 OR transaction_time @> $6) \
-               AND ($13 OR valid_time @> $8) \
-               AND ($9::uuid IS NULL OR project_id = $9) \
-               AND ($10::uuid IS NULL OR conversation_id = $10) \
-               AND ($11::uuid IS NULL OR agent_id = $11) \
-             ORDER BY lower(transaction_time) DESC, id ASC LIMIT $12"
+            "SELECT bel.*, e.embedding FROM ( \
+                 SELECT {BELIEF_COLS}, lower(transaction_time) AS tx_start FROM beliefs b \
+                 WHERE {clause} \
+                   AND status::text = ANY($5) \
+                   AND lower(transaction_time) <= $6 \
+                   AND ($7 OR transaction_time @> $6) \
+                   AND ($13 OR valid_time @> $8) \
+                   AND ($9::uuid IS NULL OR project_id = $9) \
+                   AND ($10::uuid IS NULL OR conversation_id = $10) \
+                   AND ($11::uuid IS NULL OR agent_id = $11) \
+                 ORDER BY lower(transaction_time) DESC, id ASC LIMIT $12) bel \
+             LEFT JOIN belief_embeddings e ON e.belief_id = bel.id \
+                 AND e.model_name = $14 AND e.model_version = $15 \
+                 AND (e.embedded_at IS NULL OR e.embedded_at <= $6) \
+             ORDER BY bel.tx_start DESC, bel.id ASC"
         ))
         .bind(q.access.tenant_id.0)
         .bind(q.access.user_id.map(|u| u.0))
@@ -408,11 +435,80 @@ impl PgStore {
         .bind(filter.agent_id.map(|a| a.0))
         .bind(i64::from(q.limit))
         .bind(q.ignore_valid_time)
+        .bind(model)
+        .bind(version)
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?
         .iter()
-        .map(belief_from_row)
+        .map(|r| {
+            let embedding: Option<pgvector::Vector> = r.try_get("embedding").map_err(db_err)?;
+            Ok(StoredBelief {
+                belief: belief_from_row(r)?,
+                embedding: embedding.map(|v| v.to_vec()),
+            })
+        })
+        .collect()
+    }
+
+    pub(crate) async fn m3_embedding_coverage(
+        &self,
+        tenant: Option<TenantId>,
+        model_name: &str,
+        model_version: &str,
+    ) -> Result<EmbeddingCoverage> {
+        let row = sqlx::query(
+            "SELECT \
+               (SELECT COUNT(*) FROM memory_records m WHERE upper_inf(m.transaction_time) \
+                  AND m.status <> 'tombstoned' AND ($1::uuid IS NULL OR m.tenant_id = $1)) AS mt, \
+               (SELECT COUNT(*) FROM memory_records m JOIN memory_embeddings e \
+                  ON e.revision_id = m.revision_id AND e.model_name = $2 AND e.model_version = $3 \
+                  WHERE upper_inf(m.transaction_time) AND m.status <> 'tombstoned' \
+                  AND ($1::uuid IS NULL OR m.tenant_id = $1)) AS me, \
+               (SELECT COUNT(*) FROM beliefs b WHERE upper_inf(b.transaction_time) \
+                  AND b.status <> 'retracted' AND ($1::uuid IS NULL OR b.tenant_id = $1)) AS bt, \
+               (SELECT COUNT(*) FROM beliefs b JOIN belief_embeddings e \
+                  ON e.belief_id = b.id AND e.model_name = $2 AND e.model_version = $3 \
+                  WHERE upper_inf(b.transaction_time) AND b.status <> 'retracted' \
+                  AND ($1::uuid IS NULL OR b.tenant_id = $1)) AS be",
+        )
+        .bind(tenant.map(|t| t.0))
+        .bind(model_name)
+        .bind(model_version)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(db_err)?;
+        let n = |c: &str| -> Result<u64> {
+            Ok(u64::try_from(row.try_get::<i64, _>(c).map_err(db_err)?).unwrap_or(0))
+        };
+        Ok(EmbeddingCoverage {
+            memories_total: n("mt")?,
+            memories_embedded: n("me")?,
+            beliefs_total: n("bt")?,
+            beliefs_embedded: n("be")?,
+        })
+    }
+
+    pub(crate) async fn m3_job_counts(&self, tenant: TenantId) -> Result<Vec<JobCount>> {
+        sqlx::query(
+            "SELECT kind, status::text AS status, COUNT(*) AS n, MIN(available_at) AS oldest \
+             FROM processing_jobs WHERE tenant_id = $1 GROUP BY kind, status ORDER BY kind, status",
+        )
+        .bind(tenant.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?
+        .iter()
+        .map(|r| {
+            let kind: String = r.try_get("kind").map_err(db_err)?;
+            let status: String = r.try_get("status").map_err(db_err)?;
+            Ok(JobCount {
+                kind: parse(&kind, JobKind::parse, "job kind")?,
+                status: parse(&status, JobStatus::parse, "job status")?,
+                count: u64::try_from(r.try_get::<i64, _>("n").map_err(db_err)?).unwrap_or(0),
+                oldest_available_at: r.try_get("oldest").map_err(db_err)?,
+            })
+        })
         .collect()
     }
 
