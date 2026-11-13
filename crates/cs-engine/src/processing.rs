@@ -5,8 +5,6 @@
 //! commits them together with the fenced job transition, so a worker that
 //! lost its lease can never apply effects.
 
-use std::collections::BTreeSet;
-
 use cs_core::{
     AccessContext, ActorRef, BeliefId, Bitemporal, CognitiveEventType, Error,
     EvidenceId, ExtractionInfo, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
@@ -118,6 +116,11 @@ impl CognitiveEngine {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// A perception job for an observation (used for explicit reprocessing).
+    pub fn new_perceive_job(&self, ctx: &AccessContext, id: ObservationId, dedupe_key: &str) -> Job {
+        self.new_job(ctx, JobKind::Perceive, dedupe_key.to_owned(), json!({ "observation_id": id }))
     }
 
     // ======================================================================
@@ -307,6 +310,14 @@ impl CognitiveEngine {
                 now,
             ));
             ids.push(record.id);
+            if self.processing.auto_resolve {
+                effects.jobs.push(self.new_job(
+                    ctx,
+                    JobKind::Resolve,
+                    format!("memory:{}", record.revision_id),
+                    json!({ "memory_id": record.id }),
+                ));
+            }
             let embedding = self.embed(&record);
             effects.memories.push((record, embedding));
         }
@@ -417,33 +428,10 @@ impl CognitiveEngine {
                     .embedder
                     .as_ref()
                     .map(|e| (e.model_name().to_owned(), e.model_version().to_owned()));
+                // Compare across all valid time: the detector itself decides
+                // overlap (duplicates, contradictions) or ordering
+                // (supersession).
                 let window = self
-                    .store
-                    .query_memories(&MemoryQuery {
-                        access: ctx.clone(),
-                        domains: vec![target.domain()],
-                        statuses: vec![MemoryStatus::Active, MemoryStatus::Candidate],
-                        scope_filter: None,
-                        as_of_valid_time: target.temporal.valid_time.start,
-                        as_of_transaction_time: now,
-                        include_superseded: false,
-                        embedding_model: model,
-                        limit: self.processing.resolution_window,
-                    })
-                    .await?;
-                // The target's own embedding, if stored for the model.
-                let target_embedding =
-                    self.embed(&target).map(|e| e.vector).filter(|_| self.embedder.is_some());
-                let mut others: Vec<cs_policy::resolve::Candidate<'_>> = window
-                    .iter()
-                    .map(|s| cs_policy::resolve::Candidate {
-                        record: &s.record,
-                        embedding: s.embedding.as_deref(),
-                    })
-                    .collect();
-                // Also consider facts whose validity started later than the
-                // target (supersession), which the as-of window excludes.
-                let later = self
                     .store
                     .query_memories(&MemoryQuery {
                         access: ctx.clone(),
@@ -453,18 +441,21 @@ impl CognitiveEngine {
                         as_of_valid_time: now,
                         as_of_transaction_time: now,
                         include_superseded: false,
-                        embedding_model: None,
+                        ignore_valid_time: true,
+                        embedding_model: model,
                         limit: self.processing.resolution_window,
                     })
                     .await?;
-                let seen: BTreeSet<MemoryId> = window.iter().map(|s| s.record.id).collect();
-                others.extend(
-                    later
-                        .iter()
-                        .filter(|s| !seen.contains(&s.record.id))
-                        .map(|s| cs_policy::resolve::Candidate { record: &s.record, embedding: None }),
-                );
-                let model_key = self
+                // The target's own embedding, if stored for the model.
+                let target_embedding =
+                    self.embed(&target).map(|e| e.vector).filter(|_| self.embedder.is_some());
+                let others: Vec<cs_policy::resolve::Candidate<'_>> = window
+                    .iter()
+                    .map(|s| cs_policy::resolve::Candidate {
+                        record: &s.record,
+                        embedding: s.embedding.as_deref(),
+                    })
+                    .collect();                let model_key = self
                     .embedder
                     .as_ref()
                     .map(|e| format!("{}@{}", e.model_name(), e.model_version()));
@@ -494,9 +485,10 @@ impl CognitiveEngine {
                         access: ctx.clone(),
                         statuses: vec![BeliefStatus::Active, BeliefStatus::Disputed],
                         scope_filter: None,
-                        as_of_valid_time: target.temporal.valid_time.start,
+                        as_of_valid_time: now,
                         as_of_transaction_time: now,
                         include_superseded: false,
+                        ignore_valid_time: true,
                         limit: self.processing.resolution_window,
                     })
                     .await?;
@@ -879,8 +871,19 @@ impl CognitiveEngine {
         })
     }
 
-    /// Erase an observation's content and every memory extracted from it,
-    /// whatever its status. Idempotent.
+    /// Is a provenance source still standing (not a purged observation)?
+    async fn source_alive(&self, s: &SourceRef) -> Result<bool> {
+        Ok(match s {
+            SourceRef::Observation { observation_id } => self
+                .store
+                .get_observation(*observation_id)
+                .await?
+                .is_some_and(|o| !o.is_purged()),
+            _ => true,
+        })
+    }
+
+    /// Erase an observation's content and every memory extracted from it,    /// whatever its status. Idempotent.
     pub async fn purge_observation(
         &self,
         ctx: &AccessContext,
@@ -913,13 +916,42 @@ impl CognitiveEngine {
             .into_iter()
             .flat_map(|r| r.candidate_ids)
             .collect();
-        derived.sort();
-        derived.dedup();
         let now = self.now();
         let purged_source = SourceRef::Observation { observation_id: id };
+        // Memories re-homed onto this observation after an earlier purge are
+        // derived from it too, though another observation's run created them.
+        let all = self
+            .store
+            .query_memories(&MemoryQuery {
+                access: ctx.clone(),
+                domains: MemoryDomain::ALL.to_vec(),
+                statuses: vec![
+                    MemoryStatus::Candidate,
+                    MemoryStatus::Active,
+                    MemoryStatus::Rejected,
+                    MemoryStatus::Tombstoned,
+                ],
+                scope_filter: None,
+                as_of_valid_time: now,
+                as_of_transaction_time: now,
+                include_superseded: false,
+                ignore_valid_time: false,
+                embedding_model: None,
+                limit: cs_memory::RecallPolicy::MAX_CANDIDATES,
+            })
+            .await?;
+        derived.extend(all.into_iter().filter_map(|s| {
+            (s.record.provenance.source == purged_source
+                || s.record.provenance.corroborations.contains(&purged_source))
+            .then_some(s.record.id)
+        }));
+        derived.sort();
+        derived.dedup();
 
-        // A derived memory survives only if another, unpurged source
-        // independently corroborates it; it is then re-homed to that source.
+        // A derived memory survives only if a source other than this
+        // observation still stands behind it. Survivors get a revision that
+        // drops the purged source (re-homing their primary source if
+        // needed); the rest are erased with all their revisions.
         let mut delete = Vec::new();
         let mut rehome = Vec::new();
         let mut rehomed = Vec::new();
@@ -928,50 +960,45 @@ impl CognitiveEngine {
                 delete.push(mid);
                 continue;
             };
-            let mut survivor = None;
-            for s in &current.provenance.corroborations {
-                let alive = match s {
-                    SourceRef::Observation { observation_id } => {
-                        *observation_id != id
-                            && self
-                                .store
-                                .get_observation(*observation_id)
-                                .await?
-                                .is_some_and(|o| !o.is_purged())
+            let p = &current.provenance;
+            if p.source != purged_source && !p.corroborations.contains(&purged_source) {
+                continue;
+            }
+            let primary = if p.source != purged_source && self.source_alive(&p.source).await? {
+                Some(p.source.clone())
+            } else {
+                let mut found = None;
+                for s in p.corroborations.iter().filter(|s| **s != purged_source) {
+                    if self.source_alive(s).await? {
+                        found = Some(s.clone());
+                        break;
                     }
-                    _ => true,
-                };
-                if alive {
-                    survivor = Some(s.clone());
-                    break;
                 }
-            }
-            match survivor {
-                Some(source) if current.provenance.source == purged_source => {
-                    let closed_at = self.next_tx(current.temporal.transaction_time.start);
-                    let mut next = current.clone();
-                    next.revision_id = MemoryRevisionId::new_v7();
-                    next.revision_number = current.revision_number + 1;
-                    next.supersedes = Some(current.revision_id);
-                    next.superseded_by = None;
-                    next.provenance.corroborations.retain(|s| *s != source && *s != purged_source);
-                    next.provenance.source = source;
-                    next.status_reason = Some(format!("source observation {id} purged; re-homed"));
-                    next.temporal.transaction_time = TimeInterval::from(closed_at);
-                    next.created_at = closed_at;
-                    rehome.push(MemorySupersede {
-                        current: current.revision_id,
-                        closed_at,
-                        embedding: self.embed(&next),
-                        next,
-                    });
-                    rehomed.push(mid);
-                }
-                Some(_) => rehomed.push(mid),
-                None => delete.push(mid),
-            }
+                found
+            };
+            let Some(primary) = primary else {
+                delete.push(mid);
+                continue;
+            };
+            let closed_at = self.next_tx(current.temporal.transaction_time.start);
+            let mut next = current.clone();
+            next.revision_id = MemoryRevisionId::new_v7();
+            next.revision_number = current.revision_number + 1;
+            next.supersedes = Some(current.revision_id);
+            next.superseded_by = None;
+            next.provenance.corroborations.retain(|s| *s != primary && *s != purged_source);
+            next.provenance.source = primary;
+            next.status_reason = Some(format!("source observation {id} purged"));
+            next.temporal.transaction_time = TimeInterval::from(closed_at);
+            next.created_at = closed_at;
+            rehome.push(MemorySupersede {
+                current: current.revision_id,
+                closed_at,
+                embedding: self.embed(&next),
+                next,
+            });
+            rehomed.push(mid);
         }
-
         let event = self.draft(
             ctx,
             id.0,

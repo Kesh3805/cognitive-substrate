@@ -587,6 +587,7 @@ impl CognitiveEngine {
                 as_of_valid_time: as_of_valid,
                 as_of_transaction_time: as_of_tx,
                 include_superseded: policy.include_superseded,
+                ignore_valid_time: false,
                 embedding_model: self
                     .embedder
                     .as_ref()
@@ -640,6 +641,7 @@ impl CognitiveEngine {
                     as_of_valid_time: as_of_valid,
                     as_of_transaction_time: as_of_tx,
                     include_superseded: policy.include_superseded,
+                    ignore_valid_time: false,
                     limit: policy.max_candidates,
                 })
                 .await?;
@@ -1320,6 +1322,7 @@ impl CognitiveEngine {
                 as_of_valid_time: now,
                 as_of_transaction_time: now,
                 include_superseded: false,
+                ignore_valid_time: false,
                 embedding_model: None,
                 limit: RecallPolicy::MAX_CANDIDATES,
             })
