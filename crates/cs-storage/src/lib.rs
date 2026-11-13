@@ -74,11 +74,14 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
 
     // ---- memories ----------------------------------------------------------
 
+    /// `follow_up` jobs (e.g. an embedding backfill) commit atomically with
+    /// the write, so a stored record can never be left without its work.
     async fn insert_memory(
         &self,
         record: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent>;
 
@@ -90,6 +93,7 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         closed_at: OffsetDateTime,
         next: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent>;
 
@@ -118,7 +122,9 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         belief: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent>;
 
@@ -130,6 +136,8 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         next: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent>;
 
@@ -182,7 +190,21 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// Belief revisions visible at the as-of times, filtered by status and
     /// authorization inside the query. Ordered by transaction start DESC,
     /// then id ASC.
-    async fn query_beliefs(&self, query: &BeliefQuery) -> Result<Vec<Belief>>;
+    async fn query_beliefs(&self, query: &BeliefQuery) -> Result<Vec<StoredBelief>>;
+
+    /// Job counts per (kind, status) with the oldest `available_at` of each
+    /// group, for queue observability.
+    async fn job_counts(&self, tenant_id: TenantId) -> Result<Vec<JobCount>>;
+
+    /// How many current, embeddable revisions have a vector in a space.
+    /// `tenant = None` counts across all tenants (operator gate; never
+    /// exposed to API callers).
+    async fn embedding_coverage(
+        &self,
+        tenant: Option<TenantId>,
+        model_name: &str,
+        model_version: &str,
+    ) -> Result<EmbeddingCoverage>;
 
     // ---- jobs (M3) -----------------------------------------------------------
 
@@ -299,7 +321,45 @@ pub struct BeliefQuery {
     pub as_of_transaction_time: OffsetDateTime,
     pub include_superseded: bool,
     pub ignore_valid_time: bool,
+    /// Embedding space whose vectors should be returned.
+    pub embedding_model: Option<(String, String)>,
     pub limit: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredBelief {
+    pub belief: Belief,
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// Current revisions vs. those embedded in one space. Memories exclude
+/// tombstoned revisions; beliefs exclude retracted ones.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct EmbeddingCoverage {
+    pub memories_total: u64,
+    pub memories_embedded: u64,
+    pub beliefs_total: u64,
+    pub beliefs_embedded: u64,
+}
+
+impl EmbeddingCoverage {
+    /// Fraction covered; 1.0 when there is nothing to embed.
+    pub fn ratio(&self) -> f64 {
+        let total = self.memories_total + self.beliefs_total;
+        if total == 0 {
+            1.0
+        } else {
+            (self.memories_embedded + self.beliefs_embedded) as f64 / total as f64
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobCount {
+    pub kind: JobKind,
+    pub status: JobStatus,
+    pub count: u64,
+    pub oldest_available_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone)]
@@ -321,6 +381,10 @@ pub struct JobEffects {
     pub events: Vec<EventDraft>,
     /// Follow-up jobs, enqueued with the usual active-only dedupe.
     pub jobs: Vec<Job>,
+    /// Backfilled vectors, keyed by the exact revision they embed. Upserted
+    /// idempotently; skipped if the revision no longer exists (purged).
+    pub memory_embeddings: Vec<(MemoryRevisionId, EmbeddingRecord)>,
+    pub belief_embeddings: Vec<(BeliefId, EmbeddingRecord)>,
     /// Read-skew guards checked inside the commit: the observation must
     /// still exist unpurged, and these revisions must still be current.
     pub require_unpurged_observation: Option<ObservationId>,
@@ -334,6 +398,8 @@ impl JobEffects {
             && self.proposals.is_empty()
             && self.events.is_empty()
             && self.jobs.is_empty()
+            && self.memory_embeddings.is_empty()
+            && self.belief_embeddings.is_empty()
     }
 }
 
@@ -343,6 +409,7 @@ pub struct MemorySupersede {
     pub closed_at: OffsetDateTime,
     pub next: MemoryRecord,
     pub embedding: Option<EmbeddingRecord>,
+    pub follow_up: Vec<Job>,
 }
 
 #[derive(Debug, Clone)]
@@ -352,6 +419,8 @@ pub struct BeliefSupersede {
     pub next: Belief,
     pub evidence: Vec<BeliefEvidence>,
     pub dependencies: Vec<BeliefDependency>,
+    pub embedding: Option<EmbeddingRecord>,
+    pub follow_up: Vec<Job>,
 }
 
 #[derive(Debug, Clone, Default)]
