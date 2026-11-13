@@ -32,15 +32,17 @@ pub struct ResolutionConfig {
 
 impl Default for ResolutionConfig {
     fn default() -> Self {
-        // Calibrated for the built-in hashing embedder against the
-        // hard-negative suite in cs-engine (`resolution_calibration`).
+        // Calibrated for the built-in hashing embedder against the hard-
+        // negative suite in cs-engine (`resolution_calibration`): the highest
+        // non-vetoed hard negative scores 0.815, so thresholds keep a margin
+        // of at least 0.065 while still catching close paraphrases (~0.89).
         Self {
             duplicate_cosine: BTreeMap::from([(
                 "cs-hashing@1".to_owned(),
                 BTreeMap::from([
-                    (MemoryDomain::Episodic, 0.93),
-                    (MemoryDomain::Semantic, 0.95),
-                    (MemoryDomain::Procedural, 0.94),
+                    (MemoryDomain::Episodic, 0.88),
+                    (MemoryDomain::Semantic, 0.88),
+                    (MemoryDomain::Procedural, 0.90),
                 ]),
             )]),
         }
@@ -124,10 +126,12 @@ fn order<'a>(a: &'a MemoryRecord, b: &'a MemoryRecord) -> (&'a MemoryRecord, &'a
 
 const NEGATIONS: &[&str] = &["not", "no", "never", "none", "without", "disabled", "cannot"];
 
-/// Tokens that must agree for two texts to be duplicates: anything with a
-/// digit (numbers, versions, units), negations, and identifier-like tokens
-/// (snake_case, kebab-case, paths, camelCase/PascalCase, acronyms).
-pub fn hard_tokens(text: &str) -> std::collections::BTreeSet<String> {
+/// Tokens that must agree, *in order*, for two texts to be duplicates:
+/// anything with a digit (numbers, versions, units), negations, and
+/// identifier-like tokens (snake_case, kebab-case, paths, camelCase,
+/// PascalCase, acronyms). Order matters so that swapped arguments
+/// (`a calls b` / `b calls a`) are never merged.
+pub fn hard_tokens(text: &str) -> Vec<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '"' | '\'' | '`'))
         .map(|t| t.trim_matches(|c: char| matches!(c, '.' | ':' | '!' | '?')))
         .filter(|t| !t.is_empty())
