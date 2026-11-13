@@ -13,7 +13,9 @@ pub use debt::{
     CognitiveDebtReport, DebtCategory, DebtCategoryScore, DebtConfig, DebtInputs, DebtItem,
     evaluate_debt,
 };
-pub use resolve::{ProposalDraft, ResolutionConfig, detect_beliefs, detect_memory};
+pub use resolve::{
+    CalibratedSpace, ProposalDraft, ResolutionConfig, detect_beliefs, detect_memory,
+};
 pub use scoring::{
     BeliefScoringInput, ScoringInput, cosine_similarity, query_hash, score_belief_candidates,
     score_candidates,

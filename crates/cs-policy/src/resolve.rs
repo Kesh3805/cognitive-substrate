@@ -19,42 +19,110 @@ use crate::cosine_similarity;
 
 pub const DETECTOR_VERSION: &str = "resolve-v1";
 
+/// The built-in hashing embedder's space at its default 384 dimensions.
+pub const HASHING_SPACE_384: &str = "cs/hashing@1+d384+l2+pp1";
+
+/// Duplicate thresholds validated for one embedding space, with the
+/// provenance needed to trust them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+pub struct CalibratedSpace {
+    /// Detector version the calibration was run against; thresholds are
+    /// ignored under any other detector version.
+    pub detector_version: String,
+    /// Calibration dataset and version (e.g. a suite name and commit).
+    pub calibration: String,
+    /// When the calibration was validated (free-form date).
+    pub validated_at: String,
+    /// Highest cosine observed among hard negatives that pass the
+    /// structural pre-veto.
+    #[serde(default)]
+    pub max_hard_negative: Option<f64>,
+    pub thresholds: BTreeMap<MemoryDomain, f64>,
+}
+
+/// Dense duplicate detection is enabled only for embedding spaces listed
+/// here, under the current detector version. Unknown or uncalibrated spaces
+/// never produce dense duplicate proposals; they remain usable for recall.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolutionConfig {
-    /// Duplicate-candidate cosine thresholds keyed by embedding model
-    /// (`"name@version"`) and then domain. Cosine geometry differs between
-    /// models, so thresholds are never global. A missing model or domain
-    /// disables dense duplicate detection for it. See
-    /// `docs/specifications/resolution.md` for calibration.
-    pub duplicate_cosine: BTreeMap<String, BTreeMap<MemoryDomain, f64>>,
+    pub schema_version: u32,
+    pub spaces: BTreeMap<String, CalibratedSpace>,
 }
 
 impl Default for ResolutionConfig {
     fn default() -> Self {
-        // Calibrated for the built-in hashing embedder against the hard-
-        // negative suite in cs-engine (`resolution_calibration`): the highest
-        // non-vetoed hard negative scores 0.815, so thresholds keep a margin
-        // of at least 0.065 while still catching close paraphrases (~0.89).
+        // Calibrated against crates/cs-engine/tests/resolution_calibration.rs:
+        // the highest non-vetoed hard negative scores 0.815, so thresholds
+        // keep a margin of at least 0.065 while catching close paraphrases.
         Self {
-            duplicate_cosine: BTreeMap::from([(
-                "cs-hashing@1".to_owned(),
-                BTreeMap::from([
-                    (MemoryDomain::Episodic, 0.88),
-                    (MemoryDomain::Semantic, 0.88),
-                    (MemoryDomain::Procedural, 0.90),
-                ]),
+            schema_version: 1,
+            spaces: BTreeMap::from([(
+                HASHING_SPACE_384.to_owned(),
+                CalibratedSpace {
+                    detector_version: DETECTOR_VERSION.to_owned(),
+                    calibration: "resolution_calibration@m3".to_owned(),
+                    validated_at: "2026-11-13".to_owned(),
+                    max_hard_negative: Some(0.815),
+                    thresholds: BTreeMap::from([
+                        (MemoryDomain::Episodic, 0.88),
+                        (MemoryDomain::Semantic, 0.88),
+                        (MemoryDomain::Procedural, 0.90),
+                    ]),
+                },
             )]),
         }
     }
 }
 
 impl ResolutionConfig {
-    pub fn threshold(&self, model: Option<&str>, domain: MemoryDomain) -> Option<f64> {
-        self.duplicate_cosine.get(model?)?.get(&domain).copied()
+    /// Threshold for a space and domain, if that space is calibrated for
+    /// the running detector version.
+    pub fn threshold(&self, space: Option<&str>, domain: MemoryDomain) -> Option<f64> {
+        let s = self.spaces.get(space?)?;
+        if s.detector_version != DETECTOR_VERSION {
+            return None;
+        }
+        s.thresholds.get(&domain).copied()
+    }
+
+    pub fn is_calibrated(&self, space: &str) -> bool {
+        self.spaces
+            .get(space)
+            .is_some_and(|s| s.detector_version == DETECTOR_VERSION && !s.thresholds.is_empty())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 1 {
+            return Err(format!("unsupported schema_version {}", self.schema_version));
+        }
+        for (id, s) in &self.spaces {
+            if s.calibration.trim().is_empty() {
+                return Err(format!("{id}: calibration provenance is required"));
+            }
+            for (d, t) in &s.thresholds {
+                if !(t.is_finite() && *t > 0.0 && *t <= 1.0) {
+                    return Err(format!("{id}: {} threshold must be in (0, 1]", d.as_str()));
+                }
+                if let Some(h) = s.max_hard_negative
+                    && *t <= h
+                {
+                    return Err(format!(
+                        "{id}: {} threshold {t} does not exceed the hard-negative ceiling {h}",
+                        d.as_str()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse and validate a JSON config file's contents.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let c: Self = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        c.validate()?;
+        Ok(c)
     }
 }
-
 /// A finding before it becomes a stored proposal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProposalDraft {
@@ -433,7 +501,7 @@ mod tests {
             .collect();
         detect_memory(
             &ResolutionConfig::default(),
-            Some("cs-hashing@1"),
+            Some(HASHING_SPACE_384),
             Candidate {
                 record: t,
                 embedding: None,
@@ -510,7 +578,7 @@ mod tests {
         let e2 = [0.99_f32, 0.141];
         let found = detect_memory(
             &ResolutionConfig::default(),
-            Some("cs-hashing@1"),
+            Some(HASHING_SPACE_384),
             Candidate {
                 record: &b,
                 embedding: Some(&e2),
@@ -529,7 +597,7 @@ mod tests {
         assert!(
             detect_memory(
                 &ResolutionConfig::default(),
-                Some("cs-hashing@1"),
+                Some(HASHING_SPACE_384),
                 Candidate {
                     record: &b,
                     embedding: Some(&far)
@@ -578,7 +646,7 @@ mod tests {
         let e = [1.0_f32, 0.0];
         let found = detect_memory(
             &ResolutionConfig::default(),
-            Some("cs-hashing@1"),
+            Some(HASHING_SPACE_384),
             Candidate {
                 record: &b,
                 embedding: Some(&e),
@@ -597,6 +665,26 @@ mod tests {
         let mut b = mem(2, fact("db", "is", "postgres"), 0);
         b.scope.visibility = cs_core::Visibility::Tenant;
         assert!(run(&b, &[a]).is_empty());
+    }
+
+    #[test]
+    fn uncalibrated_or_mismatched_spaces_are_disabled() {
+        let c = ResolutionConfig::default();
+        assert!(c.threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic).is_some());
+        assert!(c.threshold(Some("ollama/nomic@v1+d768+l2+pp1"), MemoryDomain::Semantic).is_none());
+        assert!(c.threshold(None, MemoryDomain::Semantic).is_none());
+        let mut stale = c.clone();
+        stale.spaces.get_mut(HASHING_SPACE_384).unwrap().detector_version = "resolve-v0".into();
+        assert!(stale.threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic).is_none());
+    }
+
+    #[test]
+    fn config_files_are_validated() {
+        let json = serde_json::to_string(&ResolutionConfig::default()).unwrap();
+        assert!(ResolutionConfig::from_json(&json).is_ok());
+        let mut bad = ResolutionConfig::default();
+        bad.spaces.get_mut(HASHING_SPACE_384).unwrap().thresholds.insert(MemoryDomain::Semantic, 0.5);
+        assert!(bad.validate().is_err(), "threshold below the hard-negative ceiling");
     }
 
     #[test]
