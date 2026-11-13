@@ -173,7 +173,9 @@ fn extractor() -> Result<Arc<dyn Extractor>, String> {
             })?;
             Ok(Arc::new(ex))
         }
-        other => Err(format!("unknown CS_EXTRACTOR '{other}' (expected rules or openai)")),
+        other => Err(format!(
+            "unknown CS_EXTRACTOR '{other}' (expected rules or openai)"
+        )),
     }
 }
 
@@ -182,7 +184,9 @@ fn extractor() -> Result<Arc<dyn Extractor>, String> {
 /// finish (or their leases expire and are reclaimed) on shutdown.
 async fn run_worker(worker: Worker, mut stop: tokio::sync::watch::Receiver<bool>) {
     let idle = std::time::Duration::from_millis(
-        env("CS_WORKER_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(1000),
+        env("CS_WORKER_POLL_MS")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000),
     );
     loop {
         if *stop.borrow() {

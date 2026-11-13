@@ -61,7 +61,11 @@ impl HttpExtractor {
             .timeout(config.timeout)
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { version: format!("p{PROMPT_VERSION}"), config, client })
+        Ok(Self {
+            version: format!("p{PROMPT_VERSION}"),
+            config,
+            client,
+        })
     }
 }
 
@@ -108,8 +112,8 @@ pub fn decode(raw: &str) -> Result<Vec<ExtractedCandidate>, ExtractError> {
         .or_else(|| trimmed.strip_prefix("```"))
         .and_then(|s| s.strip_suffix("```"))
         .unwrap_or(trimmed);
-    let parsed: Extraction =
-        serde_json::from_str(body).map_err(|e| permanent(format!("malformed model output: {e}")))?;
+    let parsed: Extraction = serde_json::from_str(body)
+        .map_err(|e| permanent(format!("malformed model output: {e}")))?;
     if parsed.memories.len() > MAX_CANDIDATES {
         return Err(permanent(format!("more than {MAX_CANDIDATES} candidates")));
     }
@@ -122,7 +126,9 @@ pub fn decode(raw: &str) -> Result<Vec<ExtractedCandidate>, ExtractError> {
             }
             let content: MemoryContent =
                 serde_json::from_value(json!({ "domain": item.domain, "data": item.data }))
-                    .map_err(|e| permanent(format!("invalid {} payload: {e}", item.domain.as_str())))?;
+                    .map_err(|e| {
+                        permanent(format!("invalid {} payload: {e}", item.domain.as_str()))
+                    })?;
             content.validate().map_err(|e| permanent(e.to_string()))?;
             if let Some(c) = item.confidence
                 && !(c.is_finite() && (0.0..=1.0).contains(&c))
@@ -152,12 +158,18 @@ impl Extractor for HttpExtractor {
         Some(&self.config.model)
     }
 
-    async fn extract(&self, observation: &Observation) -> Result<Vec<ExtractedCandidate>, ExtractError> {
+    async fn extract(
+        &self,
+        observation: &Observation,
+    ) -> Result<Vec<ExtractedCandidate>, ExtractError> {
         let text = observation
             .content
             .as_deref()
             .ok_or_else(|| permanent("observation content was purged"))?;
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let body = json!({
             "model": self.config.model,
             "temperature": 0,
@@ -171,16 +183,23 @@ impl Extractor for HttpExtractor {
         if let Some(key) = &self.config.api_key {
             req = req.bearer_auth(key);
         }
-        let resp = req.send().await.map_err(|e| ExtractError::Retryable(format!("request failed: {e}")))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| ExtractError::Retryable(format!("request failed: {e}")))?;
         let status = resp.status();
         if status.is_server_error() || status.as_u16() == 429 || status.as_u16() == 408 {
-            return Err(ExtractError::Retryable(format!("endpoint returned {status}")));
+            return Err(ExtractError::Retryable(format!(
+                "endpoint returned {status}"
+            )));
         }
         if !status.is_success() {
             return Err(permanent(format!("endpoint returned {status}")));
         }
-        let chat: ChatResponse =
-            resp.json().await.map_err(|e| permanent(format!("unexpected response shape: {e}")))?;
+        let chat: ChatResponse = resp
+            .json()
+            .await
+            .map_err(|e| permanent(format!("unexpected response shape: {e}")))?;
         let content = chat
             .choices
             .into_iter()
@@ -207,7 +226,11 @@ mod tests {
 
     #[test]
     fn tolerates_fenced_json() {
-        assert!(decode("```json\n{\"memories\": []}\n```").unwrap().is_empty());
+        assert!(
+            decode("```json\n{\"memories\": []}\n```")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -220,7 +243,10 @@ mod tests {
             r#"{"memories":[{"domain":"semantic","data":{"proposition":"ok"},"confidence":3}]}"#,
             r#"{"memories":[{"domain":"semantic","data":{"proposition":"ok"}},{"domain":"procedural","data":{"name":"x","steps":[]}}]}"#,
         ] {
-            assert!(matches!(decode(bad), Err(ExtractError::Permanent(_))), "{bad}");
+            assert!(
+                matches!(decode(bad), Err(ExtractError::Permanent(_))),
+                "{bad}"
+            );
         }
     }
 }

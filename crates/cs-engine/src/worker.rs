@@ -8,10 +8,7 @@
 use std::sync::Arc;
 
 use cs_core::{CognitiveEventType, Error, Result, Scope};
-use cs_memory::{
-    ClaimedJob, JobError, JobKind, JobOutcome,
-    job::deterministic_jitter,
-};
+use cs_memory::{ClaimedJob, JobError, JobKind, JobOutcome, job::deterministic_jitter};
 use cs_storage::{JobClaim, JobEffects};
 use serde_json::json;
 use time::Duration;
@@ -57,8 +54,16 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new(engine: CognitiveEngine, extractor: Arc<dyn Extractor>, config: WorkerConfig) -> Self {
-        Self { engine, extractor, config }
+    pub fn new(
+        engine: CognitiveEngine,
+        extractor: Arc<dyn Extractor>,
+        config: WorkerConfig,
+    ) -> Self {
+        Self {
+            engine,
+            extractor,
+            config,
+        }
     }
 
     pub fn config(&self) -> &WorkerConfig {
@@ -79,7 +84,10 @@ impl Worker {
                 limit: self.config.batch_size,
             })
             .await?;
-        let mut report = WorkerReport { claimed: claimed.len(), ..WorkerReport::default() };
+        let mut report = WorkerReport {
+            claimed: claimed.len(),
+            ..WorkerReport::default()
+        };
         for c in claimed {
             match self.process(c).await {
                 Ok(Outcome::Succeeded) => report.succeeded += 1,
@@ -117,16 +125,31 @@ impl Worker {
         };
         let now = self.engine.now();
         let (outcome, effects, kind) = match handled {
-            Ok((effects, result)) => (JobOutcome::Succeeded { result }, effects, Outcome::Succeeded),
+            Ok((effects, result)) => (
+                JobOutcome::Succeeded { result },
+                effects,
+                Outcome::Succeeded,
+            ),
             Err(HandlerError { permanent, message }) => {
-                let error = JobError { permanent, message: message.clone(), attempt: job.attempts };
+                let error = JobError {
+                    permanent,
+                    message: message.clone(),
+                    attempt: job.attempts,
+                };
                 if !permanent && job.attempts < job.max_attempts {
                     let delay = self
                         .engine
                         .processing
                         .retry
                         .delay(job.attempts, deterministic_jitter(job.id, job.attempts));
-                    (JobOutcome::Retry { at: now + delay, error }, JobEffects::default(), Outcome::Retried)
+                    (
+                        JobOutcome::Retry {
+                            at: now + delay,
+                            error,
+                        },
+                        JobEffects::default(),
+                        Outcome::Retried,
+                    )
                 } else {
                     tracing::warn!(job = %job.id, kind = job.kind.as_str(), %message, "job dead-lettered");
                     let event = self.engine.draft(
@@ -144,13 +167,21 @@ impl Worker {
                     );
                     (
                         JobOutcome::DeadLetter { error },
-                        JobEffects { events: vec![event], ..JobEffects::default() },
+                        JobEffects {
+                            events: vec![event],
+                            ..JobEffects::default()
+                        },
                         Outcome::DeadLettered,
                     )
                 }
             }
         };
-        match self.engine.store.finish_job(c.lease, now, outcome, effects).await {
+        match self
+            .engine
+            .store
+            .finish_job(c.lease, now, outcome, effects)
+            .await
+        {
             Ok(_) => Ok(kind),
             Err(Error::Conflict(m)) => {
                 // Our lease was superseded; another worker owns the job and
@@ -164,7 +195,10 @@ impl Worker {
 
     /// Return any still-held lease to the queue (graceful shutdown helper).
     pub async fn release(&self, claimed: &ClaimedJob) -> Result<()> {
-        self.engine.store.release_job(claimed.lease, self.engine.now()).await
+        self.engine
+            .store
+            .release_job(claimed.lease, self.engine.now())
+            .await
     }
 }
 

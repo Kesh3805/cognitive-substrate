@@ -17,9 +17,9 @@ use std::cmp::Ordering;
 
 use cs_core::{BeliefId, MemoryId, MemoryRevisionId};
 use cs_memory::{RecallBeliefCandidate, RecallCandidate, RecallPolicy};
-use uuid::Uuid;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::lexical::bm25_normalized;
 

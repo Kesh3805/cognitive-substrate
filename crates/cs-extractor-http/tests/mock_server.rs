@@ -28,7 +28,11 @@ async fn serve(status: StatusCode, body: Value) -> (String, Arc<std::sync::Mutex
     let seen = Arc::new(std::sync::Mutex::new(None));
     let app = Router::new()
         .route("/v1/chat/completions", post(chat))
-        .with_state(Reply { status, body, seen: seen.clone() });
+        .with_state(Reply {
+            status,
+            body,
+            seen: seen.clone(),
+        });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -75,7 +79,10 @@ async fn extracts_and_sends_a_deterministic_request() {
     )
     .await;
     let ex = extractor(url);
-    let out = ex.extract(&observation("The API uses gRPC.")).await.unwrap();
+    let out = ex
+        .extract(&observation("The API uses gRPC."))
+        .await
+        .unwrap();
     assert_eq!(out.len(), 1);
     assert_eq!(ex.model(), Some("test-model"));
     let req = seen.lock().unwrap().clone().unwrap();
@@ -86,9 +93,16 @@ async fn extracts_and_sends_a_deterministic_request() {
 
 #[tokio::test]
 async fn server_errors_and_rate_limits_are_retryable() {
-    for status in [StatusCode::INTERNAL_SERVER_ERROR, StatusCode::TOO_MANY_REQUESTS, StatusCode::BAD_GATEWAY] {
+    for status in [
+        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::BAD_GATEWAY,
+    ] {
         let (url, _) = serve(status, json!({ "error": "busy" })).await;
-        let err = extractor(url).extract(&observation("x y z")).await.unwrap_err();
+        let err = extractor(url)
+            .extract(&observation("x y z"))
+            .await
+            .unwrap_err();
         assert!(matches!(err, ExtractError::Retryable(_)), "{status}: {err}");
     }
 }
@@ -96,18 +110,30 @@ async fn server_errors_and_rate_limits_are_retryable() {
 #[tokio::test]
 async fn client_errors_and_bad_output_are_permanent() {
     let (url, _) = serve(StatusCode::BAD_REQUEST, json!({ "error": "bad" })).await;
-    assert!(matches!(extractor(url).extract(&observation("x")).await, Err(ExtractError::Permanent(_))));
+    assert!(matches!(
+        extractor(url).extract(&observation("x")).await,
+        Err(ExtractError::Permanent(_))
+    ));
 
     let (url, _) = serve(StatusCode::OK, completion("I think the API uses gRPC")).await;
-    assert!(matches!(extractor(url).extract(&observation("x")).await, Err(ExtractError::Permanent(_))));
+    assert!(matches!(
+        extractor(url).extract(&observation("x")).await,
+        Err(ExtractError::Permanent(_))
+    ));
 
     let (url, _) = serve(StatusCode::OK, json!({ "unexpected": true })).await;
-    assert!(matches!(extractor(url).extract(&observation("x")).await, Err(ExtractError::Permanent(_))));
+    assert!(matches!(
+        extractor(url).extract(&observation("x")).await,
+        Err(ExtractError::Permanent(_))
+    ));
 }
 
 #[tokio::test]
 async fn unreachable_endpoint_is_retryable() {
-    let err = extractor("http://127.0.0.1:9/v1".into()).extract(&observation("x")).await.unwrap_err();
+    let err = extractor("http://127.0.0.1:9/v1".into())
+        .extract(&observation("x"))
+        .await
+        .unwrap_err();
     assert!(matches!(err, ExtractError::Retryable(_)), "{err}");
 }
 
@@ -116,5 +142,8 @@ async fn purged_observation_is_permanent() {
     let (url, _) = serve(StatusCode::OK, completion(r#"{"memories":[]}"#)).await;
     let mut o = observation("x");
     o.content = None;
-    assert!(matches!(extractor(url).extract(&o).await, Err(ExtractError::Permanent(_))));
+    assert!(matches!(
+        extractor(url).extract(&o).await,
+        Err(ExtractError::Permanent(_))
+    ));
 }

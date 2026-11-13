@@ -7,9 +7,7 @@
 //! it; acceptance re-checks those revisions and applies the operation
 //! atomically, or marks the proposal stale.
 
-use cs_core::{
-    ActorRef, BeliefId, Error, MemoryId, MemoryRevisionId, ProposalId, Result, Scope,
-};
+use cs_core::{ActorRef, BeliefId, Error, MemoryId, MemoryRevisionId, ProposalId, Result, Scope};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -71,10 +69,16 @@ impl ProposalStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RecordVersion {
-    Memory { id: MemoryId, revision_id: MemoryRevisionId },
+    Memory {
+        id: MemoryId,
+        revision_id: MemoryRevisionId,
+    },
     /// Beliefs: `lineage_id` is the logical identity, `revision_id` the
     /// specific revision.
-    Belief { lineage_id: BeliefId, revision_id: BeliefId },
+    Belief {
+        lineage_id: BeliefId,
+        revision_id: BeliefId,
+    },
 }
 
 /// What acceptance will do. Explicit by design.
@@ -82,7 +86,10 @@ pub enum RecordVersion {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResolutionOperation {
     /// Keep `canonical`; tombstone `duplicate`, recording the merge.
-    Merge { canonical: MemoryId, duplicate: MemoryId },
+    Merge {
+        canonical: MemoryId,
+        duplicate: MemoryId,
+    },
     /// Close the older fact's valid time where the newer one begins.
     /// History is preserved; this is not deletion.
     Supersede { older: MemoryId, newer: MemoryId },
@@ -97,10 +104,17 @@ pub enum ResolutionOperation {
 pub enum ResolutionSignal {
     NormalizedTextExact,
     StructuredFieldsExact,
-    DenseSimilarity { cosine: f64, threshold: f64 },
+    DenseSimilarity {
+        cosine: f64,
+        threshold: f64,
+    },
     TemporalOverlap,
     ScopeCompatible,
-    PredicateConflict { field: String, left: String, right: String },
+    PredicateConflict {
+        field: String,
+        left: String,
+        right: String,
+    },
     OppositePolarity,
     ValidTimeOrdered,
 }
@@ -147,7 +161,9 @@ pub struct ResolutionProposal {
 impl ResolutionProposal {
     pub fn validate(&self) -> Result<()> {
         if self.based_on.len() < 2 {
-            return Err(Error::validation("a proposal concerns at least two records"));
+            return Err(Error::validation(
+                "a proposal concerns at least two records",
+            ));
         }
         if self.rationale.explanation.trim().is_empty() {
             return Err(Error::validation("a proposal needs an explanation"));
@@ -166,7 +182,10 @@ pub fn fingerprint(kind: ResolutionKind, versions: &[RecordVersion]) -> String {
         .iter()
         .map(|v| match v {
             RecordVersion::Memory { id, revision_id } => format!("m:{id}@{revision_id}"),
-            RecordVersion::Belief { lineage_id, revision_id } => {
+            RecordVersion::Belief {
+                lineage_id,
+                revision_id,
+            } => {
                 format!("b:{lineage_id}@{revision_id}")
             }
         })
@@ -197,13 +216,19 @@ mod tests {
         let f1 = fingerprint(ResolutionKind::Duplicate, &[v(a, ra), v(b, rb)]);
         let f2 = fingerprint(ResolutionKind::Duplicate, &[v(b, rb), v(a, ra)]);
         assert_eq!(f1, f2);
-        let f3 = fingerprint(ResolutionKind::Duplicate, &[v(a, ra), v(b, MemoryRevisionId::new_v7())]);
+        let f3 = fingerprint(
+            ResolutionKind::Duplicate,
+            &[v(a, ra), v(b, MemoryRevisionId::new_v7())],
+        );
         assert_ne!(f1, f3);
     }
 
     #[test]
     fn operation_serializes_tagged() {
-        let op = ResolutionOperation::Merge { canonical: MemoryId::new_v7(), duplicate: MemoryId::new_v7() };
+        let op = ResolutionOperation::Merge {
+            canonical: MemoryId::new_v7(),
+            duplicate: MemoryId::new_v7(),
+        };
         assert_eq!(serde_json::to_value(&op).unwrap()["type"], "merge");
     }
 }

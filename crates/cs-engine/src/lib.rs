@@ -30,17 +30,17 @@ use cs_memory::{
     EvidenceDirection, MemoryDomain, MemoryRecord, MemoryStatus, RecallBeliefCandidate,
     RecallCandidate, RecallPolicy, RecallTrace, recall::SCORING_VERSION,
 };
-pub use cs_policy::{CognitiveDebtReport, DebtConfig};
 use cs_policy::{BeliefScoringInput, DebtInputs, ScoringInput};
+pub use cs_policy::{CognitiveDebtReport, DebtConfig};
 use cs_storage::{BeliefQuery, CognitiveStore, IdempotencyKey, MemoryQuery};
 pub use embedding::{Embedder, HashingEmbedder};
 pub use extract::{ExtractError, Extractor, RuleExtractor};
 pub use processing::ProcessingConfig;
-pub use worker::{Worker, WorkerConfig};
 pub use requests::*;
 use serde_json::json;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
+pub use worker::{Worker, WorkerConfig};
 
 const MAX_QUERY_CHARS: usize = 8_192;
 const MAX_IDEMPOTENCY_KEY: usize = 255;
@@ -753,8 +753,11 @@ impl CognitiveEngine {
             })
             .collect();
 
-        let selected_beliefs: Vec<&RecallBeliefCandidate> =
-            trace.belief_candidates.iter().filter(|c| c.selected).collect();
+        let selected_beliefs: Vec<&RecallBeliefCandidate> = trace
+            .belief_candidates
+            .iter()
+            .filter(|c| c.selected)
+            .collect();
         let ids: Vec<BeliefId> = selected_beliefs.iter().map(|c| c.belief_id).collect();
         let mut links: BTreeMap<BeliefId, Vec<BeliefEvidence>> = BTreeMap::new();
         if !ids.is_empty() {

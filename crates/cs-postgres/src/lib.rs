@@ -1130,7 +1130,8 @@ impl CognitiveStore for PgStore {
         idempotency: Option<IdempotencyKey<'_>>,
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
-        self.m3_insert_observation(observation, job, idempotency, event).await
+        self.m3_insert_observation(observation, job, idempotency, event)
+            .await
     }
 
     async fn get_observation(
@@ -1155,7 +1156,8 @@ impl CognitiveStore for PgStore {
         rehome: Vec<cs_storage::MemorySupersede>,
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
-        self.m3_purge_observation(id, now, delete, rehome, event).await
+        self.m3_purge_observation(id, now, delete, rehome, event)
+            .await
     }
 
     async fn get_proposal(
@@ -1181,10 +1183,15 @@ impl CognitiveStore for PgStore {
         mutations: cs_storage::ProposalMutations,
         events: Vec<EventDraft>,
     ) -> Result<cs_memory::ResolutionProposal> {
-        self.m3_decide_proposal(id, decision, mutations, events).await
+        self.m3_decide_proposal(id, decision, mutations, events)
+            .await
     }
 
-    async fn purged_at(&self, kind: cs_storage::PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>> {
+    async fn purged_at(
+        &self,
+        kind: cs_storage::PurgeKind,
+        id: Uuid,
+    ) -> Result<Option<OffsetDateTime>> {
         self.m3_purged_at(kind, id).await
     }
 

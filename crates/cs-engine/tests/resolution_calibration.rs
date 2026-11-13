@@ -28,7 +28,9 @@ fn record(n: u128, content: MemoryContent) -> MemoryRecord {
         content,
         provenance: Provenance {
             source: SourceRef::UserInput { message_id: None },
-            actor: ActorRef::System { component: "calibration".into() },
+            actor: ActorRef::System {
+                component: "calibration".into(),
+            },
             observed_at: t,
             recorded_at: t,
             extraction: None,
@@ -58,21 +60,37 @@ fn sem(p: &str) -> MemoryContent {
 }
 
 fn epi(p: &str) -> MemoryContent {
-    MemoryContent::Episodic(EpisodicMemory { description: p.into(), event_id: None, participants: vec![] })
+    MemoryContent::Episodic(EpisodicMemory {
+        description: p.into(),
+        event_id: None,
+        participants: vec![],
+    })
 }
 
 fn duplicate(a: MemoryContent, b: MemoryContent) -> (bool, f64) {
     let e = HashingEmbedder::default();
     let (ra, rb) = (record(1, a), record(2, b));
-    let (ea, eb) = (e.embed(&ra.content.index_text()), e.embed(&rb.content.index_text()));
+    let (ea, eb) = (
+        e.embed(&ra.content.index_text()),
+        e.embed(&rb.content.index_text()),
+    );
     let cos = cs_policy::cosine_similarity(&ea, &eb).unwrap();
     let found = detect_memory(
         &ResolutionConfig::default(),
         Some("cs-hashing@1"),
-        Candidate { record: &rb, embedding: Some(&eb) },
-        &[Candidate { record: &ra, embedding: Some(&ea) }],
+        Candidate {
+            record: &rb,
+            embedding: Some(&eb),
+        },
+        &[Candidate {
+            record: &ra,
+            embedding: Some(&ea),
+        }],
     );
-    (found.iter().any(|p| p.kind == ResolutionKind::Duplicate), cos)
+    (
+        found.iter().any(|p| p.kind == ResolutionKind::Duplicate),
+        cos,
+    )
 }
 
 #[test]
@@ -84,14 +102,26 @@ fn hard_negatives_never_merge() {
         ("cs-core defines ScopeId", "cs-memory defines ScopeId"),
         // Numeric and version flips.
         ("retry backoff max is 30s", "retry backoff max is 60s"),
-        ("the API is served on port 8080", "the API is served on port 9090"),
+        (
+            "the API is served on port 8080",
+            "the API is served on port 9090",
+        ),
         ("we upgraded sqlx to 0.8", "we upgraded sqlx to 0.9"),
         // Negation flip.
         ("exact scoring is enabled", "exact scoring is not enabled"),
         // Same topic, different fact (pass the structural veto).
-        ("the recall trace stores the query hash", "the recall trace stores the embedding model"),
-        ("the team prefers small pull requests", "the team prefers big pull requests"),
-        ("alice owns the billing service", "bob owns the billing service"),
+        (
+            "the recall trace stores the query hash",
+            "the recall trace stores the embedding model",
+        ),
+        (
+            "the team prefers small pull requests",
+            "the team prefers big pull requests",
+        ),
+        (
+            "alice owns the billing service",
+            "bob owns the billing service",
+        ),
     ];
     for (a, b) in pairs {
         for (ca, cb) in [(sem(a), sem(b)), (epi(a), epi(b))] {
@@ -104,8 +134,14 @@ fn hard_negatives_never_merge() {
 #[test]
 fn true_duplicates_are_proposed() {
     let pairs = [
-        ("The primary database is PostgreSQL.", "the primary database is postgresql"),
-        ("Deploys are frozen on Fridays", "deploys are frozen on fridays!"),
+        (
+            "The primary database is PostgreSQL.",
+            "the primary database is postgresql",
+        ),
+        (
+            "Deploys are frozen on Fridays",
+            "deploys are frozen on fridays!",
+        ),
     ];
     for (a, b) in pairs {
         let (dup, cos) = duplicate(sem(a), sem(b));
@@ -118,4 +154,3 @@ fn true_duplicates_are_proposed() {
     );
     assert!(dup, "paraphrase missed (cos {cos:.3})");
 }
-

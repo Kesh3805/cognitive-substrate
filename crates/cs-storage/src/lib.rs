@@ -7,15 +7,14 @@
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EventDraft, EventQuery, EvidenceId, JobId,
-    MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter,
-    TenantId,
+    AccessContext, BeliefId, CognitiveEvent, EventDraft, EventQuery, EvidenceId, JobId, MemoryId,
+    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord,
-    Evidence, ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain,
-    MemoryRecord, MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace,
-    RecordVersion, ResolutionProposal,
+    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
+    ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain, MemoryRecord,
+    MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion,
+    ResolutionProposal,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;

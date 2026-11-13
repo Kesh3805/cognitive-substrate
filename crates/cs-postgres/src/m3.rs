@@ -10,9 +10,9 @@ use cs_core::{
     ObservationId, ProposalId, Result, TenantId,
 };
 use cs_memory::{
-    Belief, ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome,
-    JobStatus, Lease, Observation, ProposalDecision, ProposalStatus, RecordVersion,
-    ResolutionKind, ResolutionProposal,
+    Belief, ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome, JobStatus, Lease,
+    Observation, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
+    ResolutionProposal,
 };
 use cs_storage::{
     BeliefQuery, BeliefSupersede, IdempotencyKey, JobClaim, JobEffects, MemorySupersede,
@@ -23,9 +23,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    BELIEF_COLS, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event, belief_from_row,
-    db_err, insert_belief_rows, insert_memory_row, parse, project_ids, register_key,
-    scope_from_row,
+    BELIEF_COLS, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event, belief_from_row, db_err,
+    insert_belief_rows, insert_memory_row, parse, project_ids, register_key, scope_from_row,
 };
 
 // ---- rows ---------------------------------------------------------------------
@@ -235,7 +234,10 @@ async fn precondition_failure(tx: &mut Tx<'_>, e: &JobEffects) -> Result<Option<
             )
             .bind(id.0)
             .bind(revision_id.0),
-            RecordVersion::Belief { lineage_id, revision_id } => sqlx::query_scalar(
+            RecordVersion::Belief {
+                lineage_id,
+                revision_id,
+            } => sqlx::query_scalar(
                 "SELECT 1 FROM beliefs WHERE lineage_id = $1 AND id = $2 \
                  AND upper_inf(transaction_time) FOR SHARE",
             )
@@ -307,7 +309,9 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
     for ev in e.events {
         // Skip the creation event of a proposal that was deduplicated away.
         if ev.event_type == cs_core::CognitiveEventType::ProposalCreated
-            && proposals.iter().any(|p| p.id.0 == ev.stream_id.0 && !inserted.contains(&p.id))
+            && proposals
+                .iter()
+                .any(|p| p.id.0 == ev.stream_id.0 && !inserted.contains(&p.id))
         {
             continue;
         }
@@ -446,7 +450,13 @@ impl PgStore {
             .iter()
             .map(|r| {
                 let job = job_from_row(r)?;
-                Ok(ClaimedJob { lease: Lease { job_id: job.id, generation: job.lease_generation }, job })
+                Ok(ClaimedJob {
+                    lease: Lease {
+                        job_id: job.id,
+                        generation: job.lease_generation,
+                    },
+                    job,
+                })
             })
             .collect::<Result<_>>()?;
         out.sort_by_key(|c| (c.job.available_at, c.job.created_at, c.job.id));
@@ -484,7 +494,9 @@ impl PgStore {
                 &mut tx,
                 lease.job_id,
                 now,
-                &JobOutcome::Succeeded { result: serde_json::json!({ "discarded": reason }) },
+                &JobOutcome::Succeeded {
+                    result: serde_json::json!({ "discarded": reason }),
+                },
             )
             .await?;
             tx.commit().await.map_err(db_err)?;
@@ -492,7 +504,10 @@ impl PgStore {
         }
         // Effects run under a savepoint: a constraint violation must not
         // abort the transaction that records the job's fate.
-        sqlx::query("SAVEPOINT apply_effects").execute(&mut *tx).await.map_err(db_err)?;
+        sqlx::query("SAVEPOINT apply_effects")
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
         let attempt = match apply_effects(&mut tx, effects).await {
             Ok(()) => outcome,
             Err(e) => {
@@ -501,7 +516,11 @@ impl PgStore {
                     .await
                     .map_err(db_err)?;
                 JobOutcome::DeadLetter {
-                    error: JobError { permanent: true, message: format!("effects rejected: {e}"), attempt: 0 },
+                    error: JobError {
+                        permanent: true,
+                        message: format!("effects rejected: {e}"),
+                        attempt: 0,
+                    },
                 }
             }
         };
@@ -529,11 +548,13 @@ impl PgStore {
     }
 
     pub(crate) async fn m3_get_job(&self, id: JobId) -> Result<Option<Job>> {
-        let row = sqlx::query(&format!("SELECT {JOB_COLS} FROM processing_jobs WHERE id = $1"))
-            .bind(id.0)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(db_err)?;
+        let row = sqlx::query(&format!(
+            "SELECT {JOB_COLS} FROM processing_jobs WHERE id = $1"
+        ))
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
         row.as_ref().map(job_from_row).transpose()
     }
 
@@ -597,7 +618,10 @@ impl PgStore {
         Ok(event)
     }
 
-    pub(crate) async fn m3_get_observation(&self, id: ObservationId) -> Result<Option<Observation>> {
+    pub(crate) async fn m3_get_observation(
+        &self,
+        id: ObservationId,
+    ) -> Result<Option<Observation>> {
         let row = sqlx::query(
             "SELECT id, tenant_id, owner_user_id, agent_id, project_id, conversation_id, \
              visibility::text AS visibility, content, content_hash, media_type, source, actor, \
@@ -673,12 +697,17 @@ impl PgStore {
         Ok(event)
     }
 
-    pub(crate) async fn m3_get_proposal(&self, id: ProposalId) -> Result<Option<ResolutionProposal>> {
-        let row = sqlx::query(&format!("SELECT {PROPOSAL_COLS} FROM resolution_proposals WHERE id = $1"))
-            .bind(id.0)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(db_err)?;
+    pub(crate) async fn m3_get_proposal(
+        &self,
+        id: ProposalId,
+    ) -> Result<Option<ResolutionProposal>> {
+        let row = sqlx::query(&format!(
+            "SELECT {PROPOSAL_COLS} FROM resolution_proposals WHERE id = $1"
+        ))
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
         row.as_ref().map(proposal_from_row).transpose()
     }
 
@@ -759,7 +788,11 @@ impl PgStore {
         Ok(proposal)
     }
 
-    pub(crate) async fn m3_purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>> {
+    pub(crate) async fn m3_purged_at(
+        &self,
+        kind: PurgeKind,
+        id: Uuid,
+    ) -> Result<Option<OffsetDateTime>> {
         sqlx::query_scalar("SELECT purged_at FROM purge_ledger WHERE kind = $1 AND record_id = $2")
             .bind(kind.as_str())
             .bind(id)

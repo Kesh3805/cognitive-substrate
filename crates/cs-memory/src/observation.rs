@@ -6,9 +6,7 @@
 //! the same extractor version is a no-op and a new version never overwrites
 //! an older result.
 
-use cs_core::{
-    ActorRef, Error, MemoryId, ObservationId, Result, Scope, SourceRef,
-};
+use cs_core::{ActorRef, Error, MemoryId, ObservationId, Result, Scope, SourceRef};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -41,7 +39,9 @@ impl Observation {
     pub fn validate(&self) -> Result<()> {
         self.scope.validate()?;
         match &self.content {
-            Some(c) if c.trim().is_empty() => Err(Error::validation("observation content is empty")),
+            Some(c) if c.trim().is_empty() => {
+                Err(Error::validation("observation content is empty"))
+            }
             Some(c) if c.len() > MAX_OBSERVATION_BYTES => {
                 Err(Error::validation("observation content exceeds 64 KiB"))
             }

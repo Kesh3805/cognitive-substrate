@@ -16,9 +16,9 @@ use cs_core::{
     temporal::truncate_micros,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, ClaimedJob, EmbeddingRecord, Evidence,
-    ExtractionRun, Job, JobOutcome, JobStatus, Lease, MemoryRecord, Observation,
-    ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
+    Belief, BeliefDependency, BeliefEvidence, ClaimedJob, EmbeddingRecord, Evidence, ExtractionRun,
+    Job, JobOutcome, JobStatus, Lease, MemoryRecord, Observation, ProposalDecision, ProposalStatus,
+    RecallTrace, RecordVersion, ResolutionProposal,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -225,7 +225,10 @@ impl CognitiveStore for InMemoryStore {
         for r in revisions {
             s.embeddings.remove(&r);
         }
-        s.purges.insert((PurgeKind::Memory.as_str(), id.0), truncate_micros(OffsetDateTime::now_utc()));
+        s.purges.insert(
+            (PurgeKind::Memory.as_str(), id.0),
+            truncate_micros(OffsetDateTime::now_utc()),
+        );
         Ok(s.append(event))
     }
 
@@ -492,7 +495,10 @@ impl CognitiveStore for InMemoryStore {
                 j.lease_until = Some(c.lease_until);
                 j.updated_at = c.now;
                 ClaimedJob {
-                    lease: Lease { job_id: j.id, generation: j.lease_generation },
+                    lease: Lease {
+                        job_id: j.id,
+                        generation: j.lease_generation,
+                    },
                     job: j.clone(),
                 }
             })
@@ -521,7 +527,9 @@ impl CognitiveStore for InMemoryStore {
             apply_outcome(
                 job,
                 now,
-                JobOutcome::Succeeded { result: serde_json::json!({ "discarded": reason }) },
+                JobOutcome::Succeeded {
+                    result: serde_json::json!({ "discarded": reason }),
+                },
             );
             return Ok(job.clone());
         }
@@ -671,7 +679,8 @@ impl CognitiveStore for InMemoryStore {
         for m in derived {
             s.purges.insert((PurgeKind::Memory.as_str(), m.0), now);
         }
-        s.purges.insert((PurgeKind::Observation.as_str(), id.0), now);
+        s.purges
+            .insert((PurgeKind::Observation.as_str(), id.0), now);
         Ok(s.append(event))
     }
 
@@ -733,7 +742,8 @@ impl CognitiveStore for InMemoryStore {
                 old.superseded_by = Some(b.next.id);
             }
             let next_id = b.next.id;
-            s.belief_evidence.extend(b.evidence.into_iter().map(|e| (next_id, e)));
+            s.belief_evidence
+                .extend(b.evidence.into_iter().map(|e| (next_id, e)));
             s.dependencies.extend(b.dependencies);
             s.beliefs.push(b.next);
         }
@@ -836,7 +846,10 @@ fn precondition_failure(s: &State, effects: &JobEffects) -> Option<&'static str>
                 .memories
                 .iter()
                 .any(|m| m.id == id && m.revision_id == revision_id && m.is_current()),
-            RecordVersion::Belief { lineage_id, revision_id } => s
+            RecordVersion::Belief {
+                lineage_id,
+                revision_id,
+            } => s
                 .beliefs
                 .iter()
                 .any(|b| b.lineage_id == lineage_id && b.id == revision_id && b.is_current()),
@@ -850,7 +863,9 @@ fn precondition_failure(s: &State, effects: &JobEffects) -> Option<&'static str>
 
 fn check_memory_supersede(s: &State, m: &MemorySupersede) -> Result<()> {
     match s.memories.iter().find(|x| x.revision_id == m.current) {
-        Some(old) if old.is_current() && m.closed_at > old.temporal.transaction_time.start => Ok(()),
+        Some(old) if old.is_current() && m.closed_at > old.temporal.transaction_time.start => {
+            Ok(())
+        }
         Some(_) => Err(Error::conflict("revision is no longer current")),
         None => Err(Error::not_found("memory revision", m.current)),
     }
@@ -858,7 +873,9 @@ fn check_memory_supersede(s: &State, m: &MemorySupersede) -> Result<()> {
 
 fn check_belief_supersede(s: &State, b: &BeliefSupersede) -> Result<()> {
     match s.beliefs.iter().find(|x| x.id == b.current) {
-        Some(old) if old.is_current() && b.closed_at > old.temporal.transaction_time.start => Ok(()),
+        Some(old) if old.is_current() && b.closed_at > old.temporal.transaction_time.start => {
+            Ok(())
+        }
         Some(_) => Err(Error::conflict("belief revision is no longer current")),
         None => Err(Error::not_found("belief", b.current)),
     }

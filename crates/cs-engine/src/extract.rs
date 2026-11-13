@@ -7,8 +7,7 @@
 use async_trait::async_trait;
 use cs_memory::{
     ExtractedCandidate, MemoryContent, Observation, ProceduralMemory, RelationalMemory,
-    SemanticMemory, TemporalChangeKind, TemporalMemory, belief::normalize,
-    record::CapabilityStage,
+    SemanticMemory, TemporalChangeKind, TemporalMemory, belief::normalize, record::CapabilityStage,
 };
 
 /// Why an extraction failed, which decides whether the job is retried.
@@ -71,26 +70,110 @@ const INTERROGATIVE_STARTS: &[&str] = &[
     "would", "do", "does", "did", "will", "shall",
 ];
 const VETO_PHRASES: &[&str] = &[
-    "maybe", "might", "perhaps", "probably", "possibly", "potentially", "i think", "i guess",
-    "not sure", "could be", "seems", "apparently", "if", "unless", "assuming", "suppose",
-    "whether", "todo", "fixme", "hopefully",
+    "maybe",
+    "might",
+    "perhaps",
+    "probably",
+    "possibly",
+    "potentially",
+    "i think",
+    "i guess",
+    "not sure",
+    "could be",
+    "seems",
+    "apparently",
+    "if",
+    "unless",
+    "assuming",
+    "suppose",
+    "whether",
+    "todo",
+    "fixme",
+    "hopefully",
 ];
 const NEGATIONS: &[&str] = &["not", "never", "no", "none", "without", "instead", "cannot"];
 const PRONOUNS: &[&str] = &[
-    "i", "we", "you", "he", "she", "it", "they", "this", "that", "these", "those", "there",
-    "here", "who", "which", "what", "something", "nothing", "everything", "one",
+    "i",
+    "we",
+    "you",
+    "he",
+    "she",
+    "it",
+    "they",
+    "this",
+    "that",
+    "these",
+    "those",
+    "there",
+    "here",
+    "who",
+    "which",
+    "what",
+    "something",
+    "nothing",
+    "everything",
+    "one",
 ];
 const META_NOUNS: &[&str] = &[
-    "issue", "problem", "reason", "thing", "fact", "point", "idea", "goal", "question",
-    "answer", "way", "case", "result", "example", "note", "fix", "workaround", "error", "bug",
-    "plan", "difference", "main thing", "trick",
+    "issue",
+    "problem",
+    "reason",
+    "thing",
+    "fact",
+    "point",
+    "idea",
+    "goal",
+    "question",
+    "answer",
+    "way",
+    "case",
+    "result",
+    "example",
+    "note",
+    "fix",
+    "workaround",
+    "error",
+    "bug",
+    "plan",
+    "difference",
+    "main thing",
+    "trick",
 ];
 const EVALUATIVE: &[&str] = &[
-    "good", "bad", "slow", "fast", "broken", "ready", "done", "fine", "ok", "okay", "true",
-    "false", "null", "empty", "great", "nice", "weird", "hard", "easy", "better", "worse",
-    "high", "low", "important", "annoying",
+    "good",
+    "bad",
+    "slow",
+    "fast",
+    "broken",
+    "ready",
+    "done",
+    "fine",
+    "ok",
+    "okay",
+    "true",
+    "false",
+    "null",
+    "empty",
+    "great",
+    "nice",
+    "weird",
+    "hard",
+    "easy",
+    "better",
+    "worse",
+    "high",
+    "low",
+    "important",
+    "annoying",
 ];
-const CAUSAL: &[&str] = &["because", "since", "due to", "to avoid", "in order to", "so that"];
+const CAUSAL: &[&str] = &[
+    "because",
+    "since",
+    "due to",
+    "to avoid",
+    "in order to",
+    "so that",
+];
 
 fn words(s: &str) -> Vec<&str> {
     s.split_whitespace().collect()
@@ -163,13 +246,13 @@ fn is_anchor(token: &str) -> bool {
 fn anchored(sentence: &str, phrase: &str) -> bool {
     let first = sentence.split_whitespace().next().unwrap_or_default();
     phrase.split_whitespace().enumerate().any(|(i, w)| {
-        let at_start = i == 0 && sentence.trim_start().starts_with(phrase.trim_start()) && w == first;
+        let at_start =
+            i == 0 && sentence.trim_start().starts_with(phrase.trim_start()) && w == first;
         if at_start {
             // A sentence-initial word counts only for identifier syntax,
             // acronyms or inner capitals, not mere capitalisation.
             let t = w.trim_matches(|c: char| !c.is_alphanumeric());
-            t.contains(['_', '-', '/'])
-                || (t.chars().filter(|c| c.is_uppercase()).count() >= 2)
+            t.contains(['_', '-', '/']) || (t.chars().filter(|c| c.is_uppercase()).count() >= 2)
         } else {
             is_anchor(w)
         }
@@ -241,9 +324,15 @@ fn vetoed(sentence: &str) -> bool {
         .collect();
     let padded = format!(" {} ", tokens.join(" "));
     sentence.ends_with('?')
-        || tokens.first().is_some_and(|t| INTERROGATIVE_STARTS.contains(&t.as_str()))
-        || VETO_PHRASES.iter().any(|p| padded.contains(&format!(" {p} ")))
-        || tokens.iter().any(|t| NEGATIONS.contains(&t.as_str()) || t.ends_with("n't"))
+        || tokens
+            .first()
+            .is_some_and(|t| INTERROGATIVE_STARTS.contains(&t.as_str()))
+        || VETO_PHRASES
+            .iter()
+            .any(|p| padded.contains(&format!(" {p} ")))
+        || tokens
+            .iter()
+            .any(|t| NEGATIONS.contains(&t.as_str()) || t.ends_with("n't"))
         || !(3..=40).contains(&tokens.len())
 }
 
@@ -258,7 +347,11 @@ fn candidate(content: MemoryContent, confidence: f64, rule: &str) -> ExtractedCa
 /// Split "A, B and C" into items, only if every item is a valid subject.
 fn coordination(o: &str) -> Vec<String> {
     let normalized = o.replace(", and ", ", ").replace(" and ", ", ");
-    let parts: Vec<String> = normalized.split(',').map(clean).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<String> = normalized
+        .split(',')
+        .map(clean)
+        .filter(|p| !p.is_empty())
+        .collect();
     if parts.len() > 1 && parts.iter().all(|p| subject(p).is_some()) {
         parts
     } else {
@@ -290,7 +383,9 @@ fn extract_sentence(sentence: &str) -> Vec<ExtractedCandidate> {
     }
 
     // Decisions: explicit marker, or "decided to" with a stated rationale.
-    let explicit = ["we decided to ", "decision: ", "adr: "].iter().any(|m| lower.contains(m));
+    let explicit = ["we decided to ", "decision: ", "adr: "]
+        .iter()
+        .any(|m| lower.contains(m));
     let reasoned = lower.contains("decided to ") && CAUSAL.iter().any(|c| lower.contains(c));
     if explicit || reasoned {
         return vec![candidate(
@@ -360,9 +455,14 @@ fn extract_sentence(sentence: &str) -> Vec<ExtractedCandidate> {
         if let Some((s, o)) = split_on(sentence, &lower, marker)
             && let (Some(subj), Some(obj)) = (subject(s), object(o))
         {
-            let first = obj.split_whitespace().next().unwrap_or_default().to_lowercase();
+            let first = obj
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_lowercase();
             let progressive = first.ends_with("ing");
-            let evaluative = words(&obj).len() == 1 && EVALUATIVE.contains(&obj.to_lowercase().as_str());
+            let evaluative =
+                words(&obj).len() == 1 && EVALUATIVE.contains(&obj.to_lowercase().as_str());
             if progressive || evaluative || !(anchored(sentence, s) || anchored(sentence, o)) {
                 return Vec::new();
             }
@@ -526,17 +626,33 @@ mod tests {
             "If the queue is empty we sleep.",
             "TODO: the API uses gRPC.",
         ] {
-            assert!(extract_rules(noise).is_empty(), "{noise} -> {:?}", extract_rules(noise));
+            assert!(
+                extract_rules(noise).is_empty(),
+                "{noise} -> {:?}",
+                extract_rules(noise)
+            );
         }
     }
 
     #[test]
     fn relations_changes_decisions() {
-        assert_eq!(domains("The API depends on the auth service."), vec!["relational"]);
-        assert_eq!(domains("Our deploy target changed from Heroku to Fly."), vec!["temporal"]);
-        assert_eq!(domains("We decided to freeze deploys on Fridays."), vec!["semantic"]);
+        assert_eq!(
+            domains("The API depends on the auth service."),
+            vec!["relational"]
+        );
+        assert_eq!(
+            domains("Our deploy target changed from Heroku to Fly."),
+            vec!["temporal"]
+        );
+        assert_eq!(
+            domains("We decided to freeze deploys on Fridays."),
+            vec!["semantic"]
+        );
         assert!(domains("I decided to check the logs.").is_empty());
-        assert_eq!(domains("I decided to pin sqlx because 0.9 breaks offline mode."), vec!["semantic"]);
+        assert_eq!(
+            domains("I decided to pin sqlx because 0.9 breaks offline mode."),
+            vec!["semantic"]
+        );
         assert!(domains("The value changed from 5 to 5.").is_empty());
     }
 
@@ -548,13 +664,15 @@ mod tests {
 
     #[test]
     fn code_blocks_quotes_and_urls_are_ignored() {
-        let text = "```\nThe Engine is Broken.\n```\n> The API uses SOAP.\nSee https://example.com/X-Y.";
+        let text =
+            "```\nThe Engine is Broken.\n```\n> The API uses SOAP.\nSee https://example.com/X-Y.";
         assert!(extract_rules(text).is_empty(), "{:?}", extract_rules(text));
     }
 
     #[test]
     fn numbered_steps_become_one_procedure() {
-        let text = "Release process:\n1. Bump the version\n2. Tag the commit\n3. Publish the crate\n";
+        let text =
+            "Release process:\n1. Bump the version\n2. Tag the commit\n3. Publish the crate\n";
         let out = extract_rules(text);
         let MemoryContent::Procedural(p) = &out[0].content else {
             panic!("{out:?}")

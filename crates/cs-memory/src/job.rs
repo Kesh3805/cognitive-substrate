@@ -47,7 +47,12 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
-    pub const ALL: [Self; 4] = [Self::Queued, Self::Leased, Self::Succeeded, Self::DeadLettered];
+    pub const ALL: [Self; 4] = [
+        Self::Queued,
+        Self::Leased,
+        Self::Succeeded,
+        Self::DeadLettered,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -102,7 +107,9 @@ pub struct Job {
 impl Job {
     pub fn validate(&self) -> Result<()> {
         if self.principal.tenant_id != self.tenant_id {
-            return Err(Error::validation("job principal must belong to the job tenant"));
+            return Err(Error::validation(
+                "job principal must belong to the job tenant",
+            ));
         }
         if self.max_attempts == 0 || self.max_attempts > 100 {
             return Err(Error::validation("max_attempts must be in 1..=100"));
@@ -148,11 +155,18 @@ pub struct ClaimedJob {
 /// How a failed attempt should be recorded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobOutcome {
-    Succeeded { result: serde_json::Value },
+    Succeeded {
+        result: serde_json::Value,
+    },
     /// Requeue to run again no earlier than `at`.
-    Retry { at: OffsetDateTime, error: JobError },
+    Retry {
+        at: OffsetDateTime,
+        error: JobError,
+    },
     /// Give up permanently.
-    DeadLetter { error: JobError },
+    DeadLetter {
+        error: JobError,
+    },
 }
 
 /// Bounded exponential backoff with deterministic jitter.
@@ -183,10 +197,13 @@ impl RetryPolicy {
     /// `jitter` is a value in `[0, 1)` supplied by the caller, which keeps
     /// the computation deterministic and testable.
     pub fn delay(&self, attempt: u32, jitter: f64) -> Duration {
-        let exp = self.multiplier.powi(i32::try_from(attempt.saturating_sub(1)).unwrap_or(i32::MAX));
+        let exp = self
+            .multiplier
+            .powi(i32::try_from(attempt.saturating_sub(1)).unwrap_or(i32::MAX));
         let base = (self.initial_delay_ms as f64 * exp).min(self.max_delay_ms as f64);
         let spread = base * self.jitter_fraction.clamp(0.0, 0.99);
-        let ms = (base - spread + 2.0 * spread * jitter.clamp(0.0, 1.0)).min(self.max_delay_ms as f64);
+        let ms =
+            (base - spread + 2.0 * spread * jitter.clamp(0.0, 1.0)).min(self.max_delay_ms as f64);
         Duration::milliseconds(ms.max(0.0) as i64)
     }
 }
@@ -207,7 +224,10 @@ mod tests {
 
     #[test]
     fn backoff_grows_and_caps() {
-        let p = RetryPolicy { jitter_fraction: 0.0, ..RetryPolicy::default() };
+        let p = RetryPolicy {
+            jitter_fraction: 0.0,
+            ..RetryPolicy::default()
+        };
         assert_eq!(p.delay(1, 0.5), Duration::seconds(1));
         assert_eq!(p.delay(3, 0.5), Duration::seconds(4));
         assert_eq!(p.delay(30, 0.5), Duration::seconds(300));

@@ -6,9 +6,9 @@
 //! lost its lease can never apply effects.
 
 use cs_core::{
-    AccessContext, ActorRef, BeliefId, Bitemporal, CognitiveEventType, Error,
-    EvidenceId, ExtractionInfo, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
-    Provenance, Result, Scope, SourceRef, TimeInterval, temporal::truncate_micros,
+    AccessContext, ActorRef, BeliefId, Bitemporal, CognitiveEventType, Error, EvidenceId,
+    ExtractionInfo, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, Provenance,
+    Result, Scope, SourceRef, TimeInterval, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefStatus, ExtractionRun, Job, JobKind, JobStatus, MemoryDomain, MemoryRecord,
@@ -18,8 +18,8 @@ use cs_memory::{
 };
 use cs_policy::{ProposalDraft, ResolutionConfig, resolve::DETECTOR_VERSION};
 use cs_storage::{
-    BeliefQuery, BeliefSupersede, IdempotencyKey, JobEffects, MemoryQuery, MemorySupersede, ProposalMutations,
-    PurgeKind,
+    BeliefQuery, BeliefSupersede, IdempotencyKey, JobEffects, MemoryQuery, MemorySupersede,
+    ProposalMutations, PurgeKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -62,22 +62,34 @@ pub struct HandlerError {
 
 impl HandlerError {
     fn permanent(m: impl Into<String>) -> Self {
-        Self { permanent: true, message: m.into() }
+        Self {
+            permanent: true,
+            message: m.into(),
+        }
     }
 }
 
 impl From<Error> for HandlerError {
     fn from(e: Error) -> Self {
         // Storage failures may be transient; everything else is not.
-        Self { permanent: !matches!(e, Error::Storage(_)), message: e.to_string() }
+        Self {
+            permanent: !matches!(e, Error::Storage(_)),
+            message: e.to_string(),
+        }
     }
 }
 
 impl From<ExtractError> for HandlerError {
     fn from(e: ExtractError) -> Self {
         match e {
-            ExtractError::Retryable(m) => Self { permanent: false, message: m },
-            ExtractError::Permanent(m) => Self { permanent: true, message: m },
+            ExtractError::Retryable(m) => Self {
+                permanent: false,
+                message: m,
+            },
+            ExtractError::Permanent(m) => Self {
+                permanent: true,
+                message: m,
+            },
         }
     }
 }
@@ -119,8 +131,18 @@ impl CognitiveEngine {
     }
 
     /// A perception job for an observation (used for explicit reprocessing).
-    pub fn new_perceive_job(&self, ctx: &AccessContext, id: ObservationId, dedupe_key: &str) -> Job {
-        self.new_job(ctx, JobKind::Perceive, dedupe_key.to_owned(), json!({ "observation_id": id }))
+    pub fn new_perceive_job(
+        &self,
+        ctx: &AccessContext,
+        id: ObservationId,
+        dedupe_key: &str,
+    ) -> Job {
+        self.new_job(
+            ctx,
+            JobKind::Perceive,
+            dedupe_key.to_owned(),
+            json!({ "observation_id": id }),
+        )
     }
 
     // ======================================================================
@@ -142,8 +164,10 @@ impl CognitiveEngine {
             if key.is_empty() || key.len() > 255 {
                 return Err(Error::validation("idempotency_key must be 1..=255 bytes"));
             }
-            if let Some(existing) =
-                self.store.idempotent_lookup(ctx.tenant_id, "observation", key).await?
+            if let Some(existing) = self
+                .store
+                .idempotent_lookup(ctx.tenant_id, "observation", key)
+                .await?
             {
                 return self.get_observation(ctx, ObservationId(existing)).await;
             }
@@ -186,18 +210,30 @@ impl CognitiveEngine {
             kind: "observation",
             key,
         });
-        match self.store.insert_observation(&observation, &job, key, event).await {
+        match self
+            .store
+            .insert_observation(&observation, &job, key, event)
+            .await
+        {
             Ok(_) => {}
             Err(Error::Conflict(_)) if key.is_some() => {
                 let k = key.map(|k| k.key).unwrap_or_default();
-                if let Some(id) = self.store.idempotent_lookup(ctx.tenant_id, "observation", k).await? {
+                if let Some(id) = self
+                    .store
+                    .idempotent_lookup(ctx.tenant_id, "observation", k)
+                    .await?
+                {
                     return self.get_observation(ctx, ObservationId(id)).await;
                 }
                 return Err(Error::conflict("concurrent observation submit"));
             }
             Err(e) => return Err(e),
         }
-        Ok(ObservationView { observation, job: Some(job), extraction_runs: Vec::new() })
+        Ok(ObservationView {
+            observation,
+            job: Some(job),
+            extraction_runs: Vec::new(),
+        })
     }
 
     pub async fn get_observation(
@@ -213,7 +249,9 @@ impl CognitiveEngine {
             .ok_or_else(|| Error::not_found("observation", id))?;
         let jobs = self.store.list_jobs(ctx.tenant_id, None, 10_000).await?;
         let key = format!("observation:{id}");
-        let job = jobs.into_iter().find(|j| j.kind == JobKind::Perceive && j.dedupe_key == key);
+        let job = jobs
+            .into_iter()
+            .find(|j| j.kind == JobKind::Perceive && j.dedupe_key == key);
         Ok(ObservationView {
             extraction_runs: self.store.extraction_runs(id).await?,
             observation,
@@ -227,13 +265,21 @@ impl CognitiveEngine {
             .map_err(|e| HandlerError::permanent(format!("bad payload: {e}")))?;
         let ctx = &job.principal;
         let Some(observation) = self.store.get_observation(id).await? else {
-            return Ok((JobEffects::default(), json!({ "skipped": "observation_missing" })));
+            return Ok((
+                JobEffects::default(),
+                json!({ "skipped": "observation_missing" }),
+            ));
         };
         if !ctx.can_read(&observation.scope) {
-            return Err(HandlerError::permanent("principal can no longer read the observation"));
+            return Err(HandlerError::permanent(
+                "principal can no longer read the observation",
+            ));
         }
         if observation.is_purged() {
-            return Ok((JobEffects::default(), json!({ "skipped": "observation_purged" })));
+            return Ok((
+                JobEffects::default(),
+                json!({ "skipped": "observation_purged" }),
+            ));
         }
         // Idempotent per (observation, extractor, version).
         let runs = self.store.extraction_runs(id).await?;
@@ -257,7 +303,9 @@ impl CognitiveEngine {
         let mut ids = Vec::new();
         for c in extracted {
             if c.content.domain() == MemoryDomain::Working {
-                return Err(HandlerError::permanent("extractors may not produce working memory"));
+                return Err(HandlerError::permanent(
+                    "extractors may not produce working memory",
+                ));
             }
             let record = MemoryRecord {
                 id: MemoryId::new_v7(),
@@ -267,7 +315,9 @@ impl CognitiveEngine {
                 content: c.content,
                 provenance: Provenance {
                     source: SourceRef::Observation { observation_id: id },
-                    actor: ActorRef::System { component: format!("perception:{}", extractor.name()) },
+                    actor: ActorRef::System {
+                        component: format!("perception:{}", extractor.name()),
+                    },
                     observed_at: observation.observed_at,
                     recorded_at: now,
                     extraction: Some(ExtractionInfo {
@@ -349,7 +399,11 @@ impl CognitiveEngine {
     // ======================================================================
 
     /// Queue resolution for a memory's current revision.
-    pub async fn request_memory_resolution(&self, ctx: &AccessContext, id: MemoryId) -> Result<Job> {
+    pub async fn request_memory_resolution(
+        &self,
+        ctx: &AccessContext,
+        id: MemoryId,
+    ) -> Result<Job> {
         let m = self.get_memory(ctx, id).await?;
         let job = self.new_job(
             ctx,
@@ -361,7 +415,11 @@ impl CognitiveEngine {
     }
 
     /// Queue resolution for a belief's current revision.
-    pub async fn request_belief_resolution(&self, ctx: &AccessContext, id: BeliefId) -> Result<Job> {
+    pub async fn request_belief_resolution(
+        &self,
+        ctx: &AccessContext,
+        id: BeliefId,
+    ) -> Result<Job> {
         let b = self.current_of(ctx, id).await?;
         let job = self.new_job(
             ctx,
@@ -397,7 +455,10 @@ impl CognitiveEngine {
             status: ProposalStatus::Pending,
             fingerprint: fingerprint(d.kind, &d.based_on),
             operation: d.operation,
-            rationale: ResolutionRationale { explanation: d.explanation, signals: d.signals },
+            rationale: ResolutionRationale {
+                explanation: d.explanation,
+                signals: d.signals,
+            },
             detection: cs_memory::DetectionMetadata {
                 detector_version: DETECTOR_VERSION.to_owned(),
                 score: d.score,
@@ -415,98 +476,116 @@ impl CognitiveEngine {
     pub(crate) async fn resolve(&self, job: &Job) -> HandlerResult {
         let ctx = &job.principal;
         let now = self.now();
-        let drafts: Vec<(Scope, ProposalDraft)> =
-            if let Some(v) = job.payload.get("memory_id") {
-                let id: MemoryId = serde_json::from_value(v.clone())
-                    .map_err(|e| HandlerError::permanent(format!("bad payload: {e}")))?;
-                let Some(target) =
-                    self.store.current_memory(id).await?.filter(|m| ctx.can_read(&m.scope))
-                else {
-                    return Ok((JobEffects::default(), json!({ "skipped": "memory_missing" })));
-                };
-                let model = self
-                    .embedder
-                    .as_ref()
-                    .map(|e| (e.model_name().to_owned(), e.model_version().to_owned()));
-                // Compare across all valid time: the detector itself decides
-                // overlap (duplicates, contradictions) or ordering
-                // (supersession).
-                let window = self
-                    .store
-                    .query_memories(&MemoryQuery {
-                        access: ctx.clone(),
-                        domains: vec![target.domain()],
-                        statuses: vec![MemoryStatus::Active, MemoryStatus::Candidate],
-                        scope_filter: None,
-                        as_of_valid_time: now,
-                        as_of_transaction_time: now,
-                        include_superseded: false,
-                        ignore_valid_time: true,
-                        embedding_model: model,
-                        limit: self.processing.resolution_window,
-                    })
-                    .await?;
-                // The target's own embedding, if stored for the model.
-                let target_embedding =
-                    self.embed(&target).map(|e| e.vector).filter(|_| self.embedder.is_some());
-                let others: Vec<cs_policy::resolve::Candidate<'_>> = window
-                    .iter()
-                    .map(|s| cs_policy::resolve::Candidate {
-                        record: &s.record,
-                        embedding: s.embedding.as_deref(),
-                    })
-                    .collect();                let model_key = self
-                    .embedder
-                    .as_ref()
-                    .map(|e| format!("{}@{}", e.model_name(), e.model_version()));
-                cs_policy::detect_memory(
-                    &self.processing.resolution,
-                    model_key.as_deref(),
-                    cs_policy::resolve::Candidate {
-                        record: &target,
-                        embedding: target_embedding.as_deref(),
-                    },
-                    &others,
-                )
+        let drafts: Vec<(Scope, ProposalDraft)> = if let Some(v) = job.payload.get("memory_id") {
+            let id: MemoryId = serde_json::from_value(v.clone())
+                .map_err(|e| HandlerError::permanent(format!("bad payload: {e}")))?;
+            let Some(target) = self
+                .store
+                .current_memory(id)
+                .await?
+                .filter(|m| ctx.can_read(&m.scope))
+            else {
+                return Ok((
+                    JobEffects::default(),
+                    json!({ "skipped": "memory_missing" }),
+                ));
+            };
+            let model = self
+                .embedder
+                .as_ref()
+                .map(|e| (e.model_name().to_owned(), e.model_version().to_owned()));
+            // Compare across all valid time: the detector itself decides
+            // overlap (duplicates, contradictions) or ordering
+            // (supersession).
+            let window = self
+                .store
+                .query_memories(&MemoryQuery {
+                    access: ctx.clone(),
+                    domains: vec![target.domain()],
+                    statuses: vec![MemoryStatus::Active, MemoryStatus::Candidate],
+                    scope_filter: None,
+                    as_of_valid_time: now,
+                    as_of_transaction_time: now,
+                    include_superseded: false,
+                    ignore_valid_time: true,
+                    embedding_model: model,
+                    limit: self.processing.resolution_window,
+                })
+                .await?;
+            // The target's own embedding, if stored for the model.
+            let target_embedding = self
+                .embed(&target)
+                .map(|e| e.vector)
+                .filter(|_| self.embedder.is_some());
+            let others: Vec<cs_policy::resolve::Candidate<'_>> = window
+                .iter()
+                .map(|s| cs_policy::resolve::Candidate {
+                    record: &s.record,
+                    embedding: s.embedding.as_deref(),
+                })
+                .collect();
+            let model_key = self
+                .embedder
+                .as_ref()
+                .map(|e| format!("{}@{}", e.model_name(), e.model_version()));
+            cs_policy::detect_memory(
+                &self.processing.resolution,
+                model_key.as_deref(),
+                cs_policy::resolve::Candidate {
+                    record: &target,
+                    embedding: target_embedding.as_deref(),
+                },
+                &others,
+            )
+            .into_iter()
+            .map(|d| (target.scope.clone(), d))
+            .collect()
+        } else if let Some(v) = job.payload.get("belief_id") {
+            let lineage: BeliefId = serde_json::from_value(v.clone())
+                .map_err(|e| HandlerError::permanent(format!("bad payload: {e}")))?;
+            let Some(target) = self
+                .store
+                .current_belief(lineage)
+                .await?
+                .filter(|b| ctx.can_read(&b.scope))
+            else {
+                return Ok((
+                    JobEffects::default(),
+                    json!({ "skipped": "belief_missing" }),
+                ));
+            };
+            let others = self
+                .store
+                .query_beliefs(&BeliefQuery {
+                    access: ctx.clone(),
+                    statuses: vec![BeliefStatus::Active, BeliefStatus::Disputed],
+                    scope_filter: None,
+                    as_of_valid_time: now,
+                    as_of_transaction_time: now,
+                    include_superseded: false,
+                    ignore_valid_time: true,
+                    limit: self.processing.resolution_window,
+                })
+                .await?;
+            let disputed = |v: &RecordVersion| {
+                others.iter().chain(std::iter::once(&target)).any(|b| {
+                    *v == RecordVersion::Belief {
+                        lineage_id: b.lineage_id,
+                        revision_id: b.id,
+                    } && b.status == BeliefStatus::Disputed
+                })
+            };
+            cs_policy::detect_beliefs(&target, &others)
                 .into_iter()
+                // Nothing to propose if every belief is already disputed.
+                .filter(|d| !d.based_on.iter().all(disputed))
                 .map(|d| (target.scope.clone(), d))
                 .collect()
-            } else if let Some(v) = job.payload.get("belief_id") {
-                let lineage: BeliefId = serde_json::from_value(v.clone())
-                    .map_err(|e| HandlerError::permanent(format!("bad payload: {e}")))?;
-                let Some(target) =
-                    self.store.current_belief(lineage).await?.filter(|b| ctx.can_read(&b.scope))
-                else {
-                    return Ok((JobEffects::default(), json!({ "skipped": "belief_missing" })));
-                };
-                let others = self
-                    .store
-                    .query_beliefs(&BeliefQuery {
-                        access: ctx.clone(),
-                        statuses: vec![BeliefStatus::Active, BeliefStatus::Disputed],
-                        scope_filter: None,
-                        as_of_valid_time: now,
-                        as_of_transaction_time: now,
-                        include_superseded: false,
-                        ignore_valid_time: true,
-                        limit: self.processing.resolution_window,
-                    })
-                    .await?;
-                let disputed = |v: &RecordVersion| {
-                    others.iter().chain(std::iter::once(&target)).any(|b| {
-                        *v == RecordVersion::Belief { lineage_id: b.lineage_id, revision_id: b.id }
-                            && b.status == BeliefStatus::Disputed
-                    })
-                };
-                cs_policy::detect_beliefs(&target, &others)
-                    .into_iter()
-                    // Nothing to propose if every belief is already disputed.
-                    .filter(|d| !d.based_on.iter().all(disputed))
-                    .map(|d| (target.scope.clone(), d))
-                    .collect()
-            } else {
-                return Err(HandlerError::permanent("resolve job needs memory_id or belief_id"));
-            };
+        } else {
+            return Err(HandlerError::permanent(
+                "resolve job needs memory_id or belief_id",
+            ));
+        };
 
         let mut effects = JobEffects::default();
         let mut ids = Vec::new();
@@ -537,7 +616,11 @@ impl CognitiveEngine {
         Ok((effects, json!({ "proposals": ids })))
     }
 
-    pub async fn get_proposal(&self, ctx: &AccessContext, id: ProposalId) -> Result<ResolutionProposal> {
+    pub async fn get_proposal(
+        &self,
+        ctx: &AccessContext,
+        id: ProposalId,
+    ) -> Result<ResolutionProposal> {
         self.store
             .get_proposal(id)
             .await?
@@ -551,10 +634,17 @@ impl CognitiveEngine {
         status: Option<ProposalStatus>,
         limit: Option<u32>,
     ) -> Result<Vec<ResolutionProposal>> {
-        self.store.list_proposals(ctx, status, limit.unwrap_or(100).min(1000)).await
+        self.store
+            .list_proposals(ctx, status, limit.unwrap_or(100).min(1000))
+            .await
     }
 
-    fn decision(&self, ctx: &AccessContext, status: ProposalStatus, reason: &str) -> Result<ProposalDecision> {
+    fn decision(
+        &self,
+        ctx: &AccessContext,
+        status: ProposalStatus,
+        reason: &str,
+    ) -> Result<ProposalDecision> {
         if reason.trim().is_empty() {
             return Err(Error::validation("reason must not be empty"));
         }
@@ -587,7 +677,9 @@ impl CognitiveEngine {
             json!({ "proposal_id": id, "reason": req.reason }),
             decision.decided_at,
         );
-        self.store.decide_proposal(id, &decision, ProposalMutations::default(), vec![event]).await
+        self.store
+            .decide_proposal(id, &decision, ProposalMutations::default(), vec![event])
+            .await
     }
 
     /// Accept a proposal: verify its target revisions are still current,
@@ -624,15 +716,16 @@ impl CognitiveEngine {
                         _ => stale = true,
                     }
                 }
-                RecordVersion::Belief { lineage_id, revision_id } => {
-                    match self.store.current_belief(lineage_id).await? {
-                        Some(b) if b.id == revision_id => {
-                            ctx.ensure_write(&b.scope)?;
-                            beliefs.insert(lineage_id, b);
-                        }
-                        _ => stale = true,
+                RecordVersion::Belief {
+                    lineage_id,
+                    revision_id,
+                } => match self.store.current_belief(lineage_id).await? {
+                    Some(b) if b.id == revision_id => {
+                        ctx.ensure_write(&b.scope)?;
+                        beliefs.insert(lineage_id, b);
                     }
-                }
+                    _ => stale = true,
+                },
             }
         }
         if stale {
@@ -711,7 +804,10 @@ impl CognitiveEngine {
                 .ok_or_else(|| Error::validation("operation names a record outside based_on"))
         };
         match &p.operation {
-            ResolutionOperation::Merge { canonical, duplicate } => {
+            ResolutionOperation::Merge {
+                canonical,
+                duplicate,
+            } => {
                 // Provenance union: the canonical record absorbs the
                 // duplicate's sources and evidence, and its recency is
                 // refreshed, so purging either source alone loses nothing
@@ -729,27 +825,53 @@ impl CognitiveEngine {
                         p.corroborations.push(s.clone());
                     }
                 }
-                revise(c, c.status, None, Some(p), CognitiveEventType::MemoryRevised)?;
-                revise(d, MemoryStatus::Tombstoned, None, None, CognitiveEventType::MemoryTombstoned)?;
+                revise(
+                    c,
+                    c.status,
+                    None,
+                    Some(p),
+                    CognitiveEventType::MemoryRevised,
+                )?;
+                revise(
+                    d,
+                    MemoryStatus::Tombstoned,
+                    None,
+                    None,
+                    CognitiveEventType::MemoryTombstoned,
+                )?;
             }
             ResolutionOperation::Supersede { older, newer } => {
                 let (o, n) = (get(older)?, get(newer)?);
                 let end = n.temporal.valid_time.start;
                 if end <= o.temporal.valid_time.start {
-                    return Err(Error::validation("newer fact does not start after the older one"));
+                    return Err(Error::validation(
+                        "newer fact does not start after the older one",
+                    ));
                 }
-                revise(o, o.status, Some(end), None, CognitiveEventType::MemoryRevised)?;
+                revise(
+                    o,
+                    o.status,
+                    Some(end),
+                    None,
+                    CognitiveEventType::MemoryRevised,
+                )?;
             }
             ResolutionOperation::Quarantine { memories: ids } => {
                 for mid in ids {
-                    revise(get(mid)?, MemoryStatus::Candidate, None, None, CognitiveEventType::MemoryRevised)?;
+                    revise(
+                        get(mid)?,
+                        MemoryStatus::Candidate,
+                        None,
+                        None,
+                        CognitiveEventType::MemoryRevised,
+                    )?;
                 }
             }
             ResolutionOperation::Dispute { beliefs: lineages } => {
                 for l in lineages {
-                    let b = beliefs
-                        .get(l)
-                        .ok_or_else(|| Error::validation("operation names a belief outside based_on"))?;
+                    let b = beliefs.get(l).ok_or_else(|| {
+                        Error::validation("operation names a belief outside based_on")
+                    })?;
                     if b.status == BeliefStatus::Disputed {
                         continue;
                     }
@@ -770,7 +892,11 @@ impl CognitiveEngine {
                         .dependencies_of(b.id)
                         .await?
                         .into_iter()
-                        .map(|d| cs_memory::BeliefDependency { to: next.id, created_at: closed_at, ..d })
+                        .map(|d| cs_memory::BeliefDependency {
+                            to: next.id,
+                            created_at: closed_at,
+                            ..d
+                        })
                         .collect();
                     events.push(self.draft(
                         ctx,
@@ -798,7 +924,9 @@ impl CognitiveEngine {
             json!({ "proposal_id": id, "operation": p.operation }),
             at,
         ));
-        self.store.decide_proposal(id, &decision, mutations, events).await
+        self.store
+            .decide_proposal(id, &decision, mutations, events)
+            .await
     }
 
     // ======================================================================
@@ -986,7 +1114,9 @@ impl CognitiveEngine {
             next.revision_number = current.revision_number + 1;
             next.supersedes = Some(current.revision_id);
             next.superseded_by = None;
-            next.provenance.corroborations.retain(|s| *s != primary && *s != purged_source);
+            next.provenance
+                .corroborations
+                .retain(|s| *s != primary && *s != purged_source);
             next.provenance.source = primary;
             next.status_reason = Some(format!("source observation {id} purged"));
             next.temporal.transaction_time = TimeInterval::from(closed_at);
@@ -1012,7 +1142,9 @@ impl CognitiveEngine {
             }),
             now,
         );
-        self.store.purge_observation(id, now, &delete, rehome, event).await?;
+        self.store
+            .purge_observation(id, now, &delete, rehome, event)
+            .await?;
         Ok(PurgeReport {
             id: id.0,
             already_purged: false,

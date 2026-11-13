@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 
 use cs_core::Scope;
 use cs_memory::{
-    Belief, MemoryContent, MemoryDomain, MemoryRecord, MemoryStatus, RecordVersion,
-    ResolutionKind, ResolutionOperation, ResolutionSignal, belief::normalize,
+    Belief, MemoryContent, MemoryDomain, MemoryRecord, MemoryStatus, RecordVersion, ResolutionKind,
+    ResolutionOperation, ResolutionSignal, belief::normalize,
 };
 use serde::{Deserialize, Serialize};
 
@@ -94,12 +94,16 @@ fn triple(c: &MemoryContent) -> Option<(String, String, String)> {
             (Some(s), Some(p), Some(o)) => Some((normalize(s), normalize(p), normalize(o))),
             _ => None,
         },
-        MemoryContent::Relational(m) => {
-            Some((normalize(&m.subject), normalize(&m.predicate), normalize(&m.object)))
-        }
-        MemoryContent::Temporal(m) => {
-            Some((normalize(&m.subject), normalize(&m.predicate), normalize(&m.value)))
-        }
+        MemoryContent::Relational(m) => Some((
+            normalize(&m.subject),
+            normalize(&m.predicate),
+            normalize(&m.object),
+        )),
+        MemoryContent::Temporal(m) => Some((
+            normalize(&m.subject),
+            normalize(&m.predicate),
+            normalize(&m.value),
+        )),
         _ => None,
     }
 }
@@ -111,7 +115,10 @@ fn single_valued(domain: MemoryDomain) -> bool {
 }
 
 fn version(m: &MemoryRecord) -> RecordVersion {
-    RecordVersion::Memory { id: m.id, revision_id: m.revision_id }
+    RecordVersion::Memory {
+        id: m.id,
+        revision_id: m.revision_id,
+    }
 }
 
 fn sorted(mut v: Vec<RecordVersion>) -> Vec<RecordVersion> {
@@ -121,10 +128,16 @@ fn sorted(mut v: Vec<RecordVersion>) -> Vec<RecordVersion> {
 
 /// Older first: by creation time, then id.
 fn order<'a>(a: &'a MemoryRecord, b: &'a MemoryRecord) -> (&'a MemoryRecord, &'a MemoryRecord) {
-    if (a.created_at, a.id) <= (b.created_at, b.id) { (a, b) } else { (b, a) }
+    if (a.created_at, a.id) <= (b.created_at, b.id) {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
-const NEGATIONS: &[&str] = &["not", "no", "never", "none", "without", "disabled", "cannot"];
+const NEGATIONS: &[&str] = &[
+    "not", "no", "never", "none", "without", "disabled", "cannot",
+];
 
 /// Tokens that must agree, *in order*, for two texts to be duplicates:
 /// anything with a digit (numbers, versions, units), negations, and
@@ -137,8 +150,8 @@ pub fn hard_tokens(text: &str) -> Vec<String> {
         .filter(|t| !t.is_empty())
         .filter(|t| {
             let lower = t.to_lowercase();
-            let inner_upper = t.chars().skip(1).any(char::is_uppercase)
-                && t.chars().any(char::is_lowercase);
+            let inner_upper =
+                t.chars().skip(1).any(char::is_uppercase) && t.chars().any(char::is_lowercase);
             let acronym = t.chars().filter(|c| c.is_uppercase()).count() >= 2
                 && !t.chars().any(char::is_lowercase);
             t.chars().any(|c| c.is_ascii_digit())
@@ -179,7 +192,10 @@ pub fn detect_memory(
         let overlap = t.temporal.valid_time.overlaps(&o.temporal.valid_time);
         let based_on = sorted(vec![version(t), version(o)]);
         let (older, newer) = order(t, o);
-        let merge = ResolutionOperation::Merge { canonical: older.id, duplicate: newer.id };
+        let merge = ResolutionOperation::Merge {
+            canonical: older.id,
+            duplicate: newer.id,
+        };
 
         // 1. Exact normalized text.
         if overlap && normalize(&t.content.index_text()) == normalize(&o.content.index_text()) {
@@ -231,7 +247,10 @@ pub fn detect_memory(
                 if vo.temporal.valid_time.start < vn.temporal.valid_time.start {
                     out.push(ProposalDraft {
                         kind: ResolutionKind::Supersession,
-                        operation: ResolutionOperation::Supersede { older: vo.id, newer: vn.id },
+                        operation: ResolutionOperation::Supersede {
+                            older: vo.id,
+                            newer: vn.id,
+                        },
                         explanation: format!(
                             "'{} {}' changed value; the newer fact starts later in valid time",
                             a.0, a.1
@@ -287,7 +306,10 @@ pub fn detect_memory(
                 operation: merge,
                 explanation: format!("embedding similarity {cos:.3} >= {threshold:.3}"),
                 signals: vec![
-                    ResolutionSignal::DenseSimilarity { cosine: cos, threshold },
+                    ResolutionSignal::DenseSimilarity {
+                        cosine: cos,
+                        threshold,
+                    },
                     ResolutionSignal::ScopeCompatible,
                     ResolutionSignal::TemporalOverlap,
                 ],
@@ -332,8 +354,14 @@ pub fn detect_beliefs(target: &Belief, others: &[Belief]) -> Vec<ProposalDraft> 
                 ],
                 score: None,
                 based_on: sorted(vec![
-                    RecordVersion::Belief { lineage_id: target.lineage_id, revision_id: target.id },
-                    RecordVersion::Belief { lineage_id: o.lineage_id, revision_id: o.id },
+                    RecordVersion::Belief {
+                        lineage_id: target.lineage_id,
+                        revision_id: target.id,
+                    },
+                    RecordVersion::Belief {
+                        lineage_id: o.lineage_id,
+                        revision_id: o.id,
+                    },
                 ]),
             }
         })
@@ -364,7 +392,9 @@ mod tests {
             content,
             provenance: Provenance {
                 source: SourceRef::UserInput { message_id: None },
-                actor: ActorRef::System { component: "test".into() },
+                actor: ActorRef::System {
+                    component: "test".into(),
+                },
                 observed_at: T0,
                 recorded_at: T0,
                 extraction: None,
@@ -394,9 +424,22 @@ mod tests {
     }
 
     fn run(t: &MemoryRecord, others: &[MemoryRecord]) -> Vec<ProposalDraft> {
-        let c: Vec<Candidate<'_>> =
-            others.iter().map(|r| Candidate { record: r, embedding: None }).collect();
-        detect_memory(&ResolutionConfig::default(), Some("cs-hashing@1"), Candidate { record: t, embedding: None }, &c)
+        let c: Vec<Candidate<'_>> = others
+            .iter()
+            .map(|r| Candidate {
+                record: r,
+                embedding: None,
+            })
+            .collect();
+        detect_memory(
+            &ResolutionConfig::default(),
+            Some("cs-hashing@1"),
+            Candidate {
+                record: t,
+                embedding: None,
+            },
+            &c,
+        )
     }
 
     #[test]
@@ -406,7 +449,13 @@ mod tests {
         let found = run(&b, std::slice::from_ref(&a));
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].kind, ResolutionKind::Duplicate);
-        assert_eq!(found[0].operation, ResolutionOperation::Merge { canonical: a.id, duplicate: b.id });
+        assert_eq!(
+            found[0].operation,
+            ResolutionOperation::Merge {
+                canonical: a.id,
+                duplicate: b.id
+            }
+        );
     }
 
     #[test]
@@ -415,7 +464,13 @@ mod tests {
         let b = mem(2, fact("primary db", "is", "postgres"), 30);
         let found = run(&b, std::slice::from_ref(&a));
         assert_eq!(found[0].kind, ResolutionKind::Supersession);
-        assert_eq!(found[0].operation, ResolutionOperation::Supersede { older: a.id, newer: b.id });
+        assert_eq!(
+            found[0].operation,
+            ResolutionOperation::Supersede {
+                older: a.id,
+                newer: b.id
+            }
+        );
     }
 
     #[test]
@@ -441,35 +496,71 @@ mod tests {
     #[test]
     fn similarity_requires_threshold() {
         let a = mem(1, fact("x", "is", "y"), 0);
-        let b = mem(2, MemoryContent::Semantic(SemanticMemory {
-            proposition: "something else".into(), subject: None, predicate: None, object: None,
-        }), 0);
+        let b = mem(
+            2,
+            MemoryContent::Semantic(SemanticMemory {
+                proposition: "something else".into(),
+                subject: None,
+                predicate: None,
+                object: None,
+            }),
+            0,
+        );
         let e1 = [1.0_f32, 0.0];
         let e2 = [0.99_f32, 0.141];
         let found = detect_memory(
             &ResolutionConfig::default(),
             Some("cs-hashing@1"),
-            Candidate { record: &b, embedding: Some(&e2) },
-            &[Candidate { record: &a, embedding: Some(&e1) }],
+            Candidate {
+                record: &b,
+                embedding: Some(&e2),
+            },
+            &[Candidate {
+                record: &a,
+                embedding: Some(&e1),
+            }],
         );
         assert_eq!(found.len(), 1);
-        assert!(matches!(found[0].signals[0], ResolutionSignal::DenseSimilarity { .. }));
+        assert!(matches!(
+            found[0].signals[0],
+            ResolutionSignal::DenseSimilarity { .. }
+        ));
         let far = [0.0_f32, 1.0];
-        assert!(detect_memory(
-            &ResolutionConfig::default(),
-            Some("cs-hashing@1"),
-            Candidate { record: &b, embedding: Some(&far) },
-            &[Candidate { record: &a, embedding: Some(&e1) }],
-        )
-        .is_empty());
+        assert!(
+            detect_memory(
+                &ResolutionConfig::default(),
+                Some("cs-hashing@1"),
+                Candidate {
+                    record: &b,
+                    embedding: Some(&far)
+                },
+                &[Candidate {
+                    record: &a,
+                    embedding: Some(&e1)
+                }],
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn hard_tokens_catch_numbers_negation_and_identifiers() {
-        assert_ne!(hard_tokens("retry backoff max is 30s"), hard_tokens("retry backoff max is 60s"));
-        assert_ne!(hard_tokens("exact scoring is enabled"), hard_tokens("exact scoring is not enabled"));
-        assert_ne!(hard_tokens("cs-core defines ScopeId"), hard_tokens("cs-memory defines ScopeId"));
-        assert_eq!(hard_tokens("The API uses Postgres."), hard_tokens("the API uses postgres"));
+        assert_ne!(
+            hard_tokens("retry backoff max is 30s"),
+            hard_tokens("retry backoff max is 60s")
+        );
+        assert_ne!(
+            hard_tokens("exact scoring is enabled"),
+            hard_tokens("exact scoring is not enabled")
+        );
+        assert_ne!(
+            hard_tokens("cs-core defines ScopeId"),
+            hard_tokens("cs-memory defines ScopeId")
+        );
+        assert_eq!(
+            hard_tokens("The API uses Postgres."),
+            hard_tokens("the API uses postgres")
+        );
     }
 
     #[test]
@@ -488,8 +579,14 @@ mod tests {
         let found = detect_memory(
             &ResolutionConfig::default(),
             Some("cs-hashing@1"),
-            Candidate { record: &b, embedding: Some(&e) },
-            &[Candidate { record: &a, embedding: Some(&e) }],
+            Candidate {
+                record: &b,
+                embedding: Some(&e),
+            },
+            &[Candidate {
+                record: &a,
+                embedding: Some(&e),
+            }],
         );
         assert!(found.is_empty(), "{found:?}");
     }

@@ -307,9 +307,16 @@ async fn malformed_and_invalid_requests() {
 async fn governed_processing_over_http() {
     use cs_engine::{ProcessingConfig, RuleExtractor, Worker, WorkerConfig};
     let engine = CognitiveEngine::builder(Arc::new(InMemoryStore::new()))
-        .processing(ProcessingConfig { auto_resolve: true, ..ProcessingConfig::default() })
+        .processing(ProcessingConfig {
+            auto_resolve: true,
+            ..ProcessingConfig::default()
+        })
         .build();
-    let worker = Worker::new(engine.clone(), Arc::new(RuleExtractor), WorkerConfig::default());
+    let worker = Worker::new(
+        engine.clone(),
+        Arc::new(RuleExtractor),
+        WorkerConfig::default(),
+    );
     let c = Client {
         app: router(AppState::new(engine, AuthConfig::default())),
         tenant: Uuid::now_v7(),
@@ -318,24 +325,44 @@ async fn governed_processing_over_http() {
     };
 
     // Observation intake is asynchronous.
-    let obs = |text: &str| json!({
-        "scope": c.private_scope(),
-        "content": text,
-        "source": { "type": "user_input" }
-    });
-    let (status, view) = c.send("POST", "/v1/observations", Some(obs("The primary database is PostgreSQL."))).await;
+    let obs = |text: &str| {
+        json!({
+            "scope": c.private_scope(),
+            "content": text,
+            "source": { "type": "user_input" }
+        })
+    };
+    let (status, view) = c
+        .send(
+            "POST",
+            "/v1/observations",
+            Some(obs("The primary database is PostgreSQL.")),
+        )
+        .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{view}");
     assert_eq!(view["job"]["status"], "queued");
     let o1 = view["observation"]["id"].as_str().unwrap().to_owned();
     worker.drain().await.unwrap();
-    let (_, view) = c.send("POST", "/v1/observations", Some(obs("The primary database is PostgreSQL."))).await;
+    let (_, view) = c
+        .send(
+            "POST",
+            "/v1/observations",
+            Some(obs("The primary database is PostgreSQL.")),
+        )
+        .await;
     let o2 = view["observation"]["id"].as_str().unwrap().to_owned();
     worker.drain().await.unwrap();
 
     let (status, view) = c.send("GET", &format!("/v1/observations/{o1}"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(view["job"]["status"], "succeeded");
-    assert_eq!(view["extraction_runs"][0]["candidate_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        view["extraction_runs"][0]["candidate_ids"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     let (_, jobs) = c.send("GET", "/v1/jobs?status=succeeded", None).await;
     assert!(jobs.as_array().unwrap().len() >= 2, "{jobs}");
@@ -346,23 +373,59 @@ async fn governed_processing_over_http() {
     assert_eq!(proposals.len(), 1, "{proposals:?}");
     assert_eq!(proposals[0]["kind"], "duplicate");
     let pid = proposals[0]["id"].as_str().unwrap();
-    let (status, body) = c.send("POST", &format!("/v1/proposals/{pid}/accept"), Some(json!({ "reason": "same" }))).await;
+    let (status, body) = c
+        .send(
+            "POST",
+            &format!("/v1/proposals/{pid}/accept"),
+            Some(json!({ "reason": "same" })),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "accepted");
-    let (status, _) = c.send("POST", &format!("/v1/proposals/{pid}/reject"), Some(json!({ "reason": "late" }))).await;
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/proposals/{pid}/reject"),
+            Some(json!({ "reason": "late" })),
+        )
+        .await;
     assert_eq!(status, StatusCode::CONFLICT);
 
     // Purge the first source: the corroborated fact survives.
-    let (status, report) = c.send("POST", &format!("/v1/observations/{o1}/purge"), Some(json!({ "reason": "request" }))).await;
+    let (status, report) = c
+        .send(
+            "POST",
+            &format!("/v1/observations/{o1}/purge"),
+            Some(json!({ "reason": "request" })),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["purged_memories"].as_array().unwrap().len(), 0);
-    let (_, report) = c.send("POST", &format!("/v1/observations/{o2}/purge"), Some(json!({ "reason": "request" }))).await;
+    let (_, report) = c
+        .send(
+            "POST",
+            &format!("/v1/observations/{o2}/purge"),
+            Some(json!({ "reason": "request" })),
+        )
+        .await;
     assert_eq!(report["purged_memories"].as_array().unwrap().len(), 2);
-    let (_, again) = c.send("POST", &format!("/v1/observations/{o2}/purge"), Some(json!({ "reason": "again" }))).await;
+    let (_, again) = c
+        .send(
+            "POST",
+            &format!("/v1/observations/{o2}/purge"),
+            Some(json!({ "reason": "again" })),
+        )
+        .await;
     assert_eq!(again["already_purged"], true);
 
     // Evidence purge flags the belief that relied on it.
-    let (_, ev) = c.send("POST", "/v1/evidence", Some(json!({ "source": { "type": "human_annotation", "annotation_id": "n1" } }))).await;
+    let (_, ev) = c
+        .send(
+            "POST",
+            "/v1/evidence",
+            Some(json!({ "source": { "type": "human_annotation", "annotation_id": "n1" } })),
+        )
+        .await;
     let (_, b) = c.send("POST", "/v1/beliefs", Some(json!({
         "scope": c.private_scope(),
         "proposition": "Batch size 500 is optimal",
@@ -370,12 +433,24 @@ async fn governed_processing_over_http() {
         "evidence": [{ "evidence_id": ev["id"], "direction": "supports" }]
     }))).await;
     let eid = ev["id"].as_str().unwrap();
-    let (status, report) = c.send("POST", &format!("/v1/evidence/{eid}/purge"), Some(json!({ "reason": "withdrawn" }))).await;
+    let (status, report) = c
+        .send(
+            "POST",
+            &format!("/v1/evidence/{eid}/purge"),
+            Some(json!({ "reason": "withdrawn" })),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["beliefs_needing_reevaluation"][0], b["id"]);
 
     // Recall returns beliefs alongside memories.
-    let (_, recall) = c.send("POST", "/v1/recall", Some(json!({ "query": "optimal batch size" }))).await;
+    let (_, recall) = c
+        .send(
+            "POST",
+            "/v1/recall",
+            Some(json!({ "query": "optimal batch size" })),
+        )
+        .await;
     assert_eq!(recall["beliefs"][0]["belief"]["id"], b["id"]);
     assert!(recall["beliefs"][0]["relevance"].as_f64().unwrap() > 0.0);
 
