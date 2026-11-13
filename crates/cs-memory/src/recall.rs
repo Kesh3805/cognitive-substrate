@@ -127,6 +127,26 @@ impl RecallPolicy {
     }
 }
 
+/// Whether the dense channel took part in a recall, and why not.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DenseStatus {
+    /// Dense scores came from this embedding space.
+    Used { space: String },
+    /// The query could not be embedded; scoring fell back to lexical and
+    /// recency with weights renormalized to sum to 1.
+    Unavailable { space: String, reason: String },
+    /// No embedder is configured or the policy's dense weight is zero.
+    #[default]
+    Disabled,
+}
+
+impl DenseStatus {
+    pub fn is_used(&self) -> bool {
+        matches!(self, Self::Used { .. })
+    }
+}
+
 /// A scored belief revision in a recall trace. Relevance (`score`) is kept
 /// separate from the belief's own confidence; they are different signals.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,6 +192,13 @@ pub struct RecallTrace {
     pub candidates: Vec<RecallCandidate>,
     #[serde(default)]
     pub belief_candidates: Vec<RecallBeliefCandidate>,
+    /// Dense channel status for this recall.
+    #[serde(default)]
+    pub dense: DenseStatus,
+    /// The query vector actually used (dropped with the query text when
+    /// `retain_query_text` is false: it encodes the query).
+    #[serde(default)]
+    pub query_embedding: Option<Vec<f32>>,
     /// Identifies the data the recall saw: transaction as-of time, scoring
     /// version and embedding model. Re-running against the same snapshot
     /// must yield the same selection.

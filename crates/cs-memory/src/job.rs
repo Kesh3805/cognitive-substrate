@@ -20,15 +20,18 @@ pub enum JobKind {
     Perceive,
     /// Look for duplicates, supersessions and contradictions.
     Resolve,
+    /// Compute (or backfill) an embedding for one revision in one space.
+    Embed,
 }
 
 impl JobKind {
-    pub const ALL: [Self; 2] = [Self::Perceive, Self::Resolve];
+    pub const ALL: [Self; 3] = [Self::Perceive, Self::Resolve, Self::Embed];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Perceive => "perceive",
             Self::Resolve => "resolve",
+            Self::Embed => "embed",
         }
     }
 

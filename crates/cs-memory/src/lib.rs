@@ -18,14 +18,14 @@ pub use belief::{
     Belief, BeliefDependency, BeliefEvidence, BeliefPolarity, BeliefStatus, Confidence,
     ConfidenceInterpretation, DependencyRelation, Evidence, EvidenceDirection,
 };
-pub use embedding::EmbeddingRecord;
+pub use embedding::{EmbeddingRecord, EmbeddingSpace};
 pub use job::{ClaimedJob, Job, JobError, JobKind, JobOutcome, JobStatus, Lease, RetryPolicy};
 pub use observation::{ExtractedCandidate, ExtractionRun, Observation};
 pub use proposal::{
     DetectionMetadata, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
     ResolutionOperation, ResolutionProposal, ResolutionRationale, ResolutionSignal,
 };
-pub use recall::{RecallBeliefCandidate, RecallCandidate, RecallPolicy, RecallTrace};
+pub use recall::{DenseStatus, RecallBeliefCandidate, RecallCandidate, RecallPolicy, RecallTrace};
 pub use record::{
     CapabilityStage, EpisodicMemory, MemoryContent, MemoryDomain, MemoryRecord, MemoryStatus,
     ProceduralMemory, RelationalMemory, SemanticMemory, TemporalChangeKind, TemporalMemory,
