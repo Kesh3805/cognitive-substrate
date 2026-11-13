@@ -17,7 +17,9 @@ Experience ──► Perception ──► Candidate memory ──► Validation 
        └──► recall traces · cognitive event log · cognitive-debt index
 ```
 
-## What works today (M2)
+## What works today
+
+### Cognitive primitives (M2)
 
 | Capability | What it means |
 |---|---|
@@ -31,6 +33,20 @@ Experience ──► Perception ──► Candidate memory ──► Validation 
 | **Validation gate** | Model-derived memories enter as `candidate` and must be explicitly promoted before recall treats them as trusted knowledge. |
 | **Governance** | Hard scope isolation, logical tombstones, hard purge (including embeddings), and an append-only event log that holds identifiers and never content. |
 | **Embedded or standalone** | Use the Rust engine in-process, or run the HTTP service. Both pass the same conformance suite. |
+
+### Governed cognitive processing (M3)
+
+The substrate can now observe, extract, detect and propose. **It still never rewrites knowledge on its own.**
+
+| Capability | What it means |
+|---|---|
+| **Observations → candidates** | Raw text is stored immutably and queued for perception in one transaction. Extracted facts always enter as `candidate`, linked to their source observation. |
+| **Precision-first extraction** | The built-in rule extractor vetoes questions, hedges, conditionals and negations, and requires an anchor token, so small talk yields nothing. An optional OpenAI-compatible extractor (works with Ollama) validates model output strictly. |
+| **Durable, fenced jobs** | PostgreSQL `SKIP LOCKED` leases with generation fencing. A job's effects commit atomically with its completion, guarded against read skew, so a stalled worker can never apply stale results. Retries back off, then dead-letter. |
+| **Resolution proposals** | Duplicates, supersessions and contradictions become reviewable proposals bound to exact revisions. Accepting one applies it atomically, or marks it `stale` if anything changed. Rejected findings are never re-proposed. |
+| **Safe deduplication** | A structural pre-veto stops merges across differing numbers, versions, negation or identifiers. Thresholds are set per embedding model and calibrated against hard negatives. Merges union provenance. |
+| **Belief recall** | Recall returns relevant beliefs with their supporting and refuting evidence. Relevance and confidence are never blended. |
+| **Purge workflows** | Purging evidence flags dependent beliefs. Purging an observation erases what was derived only from it, and re-homes facts another source corroborates. A purge ledger records what was erased and when, never what it contained. |
 
 ## Quick start
 
@@ -56,6 +72,20 @@ curl -s localhost:8080/v1/recall \
 ```
 
 Without `DATABASE_URL` the service runs on the in-memory store, which is handy for experiments but not durable.
+
+Feed it raw text and let the background worker extract and resolve:
+
+```bash
+curl -s localhost:8080/v1/observations \
+  -H "x-cs-tenant: $TENANT" -H "x-cs-user: $ME" -H 'content-type: application/json' \
+  -d '{"scope": {"tenant_id": "'$TENANT'", "owner_user_id": "'$ME'", "visibility": "private"},
+       "content": "The API depends on the auth service. We decided to freeze deploys on Fridays.",
+       "source": {"type": "user_input"}}'
+
+curl -s "localhost:8080/v1/proposals?status=pending" -H "x-cs-tenant: $TENANT" -H "x-cs-user: $ME"
+```
+
+To extract with a local model instead of rules, set `CS_EXTRACTOR=openai`, `CS_EXTRACTOR_URL=http://localhost:11434/v1` and `CS_EXTRACTOR_MODEL=<model>`.
 
 ### Embed the engine
 
@@ -108,6 +138,13 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `POST` | `/dependencies` | Add or re-affirm a dependency edge |
 | `GET` | `/events` | Cognitive event log (scope-filtered) |
 | `GET` | `/debt` | Cognitive Debt Index report |
+| `POST` | `/observations` | Store raw input and queue perception (202) |
+| `GET` | `/observations/{id}` | Observation, its job, and extraction runs |
+| `POST` | `/observations/{id}/purge` · `/evidence/{id}/purge` | Governed purge (idempotent) |
+| `POST` | `/memories/{id}/resolve` · `/beliefs/{id}/resolve` | Queue resolution explicitly (202) |
+| `GET` | `/proposals` · `/proposals/{id}` | Inspect resolution proposals (`?status=pending`) |
+| `POST` | `/proposals/{id}/accept` · `/reject` | Decide a proposal |
+| `GET` | `/jobs` · `/jobs/{id}` | Background job state (`?status=dead_lettered`) |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
@@ -123,7 +160,8 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`.
 | `cs-storage` | Storage contract and the in-memory reference store | core, memory |
 | `cs-postgres` | PostgreSQL + pgvector adapter, migrations | core, memory, storage |
 | `cs-engine` | The embeddable engine and public Rust API | core, memory, policy, storage |
-| `cs-server` | HTTP transport and the service binary | engine, core |
+| `cs-server` | HTTP transport, service binary and in-process worker | engine, core |
+| `cs-extractor-http` | Optional OpenAI-compatible / Ollama extractor | engine, memory |
 
 Core domain logic never depends on PostgreSQL, HTTP or a model provider. See [ADR-0001](docs/adr/0001-rust-workspace-and-layered-dependencies.md).
 
@@ -140,7 +178,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
