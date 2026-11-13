@@ -59,6 +59,20 @@ pub fn estimate_tokens(text: &str) -> u32 {
     u32::try_from(text.chars().count().div_ceil(4)).unwrap_or(u32::MAX)
 }
 
+/// Weights actually applied. Without a query vector the dense channel did
+/// not run, so lexical and recency weights are renormalized to sum to 1
+/// rather than silently scoring every candidate as dense-dissimilar.
+pub fn effective_weights(policy: &RecallPolicy, dense_available: bool) -> (f64, f64, f64) {
+    if dense_available || policy.dense_weight == 0.0 {
+        return (policy.dense_weight, policy.lexical_weight, policy.recency_weight);
+    }
+    let rest = policy.lexical_weight + policy.recency_weight;
+    if rest <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    (0.0, policy.lexical_weight / rest, policy.recency_weight / rest)
+}
+
 /// One rankable item: a stable two-part key (identity, revision), the text
 /// to score, an optional embedding and when it was observed.
 #[derive(Debug, Clone)]
@@ -90,6 +104,18 @@ pub struct Limits {
     pub max_context_tokens: Option<u32>,
 }
 
+/// Neutral prior for candidates without a vector: the median dense score of
+/// the candidates that have one (0.5, i.e. cosine 0, if none do).
+pub fn imputed_dense(dense: &[Option<f64>]) -> f64 {
+    let mut known: Vec<f64> = dense.iter().flatten().copied().collect();
+    if known.is_empty() {
+        return 0.5;
+    }
+    known.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let mid = known.len() / 2;
+    if known.len() % 2 == 1 { known[mid] } else { (known[mid - 1] + known[mid]) / 2.0 }
+}
+
 /// Score and rank items under the policy's weights; select under `limits`.
 /// Ranking is `(score DESC, key ASC)`, which is total and deterministic.
 pub fn rank_items(
@@ -102,20 +128,28 @@ pub fn rank_items(
 ) -> Vec<Ranked> {
     let texts: Vec<&str> = items.iter().map(|i| i.text).collect();
     let lexical = bm25_normalized(query, &texts);
+    let (w_dense, w_lex, w_rec) = effective_weights(policy, query_embedding.is_some());
+    let dense: Vec<Option<f64>> = items
+        .iter()
+        .map(|item| match (query_embedding, item.embedding) {
+            (Some(q), Some(e)) => cosine_similarity(q, e).map(|c| (c + 1.0) / 2.0),
+            _ => None,
+        })
+        .collect();
+    let imputed = imputed_dense(&dense);
 
     let mut scored: Vec<(Ranked, u32)> = items
         .iter()
         .zip(lexical)
-        .map(|(item, lex)| {
-            let dense = match (query_embedding, item.embedding) {
-                (Some(q), Some(e)) => cosine_similarity(q, e).map(|c| (c + 1.0) / 2.0),
-                _ => None,
-            };
+        .zip(dense)
+        .map(|((item, lex), dense)| {
             let age_days = ((as_of - item.observed_at).as_seconds_f64() / 86_400.0).max(0.0);
             let recency = 0.5_f64.powf(age_days / policy.recency_half_life_days);
-            let score = policy.dense_weight * dense.unwrap_or(0.0)
-                + policy.lexical_weight * lex
-                + policy.recency_weight * recency;
+            // A candidate still awaiting its vector neither sinks (dense 0)
+            // nor floats (renormalized) relative to embedded peers: it gets
+            // the batch's median dense score. Its trace entry keeps
+            // `dense_score: None`, marking the imputation.
+            let score = w_dense * dense.unwrap_or(imputed) + w_lex * lex + w_rec * recency;
             (
                 Ranked {
                     key: item.key,
@@ -366,6 +400,45 @@ mod tests {
             .find(|c| c.memory_id == MemoryId(Uuid::from_u128(1)))
             .unwrap();
         assert_eq!(long_c.reason, "context_budget_exceeded");
+    }
+
+    #[test]
+    fn fallback_renormalizes_lexical_and_recency() {
+        let p = RecallPolicy::default();
+        let (d, l, r) = effective_weights(&p, false);
+        assert_eq!(d, 0.0);
+        assert!((l + r - 1.0).abs() < 1e-12);
+        assert!((l / r - p.lexical_weight / p.recency_weight).abs() < 1e-12);
+        assert_eq!(
+            effective_weights(&p, true),
+            (p.dense_weight, p.lexical_weight, p.recency_weight)
+        );
+        // An exact lexical hit observed now scores 1.0 in fallback mode.
+        let inputs = [input(1, "rust", 0)];
+        let out = score_candidates(&p, "rust", None, datetime!(2026-11-01 0:00 UTC), &inputs);
+        assert!((out[0].score - 1.0).abs() < 1e-9, "{}", out[0].score);
+    }
+
+    #[test]
+    fn unembedded_candidates_get_the_median_dense_score() {
+        assert_eq!(imputed_dense(&[None, None]), 0.5);
+        assert_eq!(imputed_dense(&[Some(0.2), None, Some(0.8), Some(0.6)]), 0.6);
+        let mut a = input(1, "alpha", 0);
+        let mut b = input(2, "alpha", 0);
+        let c = input(3, "alpha", 0);
+        let (ea, eb, q) = ([1.0_f32, 0.0], [0.0_f32, 1.0], [1.0_f32, 0.0]);
+        a.embedding = Some(&ea);
+        b.embedding = Some(&eb);
+        let out = score_candidates(
+            &RecallPolicy::default(),
+            "alpha",
+            Some(&q),
+            datetime!(2026-11-01 0:00 UTC),
+            &[a, b, c],
+        );
+        let pending = out.iter().find(|x| x.memory_id == MemoryId(Uuid::from_u128(3))).unwrap();
+        assert!(pending.dense_score.is_none());
+        assert_eq!(pending.rank, 2, "ranked between its embedded peers: {out:?}");
     }
 
     #[test]
