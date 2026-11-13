@@ -71,4 +71,10 @@ id_type!(
     EventStreamId,
     RecallTraceId,
     CapabilityId,
+    /// A durable background job.
+    JobId,
+    /// A raw observation submitted for perception.
+    ObservationId,
+    /// A proposed change awaiting an explicit decision.
+    ProposalId,
 );
