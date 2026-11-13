@@ -112,7 +112,9 @@ pub fn router(state: AppState) -> Router {
         .route("/proposals/{id}/accept", post(accept_proposal))
         .route("/proposals/{id}/reject", post(reject_proposal))
         .route("/jobs", get(list_jobs))
-        .route("/jobs/{id}", get(get_job));
+        .route("/jobs/{id}", get(get_job))
+        .route("/processing/status", get(processing_status))
+        .route("/embeddings/reindex", post(reindex));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -485,4 +487,30 @@ async fn get_job(
     Path(id): Path<Uuid>,
 ) -> ApiResult<cs_memory::Job> {
     ok(s.engine.get_job(&ctx, JobId(id)).await?)
+}
+
+// ---- embeddings & operations (M3.x) ---------------------------------------------
+
+async fn processing_status(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+) -> ApiResult<cs_engine::ProcessingStatus> {
+    ok(s.engine.processing_status(&ctx).await?)
+}
+
+async fn reindex(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    body: axum::body::Bytes,
+) -> ApiResult<cs_engine::ReindexReport> {
+    let req: cs_engine::ReindexRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        cs_engine::ReindexRequest::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.to_string()))?
+    };
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(s.engine.request_reembedding(&ctx, req).await?),
+    ))
 }
