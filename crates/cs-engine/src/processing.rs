@@ -1102,7 +1102,7 @@ impl CognitiveEngine {
         // drops the purged source (re-homing their primary source if
         // needed); the rest are erased with all their revisions.
         let mut delete = Vec::new();
-        let mut rehome = Vec::new();
+        let mut rehome: Vec<MemorySupersede> = Vec::new();
         let mut rehomed = Vec::new();
         for mid in derived {
             let Some(current) = self.store.current_memory(mid).await? else {
@@ -1164,7 +1164,6 @@ impl CognitiveEngine {
             }),
             now,
         );
-        let mut rehome = rehome;
         for m in &mut rehome {
             let (e, jobs) = self.memory_embedding_plan(ctx, &m.next).await;
             m.embedding = e;

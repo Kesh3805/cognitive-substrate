@@ -13,10 +13,10 @@
 //! space is normalized, so every adapter behaves identically.
 
 use async_trait::async_trait;
+use cs_memory::EmbeddingRecord;
 pub use cs_memory::embedding::{
     EmbeddingSpace, PREPROCESSING_VERSION, embedding_text, l2_normalize,
 };
-use cs_memory::EmbeddingRecord;
 use time::OffsetDateTime;
 
 /// Why embedding failed, which decides whether a backfill job retries.
@@ -79,9 +79,15 @@ pub fn check_vector(space: &EmbeddingSpace, mut v: Vec<f32>) -> Result<Vec<f32>,
         )));
     }
     if v.iter().any(|x| !x.is_finite()) {
-        return Err(EmbedError::Permanent("embedding contains non-finite values".into()));
+        return Err(EmbedError::Permanent(
+            "embedding contains non-finite values".into(),
+        ));
     }
-    let norm = v.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>().sqrt();
+    let norm = v
+        .iter()
+        .map(|x| f64::from(*x) * f64::from(*x))
+        .sum::<f64>()
+        .sqrt();
     if norm <= 1e-6 {
         return Err(EmbedError::Permanent("embedding has zero norm".into()));
     }
@@ -103,7 +109,10 @@ pub async fn embed_texts(
         return Err(EmbedError::Permanent("cannot embed empty text".into()));
     }
     let space = embedder.space();
-    let prepared: Vec<String> = projections.iter().map(|p| prepare(space, p, kind)).collect();
+    let prepared: Vec<String> = projections
+        .iter()
+        .map(|p| prepare(space, p, kind))
+        .collect();
     let vectors = embedder.embed_batch(&prepared).await?;
     if vectors.len() != prepared.len() {
         return Err(EmbedError::Permanent(format!(
@@ -135,7 +144,8 @@ pub async fn embed_one(
     now: OffsetDateTime,
 ) -> Result<EmbeddingRecord, EmbedError> {
     let mut v = embed_texts(embedder, &[projection.to_owned()], kind, now).await?;
-    v.pop().ok_or_else(|| EmbedError::Permanent("no vector returned".into()))
+    v.pop()
+        .ok_or_else(|| EmbedError::Permanent("no vector returned".into()))
 }
 
 /// Deterministic, dependency-free baseline: signed feature hashing of
@@ -243,7 +253,10 @@ mod tests {
     fn contract_checks() {
         let s = HashingEmbedder::new(8).space().clone();
         assert!(check_vector(&s, vec![1.0; 8]).is_ok());
-        assert!(matches!(check_vector(&s, vec![1.0; 4]), Err(EmbedError::Permanent(_))));
+        assert!(matches!(
+            check_vector(&s, vec![1.0; 4]),
+            Err(EmbedError::Permanent(_))
+        ));
         assert!(check_vector(&s, vec![f32::NAN; 8]).is_err());
         assert!(check_vector(&s, vec![0.0; 8]).is_err(), "zero norm");
         let v = check_vector(&s, vec![3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).unwrap();

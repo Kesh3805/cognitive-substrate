@@ -22,8 +22,14 @@ use crate::{
 impl From<EmbedError> for HandlerError {
     fn from(e: EmbedError) -> Self {
         match e {
-            EmbedError::Retryable(m) => Self { permanent: false, message: m },
-            EmbedError::Permanent(m) => Self { permanent: true, message: m },
+            EmbedError::Retryable(m) => Self {
+                permanent: false,
+                message: m,
+            },
+            EmbedError::Permanent(m) => Self {
+                permanent: true,
+                message: m,
+            },
         }
     }
 }
@@ -110,8 +116,14 @@ pub struct ReindexRequest {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum EmbedTarget {
-    Memory { memory_id: MemoryId, revision_id: MemoryRevisionId },
-    Belief { lineage_id: BeliefId, belief_id: BeliefId },
+    Memory {
+        memory_id: MemoryId,
+        revision_id: MemoryRevisionId,
+    },
+    Belief {
+        lineage_id: BeliefId,
+        belief_id: BeliefId,
+    },
 }
 
 impl EmbedTarget {
@@ -124,10 +136,16 @@ impl EmbedTarget {
 
     fn payload(&self, space: &str) -> serde_json::Value {
         match self {
-            Self::Memory { memory_id, revision_id } => json!({
+            Self::Memory {
+                memory_id,
+                revision_id,
+            } => json!({
                 "target": "memory", "memory_id": memory_id, "revision_id": revision_id, "space": space,
             }),
-            Self::Belief { lineage_id, belief_id } => json!({
+            Self::Belief {
+                lineage_id,
+                belief_id,
+            } => json!({
                 "target": "belief", "lineage_id": lineage_id, "belief_id": belief_id, "space": space,
             }),
         }
@@ -208,9 +226,17 @@ impl CognitiveEngine {
         ctx: &AccessContext,
         m: &MemoryRecord,
     ) -> (Option<EmbeddingRecord>, Vec<Job>) {
-        let target = EmbedTarget::Memory { memory_id: m.id, revision_id: m.revision_id };
-        self.embedding_plan(ctx, target, &m.content.index_text(), m.status == MemoryStatus::Tombstoned)
-            .await
+        let target = EmbedTarget::Memory {
+            memory_id: m.id,
+            revision_id: m.revision_id,
+        };
+        self.embedding_plan(
+            ctx,
+            target,
+            &m.content.index_text(),
+            m.status == MemoryStatus::Tombstoned,
+        )
+        .await
     }
 
     pub(crate) async fn belief_embedding_plan(
@@ -218,9 +244,17 @@ impl CognitiveEngine {
         ctx: &AccessContext,
         b: &Belief,
     ) -> (Option<EmbeddingRecord>, Vec<Job>) {
-        let target = EmbedTarget::Belief { lineage_id: b.lineage_id, belief_id: b.id };
-        self.embedding_plan(ctx, target, &b.proposition, b.status == BeliefStatus::Retracted)
-            .await
+        let target = EmbedTarget::Belief {
+            lineage_id: b.lineage_id,
+            belief_id: b.id,
+        };
+        self.embedding_plan(
+            ctx,
+            target,
+            &b.proposition,
+            b.status == BeliefStatus::Retracted,
+        )
+        .await
     }
 
     /// `embed` job handler: compute one vector for one exact revision.
@@ -232,19 +266,29 @@ impl CognitiveEngine {
                 message: format!("embedding space {space} is not configured"),
             });
         };
-        let bad = |e: serde_json::Error| HandlerError { permanent: true, message: format!("bad payload: {e}") };
+        let bad = |e: serde_json::Error| HandlerError {
+            permanent: true,
+            message: format!("bad payload: {e}"),
+        };
         let now = self.now();
         let mut effects = JobEffects::default();
         match job.payload["target"].as_str() {
             Some("memory") => {
-                let memory_id: MemoryId = serde_json::from_value(job.payload["memory_id"].clone()).map_err(bad)?;
+                let memory_id: MemoryId =
+                    serde_json::from_value(job.payload["memory_id"].clone()).map_err(bad)?;
                 let revision_id: MemoryRevisionId =
                     serde_json::from_value(job.payload["revision_id"].clone()).map_err(bad)?;
                 let history = self.store.memory_history(memory_id).await?;
                 let Some(rev) = history.into_iter().find(|r| r.revision_id == revision_id) else {
                     return Ok((effects, json!({ "skipped": "revision_purged" })));
                 };
-                let v = embed_one(embedder, &rev.content.index_text(), EmbedKind::Document, now).await?;
+                let v = embed_one(
+                    embedder,
+                    &rev.content.index_text(),
+                    EmbedKind::Document,
+                    now,
+                )
+                .await?;
                 effects.memory_embeddings.push((revision_id, v));
                 // A new vector can reveal dense duplicates the structural
                 // pass could not see.
@@ -261,7 +305,8 @@ impl CognitiveEngine {
                 }
             }
             Some("belief") => {
-                let belief_id: BeliefId = serde_json::from_value(job.payload["belief_id"].clone()).map_err(bad)?;
+                let belief_id: BeliefId =
+                    serde_json::from_value(job.payload["belief_id"].clone()).map_err(bad)?;
                 let Some(b) = self.store.get_belief(belief_id).await? else {
                     return Ok((effects, json!({ "skipped": "belief_missing" })));
                 };
@@ -269,7 +314,9 @@ impl CognitiveEngine {
                 effects.belief_embeddings.push((belief_id, v));
             }
             other => {
-                return Err(HandlerError::permanent_msg(format!("unknown embed target {other:?}")));
+                return Err(HandlerError::permanent_msg(format!(
+                    "unknown embed target {other:?}"
+                )));
             }
         }
         Ok((effects, json!({ "space": space })))
@@ -278,25 +325,41 @@ impl CognitiveEngine {
     /// Enqueue backfill jobs for every current revision the caller can read
     /// that lacks a vector in `space`, newest first. Idempotent: rerunning
     /// it is the reconciliation pass for writes that raced the first run.
-    pub async fn request_reembedding(&self, ctx: &AccessContext, req: ReindexRequest) -> Result<ReindexReport> {
+    pub async fn request_reembedding(
+        &self,
+        ctx: &AccessContext,
+        req: ReindexRequest,
+    ) -> Result<ReindexReport> {
         let space = req
             .space
             .or_else(|| self.shadow_space())
             .or_else(|| self.active_space())
             .ok_or_else(|| cs_core::Error::validation("no embedder is configured"))?;
-        let embedder = self
-            .embedder_for(&space)
-            .ok_or_else(|| cs_core::Error::validation(format!("embedding space {space} is not configured")))?;
-        let key = (embedder.space().model_name(), embedder.space().model_version());
+        let embedder = self.embedder_for(&space).ok_or_else(|| {
+            cs_core::Error::validation(format!("embedding space {space} is not configured"))
+        })?;
+        let key = (
+            embedder.space().model_name(),
+            embedder.space().model_version(),
+        );
         let now = self.now();
-        let mut report = ReindexReport { space: space.clone(), selected: 0, already_embedded: 0, enqueued: 0 };
+        let mut report = ReindexReport {
+            space: space.clone(),
+            selected: 0,
+            already_embedded: 0,
+            enqueued: 0,
+        };
 
         let memories = self
             .store
             .query_memories(&MemoryQuery {
                 access: ctx.clone(),
                 domains: MemoryDomain::ALL.to_vec(),
-                statuses: vec![MemoryStatus::Active, MemoryStatus::Candidate, MemoryStatus::Rejected],
+                statuses: vec![
+                    MemoryStatus::Active,
+                    MemoryStatus::Candidate,
+                    MemoryStatus::Rejected,
+                ],
                 scope_filter: None,
                 as_of_valid_time: now,
                 as_of_transaction_time: now,
@@ -312,8 +375,13 @@ impl CognitiveEngine {
                 report.already_embedded += 1;
                 continue;
             }
-            let target = EmbedTarget::Memory { memory_id: s.record.id, revision_id: s.record.revision_id };
-            self.store.enqueue_job(&self.embed_job(ctx, target, &space)).await?;
+            let target = EmbedTarget::Memory {
+                memory_id: s.record.id,
+                revision_id: s.record.revision_id,
+            };
+            self.store
+                .enqueue_job(&self.embed_job(ctx, target, &space))
+                .await?;
             report.enqueued += 1;
         }
         let beliefs = self
@@ -336,8 +404,13 @@ impl CognitiveEngine {
                 report.already_embedded += 1;
                 continue;
             }
-            let target = EmbedTarget::Belief { lineage_id: s.belief.lineage_id, belief_id: s.belief.id };
-            self.store.enqueue_job(&self.embed_job(ctx, target, &space)).await?;
+            let target = EmbedTarget::Belief {
+                lineage_id: s.belief.lineage_id,
+                belief_id: s.belief.id,
+            };
+            self.store
+                .enqueue_job(&self.embed_job(ctx, target, &space))
+                .await?;
             report.enqueued += 1;
         }
         Ok(report)
@@ -346,16 +419,34 @@ impl CognitiveEngine {
     /// Embedding coverage and queue health for the caller's tenant.
     pub async fn processing_status(&self, ctx: &AccessContext) -> Result<ProcessingStatus> {
         let mut spaces = Vec::new();
-        for (e, role) in [(&self.embedder, SpaceRole::Active), (&self.shadow, SpaceRole::Shadow)] {
+        for (e, role) in [
+            (&self.embedder, SpaceRole::Active),
+            (&self.shadow, SpaceRole::Shadow),
+        ] {
             if let Some(e) = e {
                 let c = self
                     .store
-                    .embedding_coverage(Some(ctx.tenant_id), &e.space().model_name(), &e.space().model_version())
+                    .embedding_coverage(
+                        Some(ctx.tenant_id),
+                        &e.space().model_name(),
+                        &e.space().model_version(),
+                    )
                     .await?;
-                spaces.push(SpaceCoverage { space: e.space().id(), role, ratio: c.ratio(), coverage: c.into() });
+                spaces.push(SpaceCoverage {
+                    space: e.space().id(),
+                    role,
+                    ratio: c.ratio(),
+                    coverage: c.into(),
+                });
             }
         }
-        let jobs = self.store.job_counts(ctx.tenant_id).await?.into_iter().map(Into::into).collect();
+        let jobs = self
+            .store
+            .job_counts(ctx.tenant_id)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect();
         Ok(ProcessingStatus { spaces, jobs })
     }
 
@@ -363,7 +454,9 @@ impl CognitiveEngine {
     /// embedded in the active space. Used to refuse switching to a space
     /// that has not been backfilled.
     pub async fn active_space_coverage(&self) -> Result<Option<(String, EmbeddingCoverage)>> {
-        let Some(e) = &self.embedder else { return Ok(None) };
+        let Some(e) = &self.embedder else {
+            return Ok(None);
+        };
         let c = self
             .store
             .embedding_coverage(None, &e.space().model_name(), &e.space().model_version())
@@ -374,6 +467,9 @@ impl CognitiveEngine {
 
 impl HandlerError {
     pub(crate) fn permanent_msg(m: impl Into<String>) -> Self {
-        Self { permanent: true, message: m.into() }
+        Self {
+            permanent: true,
+            message: m.into(),
+        }
     }
 }
