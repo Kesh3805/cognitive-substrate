@@ -188,6 +188,10 @@ pub struct RecallSummary {
     pub scoring_version: u32,
     pub candidates_considered: usize,
     pub selected_count: usize,
+    #[serde(default)]
+    pub belief_candidates_considered: usize,
+    #[serde(default)]
+    pub beliefs_selected: usize,
     pub data_snapshot: String,
 }
 
@@ -195,6 +199,10 @@ pub struct RecallSummary {
 pub struct RecallResponse {
     pub trace_id: RecallTraceId,
     pub results: Vec<RecalledMemory>,
+    /// Beliefs relevant to the query. `relevance` is retrieval relevance;
+    /// the belief's own `confidence` is a separate signal.
+    #[serde(default)]
+    pub beliefs: Vec<RecalledBelief>,
     pub trace: RecallSummary,
 }
 
@@ -216,5 +224,62 @@ pub struct ReplayReport {
     pub replayed_selected: Vec<(MemoryId, MemoryRevisionId)>,
     pub added: Vec<MemoryId>,
     pub removed: Vec<MemoryId>,
+    #[serde(default)]
+    pub original_beliefs: Vec<BeliefId>,
+    #[serde(default)]
+    pub replayed_beliefs: Vec<BeliefId>,
     pub replay: RecallTrace,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecalledBelief {
+    pub rank: u32,
+    /// Retrieval relevance under the recall policy.
+    pub relevance: f64,
+    pub belief: Belief,
+    pub supporting_evidence: Vec<EvidenceId>,
+    pub refuting_evidence: Vec<EvidenceId>,
+}
+
+// ---- M3: perception, jobs, resolution, governance ------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewObservation {
+    pub scope: Scope,
+    pub content: String,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    pub source: SourceRef,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub observed_at: Option<OffsetDateTime>,
+    /// Caller-supplied dedupe key; resubmitting the same key returns the
+    /// original observation instead of processing it again.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservationView {
+    pub observation: cs_memory::Observation,
+    pub job: Option<cs_memory::Job>,
+    pub extraction_runs: Vec<cs_memory::ExtractionRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Decision {
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgeReport {
+    pub id: uuid::Uuid,
+    pub already_purged: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    pub purged_at: OffsetDateTime,
+    /// Memories erased because they were derived from the purged source.
+    #[serde(default)]
+    pub purged_memories: Vec<MemoryId>,
+    /// Live beliefs that lost evidence and need re-evaluation.
+    #[serde(default)]
+    pub beliefs_needing_reevaluation: Vec<BeliefId>,
 }
