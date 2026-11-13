@@ -48,6 +48,18 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Belief recall** | Recall returns relevant beliefs with their supporting and refuting evidence. Relevance and confidence are never blended. |
 | **Purge workflows** | Purging evidence flags dependent beliefs. Purging an observation erases what was derived only from it, and re-homes facts another source corroborates. A purge ledger records what was erased and when, never what it contained. |
 
+### Embeddings & operations (M3.x)
+
+| Capability | What it means |
+|---|---|
+| **Pluggable embedders** | The built-in deterministic baseline, any OpenAI-compatible endpoint, Ollama's native API, or local ONNX models via FastEmbed (optional build). |
+| **Embedding spaces** | Each vector is tied to an immutable space: model, revision, dimensions, normalization, preprocessing and query/document prefixes. Vectors from different spaces are never compared. |
+| **Embedder-independent writes** | Writes succeed during provider outages. Backfill jobs commit atomically with the write, and backfilled vectors re-trigger dense resolution. |
+| **Honest degradation** | If a query cannot be embedded, recall falls back explicitly to lexical + recency and records why. Candidates still awaiting a vector get a neutral score. |
+| **Replay stays exact** | Traces store the query vector, and recall as of *T* only uses vectors that existed at *T*, so backfills never change a replay. |
+| **Zero-downtime model switch** | Dual-write a shadow space, backfill newest first, watch coverage, then cut over. Startup refuses to serve an under-backfilled active space. |
+| **Process roles** | `api` nodes never claim jobs and `worker` processes serve no HTTP; `all` is for development. |
+
 ## Quick start
 
 ### Run the service
@@ -86,6 +98,16 @@ curl -s "localhost:8080/v1/proposals?status=pending" -H "x-cs-tenant: $TENANT" -
 ```
 
 To extract with a local model instead of rules, set `CS_EXTRACTOR=openai`, `CS_EXTRACTOR_URL=http://localhost:11434/v1` and `CS_EXTRACTOR_MODEL=<model>`.
+
+To embed with a local Ollama model:
+
+```bash
+CS_EMBEDDER=ollama CS_EMBEDDER_URL=http://localhost:11434 CS_EMBEDDER_MODEL=nomic-embed-text \
+CS_EMBEDDER_DIMENSIONS=768 CS_EMBEDDER_DOCUMENT_PREFIX='search_document: ' \
+CS_EMBEDDER_QUERY_PREFIX='search_query: ' cargo run -p cs-server
+```
+
+Switching models on existing data? See the migration procedure in [ADR-0017](docs/adr/0017-model-migration-and-process-roles.md).
 
 ### Embed the engine
 
@@ -145,6 +167,8 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `GET` | `/proposals` · `/proposals/{id}` | Inspect resolution proposals (`?status=pending`) |
 | `POST` | `/proposals/{id}/accept` · `/reject` | Decide a proposal |
 | `GET` | `/jobs` · `/jobs/{id}` | Background job state (`?status=dead_lettered`) |
+| `GET` | `/processing/status` | Embedding coverage per space and queue counts |
+| `POST` | `/embeddings/reindex` | Backfill a space (`{"space": ...}`, default: the shadow space) (202) |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
@@ -162,23 +186,26 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`.
 | `cs-engine` | The embeddable engine and public Rust API | core, memory, policy, storage |
 | `cs-server` | HTTP transport, service binary and in-process worker | engine, core |
 | `cs-extractor-http` | Optional OpenAI-compatible / Ollama extractor | engine, memory |
+| `cs-embedder-http` | OpenAI-compatible and Ollama-native embedder | engine |
+| `cs-embedder-fastembed` | Local ONNX embedder (not built by default; server feature `fastembed`) | engine |
 
 Core domain logic never depends on PostgreSQL, HTTP or a model provider. See [ADR-0001](docs/adr/0001-rust-workspace-and-layered-dependencies.md).
 
 ## Development
 
 ```bash
-cargo test --workspace                       # unit, HTTP and in-memory conformance tests
+cargo test                                   # unit, HTTP and in-memory conformance tests
 docker compose -f deploy/compose.yaml up -d postgres
 CS_TEST_DATABASE_URL=postgres://cs:cs@localhost:5432/cs cargo test -p cs-conformance
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --all-targets -- -D warnings
+cargo test -p cs-embedder-fastembed          # optional ONNX embedder (CS_TEST_FASTEMBED=1 runs a real model)
 ```
 
 ## Documentation
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
