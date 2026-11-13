@@ -1,2 +1,5 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# Storage contract methods commit a write, its links, vector, follow-up jobs
+# and event atomically; their parameter lists mirror that contract.
+too-many-arguments-threshold = 9
