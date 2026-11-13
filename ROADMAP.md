@@ -20,13 +20,23 @@ Six domain payloads; beliefs, evidence, revisions and dependency edges; embeddin
 
 **Exit gate:** the same scenarios pass through the embedded engine (in-memory and PostgreSQL) and the HTTP service, demonstrating scope isolation, temporal correctness, revision preservation and recall reproducibility.
 
-## M3 — Cognitive processing
+## ✅ M3 — Governed cognitive processing
 
-- Durable PostgreSQL-backed jobs.
-- Perception: a structured-extraction adapter (local models first) producing *candidate* memories.
-- Resolution: duplicate and contradiction detection, and supersession proposals.
-- Belief recall alongside memory recall; evidence purge.
-- A model-backed `Embedder` adapter (FastEmbed / ONNX).
+The substrate can observe, extract, detect, propose and recall. Authoritative knowledge still changes only through validated, version-checked decisions.
+
+- Durable PostgreSQL jobs: at-least-once delivery, `SKIP LOCKED` leases, generation fencing, effects committed atomically with the fenced transition, read-skew guards, savepoint-isolated effects, backoff with deterministic jitter, and dead-lettering (ADR-0011).
+- Immutable observations stored atomically with their perception job. A precision-first rule extractor, plus an optional OpenAI-compatible / Ollama extractor. Everything extracted is a *candidate* (ADR-0012).
+- Version-bound resolution proposals for duplicates, supersessions and contradictions, with a structural pre-veto, per-model thresholds calibrated against hard negatives, stale detection, and provenance-union merges (ADR-0013).
+- Evidence and observation purge with a purge ledger, re-evaluation flags, and re-homing of corroborated facts (ADR-0014).
+- Belief recall, with relevance kept separate from confidence (ADR-0015).
+
+**Exit gate:** 22 conformance scenarios pass on both stores. The calibration suite proves no hard negative merges. The HTTP flow is covered end to end, and the extractor contract is tested against a mock server.
+
+## M3.x — Deferred from M3
+
+- A model-backed `Embedder` adapter (FastEmbed / ONNX), with per-model threshold calibration.
+- A dedicated worker binary and horizontal worker deployment guidance.
+- Persisted belief embeddings.
 
 ## M4 — Learning systems
 
