@@ -8,6 +8,9 @@
 
 pub mod belief;
 pub mod embedding;
+pub mod job;
+pub mod observation;
+pub mod proposal;
 pub mod recall;
 pub mod record;
 
@@ -16,7 +19,13 @@ pub use belief::{
     ConfidenceInterpretation, DependencyRelation, Evidence, EvidenceDirection,
 };
 pub use embedding::EmbeddingRecord;
-pub use recall::{RecallCandidate, RecallPolicy, RecallTrace};
+pub use job::{ClaimedJob, Job, JobError, JobKind, JobOutcome, JobStatus, Lease, RetryPolicy};
+pub use observation::{ExtractedCandidate, ExtractionRun, Observation};
+pub use proposal::{
+    DetectionMetadata, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
+    ResolutionOperation, ResolutionProposal, ResolutionRationale, ResolutionSignal,
+};
+pub use recall::{RecallBeliefCandidate, RecallCandidate, RecallPolicy, RecallTrace};
 pub use record::{
     CapabilityStage, EpisodicMemory, MemoryContent, MemoryDomain, MemoryRecord, MemoryStatus,
     ProceduralMemory, RelationalMemory, SemanticMemory, TemporalChangeKind, TemporalMemory,

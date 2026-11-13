@@ -4,7 +4,9 @@
 //! defaults hidden inside a retrieval implementation. The scoring itself
 //! lives in `cs-policy`.
 
-use cs_core::{Error, MemoryId, MemoryRevisionId, RecallTraceId, Result, ScopeFilter, TenantId};
+use cs_core::{
+    BeliefId, Error, MemoryId, MemoryRevisionId, RecallTraceId, Result, ScopeFilter, TenantId,
+};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -41,6 +43,14 @@ pub struct RecallPolicy {
     pub include_candidates: bool,
     /// Persist the raw query text in the trace (enables exact replay).
     pub retain_query_text: bool,
+    /// Recall beliefs alongside memories.
+    pub include_beliefs: bool,
+    /// Maximum beliefs returned.
+    pub max_belief_results: u32,
+    /// Include beliefs whose evidence is in conflict.
+    pub include_disputed_beliefs: bool,
+    /// Include retracted beliefs (history inspection).
+    pub include_retracted_beliefs: bool,
 }
 
 impl Default for RecallPolicy {
@@ -62,6 +72,10 @@ impl Default for RecallPolicy {
             include_superseded: false,
             include_candidates: false,
             retain_query_text: true,
+            include_beliefs: true,
+            max_belief_results: 5,
+            include_disputed_beliefs: true,
+            include_retracted_beliefs: false,
         }
     }
 }
@@ -102,8 +116,30 @@ impl RecallPolicy {
         if !(self.recency_half_life_days.is_finite() && self.recency_half_life_days > 0.0) {
             return Err(Error::validation("recency_half_life_days must be positive"));
         }
+        if self.include_beliefs
+            && (self.max_belief_results == 0 || self.max_belief_results > self.max_candidates)
+        {
+            return Err(Error::validation(
+                "max_belief_results must be in 1..=max_candidates",
+            ));
+        }
         Ok(())
     }
+}
+
+/// A scored belief revision in a recall trace. Relevance (`score`) is kept
+/// separate from the belief's own confidence; they are different signals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecallBeliefCandidate {
+    pub belief_id: BeliefId,
+    pub lineage_id: BeliefId,
+    pub rank: u32,
+    pub score: f64,
+    pub dense_score: Option<f64>,
+    pub lexical_score: Option<f64>,
+    pub recency_score: Option<f64>,
+    pub selected: bool,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -134,6 +170,8 @@ pub struct RecallTrace {
     #[serde(default)]
     pub embedding_version: Option<String>,
     pub candidates: Vec<RecallCandidate>,
+    #[serde(default)]
+    pub belief_candidates: Vec<RecallBeliefCandidate>,
     /// Identifies the data the recall saw: transaction as-of time, scoring
     /// version and embedding model. Re-running against the same snapshot
     /// must yield the same selection.
