@@ -30,6 +30,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// Embedded migrations (`/migrations`).
+mod m3;
+
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Debug, Clone)]
@@ -673,6 +675,15 @@ impl CognitiveStore for PgStore {
         if deleted.rows_affected() == 0 {
             return Err(Error::not_found("memory", id));
         }
+        sqlx::query(
+            "INSERT INTO purge_ledger (kind, record_id, purged_at) VALUES ('memory', $1, $2) \
+             ON CONFLICT (kind, record_id) DO NOTHING",
+        )
+        .bind(id.0)
+        .bind(event.occurred_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
         let event = append_event(&mut tx, event).await?;
         tx.commit().await.map_err(db_err)?;
         Ok(event)
@@ -965,8 +976,9 @@ impl CognitiveStore for PgStore {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         sqlx::query(
             "INSERT INTO recall_traces (id, tenant_id, policy, scoring_version, query_hash, \
-             query_text, embedding_model, embedding_version, data_snapshot, executed_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             query_text, embedding_model, embedding_version, data_snapshot, executed_at, \
+             belief_candidates) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(t.id.0)
         .bind(t.tenant_id.0)
@@ -978,6 +990,7 @@ impl CognitiveStore for PgStore {
         .bind(&t.embedding_version)
         .bind(&t.data_snapshot)
         .bind(t.executed_at)
+        .bind(Json(&t.belief_candidates))
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1044,6 +1057,8 @@ impl CognitiveStore for PgStore {
                 })
                 .collect::<Result<Vec<_>>>()?;
         let Json(policy): Json<RecallPolicy> = row.try_get("policy").map_err(db_err)?;
+        let Json(belief_candidates): Json<Vec<cs_memory::RecallBeliefCandidate>> =
+            row.try_get("belief_candidates").map_err(db_err)?;
         Ok(Some(RecallTrace {
             id,
             tenant_id: TenantId(row.try_get("tenant_id").map_err(db_err)?),
@@ -1057,9 +1072,128 @@ impl CognitiveStore for PgStore {
             embedding_model: row.try_get("embedding_model").map_err(db_err)?,
             embedding_version: row.try_get("embedding_version").map_err(db_err)?,
             candidates,
+            belief_candidates,
             data_snapshot: row.try_get("data_snapshot").map_err(db_err)?,
             executed_at: row.try_get("executed_at").map_err(db_err)?,
         }))
+    }
+    // ---- M3 (implemented in m3.rs) -------------------------------------------
+
+    async fn query_beliefs(&self, q: &cs_storage::BeliefQuery) -> Result<Vec<Belief>> {
+        self.m3_query_beliefs(q).await
+    }
+
+    async fn enqueue_job(&self, job: &cs_memory::Job) -> Result<cs_memory::Job> {
+        self.m3_enqueue_job(job).await
+    }
+
+    async fn claim_jobs(&self, claim: &cs_storage::JobClaim) -> Result<Vec<cs_memory::ClaimedJob>> {
+        self.m3_claim_jobs(claim).await
+    }
+
+    async fn heartbeat_job(&self, lease: cs_memory::Lease, until: OffsetDateTime) -> Result<()> {
+        self.m3_heartbeat(lease, until).await
+    }
+
+    async fn finish_job(
+        &self,
+        lease: cs_memory::Lease,
+        now: OffsetDateTime,
+        outcome: cs_memory::JobOutcome,
+        effects: cs_storage::JobEffects,
+    ) -> Result<cs_memory::Job> {
+        self.m3_finish_job(lease, now, outcome, effects).await
+    }
+
+    async fn release_job(&self, lease: cs_memory::Lease, now: OffsetDateTime) -> Result<()> {
+        self.m3_release(lease, now).await
+    }
+
+    async fn get_job(&self, id: cs_core::JobId) -> Result<Option<cs_memory::Job>> {
+        self.m3_get_job(id).await
+    }
+
+    async fn list_jobs(
+        &self,
+        tenant_id: TenantId,
+        status: Option<cs_memory::JobStatus>,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::Job>> {
+        self.m3_list_jobs(tenant_id, status, limit).await
+    }
+
+    async fn insert_observation(
+        &self,
+        observation: &cs_memory::Observation,
+        job: &cs_memory::Job,
+        idempotency: Option<IdempotencyKey<'_>>,
+        event: EventDraft,
+    ) -> Result<CognitiveEvent> {
+        self.m3_insert_observation(observation, job, idempotency, event).await
+    }
+
+    async fn get_observation(
+        &self,
+        id: cs_core::ObservationId,
+    ) -> Result<Option<cs_memory::Observation>> {
+        self.m3_get_observation(id).await
+    }
+
+    async fn extraction_runs(
+        &self,
+        id: cs_core::ObservationId,
+    ) -> Result<Vec<cs_memory::ExtractionRun>> {
+        self.m3_extraction_runs(id).await
+    }
+
+    async fn purge_observation(
+        &self,
+        id: cs_core::ObservationId,
+        now: OffsetDateTime,
+        delete: &[MemoryId],
+        rehome: Vec<cs_storage::MemorySupersede>,
+        event: EventDraft,
+    ) -> Result<CognitiveEvent> {
+        self.m3_purge_observation(id, now, delete, rehome, event).await
+    }
+
+    async fn get_proposal(
+        &self,
+        id: cs_core::ProposalId,
+    ) -> Result<Option<cs_memory::ResolutionProposal>> {
+        self.m3_get_proposal(id).await
+    }
+
+    async fn list_proposals(
+        &self,
+        access: &AccessContext,
+        status: Option<cs_memory::ProposalStatus>,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::ResolutionProposal>> {
+        self.m3_list_proposals(access, status, limit).await
+    }
+
+    async fn decide_proposal(
+        &self,
+        id: cs_core::ProposalId,
+        decision: &cs_memory::ProposalDecision,
+        mutations: cs_storage::ProposalMutations,
+        events: Vec<EventDraft>,
+    ) -> Result<cs_memory::ResolutionProposal> {
+        self.m3_decide_proposal(id, decision, mutations, events).await
+    }
+
+    async fn purged_at(&self, kind: cs_storage::PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>> {
+        self.m3_purged_at(kind, id).await
+    }
+
+    async fn purge_evidence(
+        &self,
+        id: EvidenceId,
+        now: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Vec<BeliefId>> {
+        self.m3_purge_evidence(id, now, event).await
     }
 }
 
