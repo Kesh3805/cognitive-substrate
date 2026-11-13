@@ -49,7 +49,8 @@ impl EmbeddingSpace {
         if !self.document_prefix.is_empty() || !self.query_prefix.is_empty() {
             // Prefixes change the geometry; a short stable fingerprint keeps
             // the id readable.
-            let fp = fnv1a(format!("{}\u{1f}{}", self.document_prefix, self.query_prefix).as_bytes());
+            let fp =
+                fnv1a(format!("{}\u{1f}{}", self.document_prefix, self.query_prefix).as_bytes());
             v.push_str(&format!("+px{:08x}", fp as u32));
         }
         v
@@ -83,7 +84,10 @@ pub fn embedding_text(projection: &str) -> String {
     if n <= MAX_EMBED_CHARS {
         return projection.to_owned();
     }
-    let head: String = projection.chars().take(MAX_EMBED_CHARS - TAIL_CHARS - 3).collect();
+    let head: String = projection
+        .chars()
+        .take(MAX_EMBED_CHARS - TAIL_CHARS - 3)
+        .collect();
     let tail: String = projection.chars().skip(n - TAIL_CHARS).collect();
     format!("{head} … {tail}")
 }
@@ -143,13 +147,25 @@ mod tests {
             query_prefix: String::new(),
         };
         assert_eq!(a.id(), "ollama/nomic-embed-text@v1.5+d768+l2+pp1");
-        let b = EmbeddingSpace { revision: "v2".into(), ..a.clone() };
-        let c = EmbeddingSpace { preprocessing: 2, ..a.clone() };
-        let d = EmbeddingSpace { normalized: false, ..a.clone() };
+        let b = EmbeddingSpace {
+            revision: "v2".into(),
+            ..a.clone()
+        };
+        let c = EmbeddingSpace {
+            preprocessing: 2,
+            ..a.clone()
+        };
+        let d = EmbeddingSpace {
+            normalized: false,
+            ..a.clone()
+        };
         assert_ne!(a.id(), b.id());
         assert_ne!(a.id(), c.id());
         assert_ne!(a.id(), d.id());
-        let e = EmbeddingSpace { query_prefix: "search_query: ".into(), ..a.clone() };
+        let e = EmbeddingSpace {
+            query_prefix: "search_query: ".into(),
+            ..a.clone()
+        };
         assert_ne!(a.id(), e.id());
     }
 

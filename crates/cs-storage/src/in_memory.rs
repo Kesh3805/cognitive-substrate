@@ -16,17 +16,17 @@ use cs_core::{
     temporal::truncate_micros,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence, ExtractionRun,
-    Job, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation, ProposalDecision, ProposalStatus,
-    RecallTrace, RecordVersion, ResolutionProposal,
+    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
+    ExtractionRun, Job, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation,
+    ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
     BeliefQuery, BeliefSupersede, CognitiveStore, EmbeddingCoverage, IdempotencyKey, JobClaim,
-    JobCount, JobEffects,
-    MemoryQuery, MemorySupersede, ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
+    JobCount, JobEffects, MemoryQuery, MemorySupersede, ProposalMutations, PurgeKind, StoredBelief,
+    StoredMemory,
 };
 
 #[derive(Debug, Default)]

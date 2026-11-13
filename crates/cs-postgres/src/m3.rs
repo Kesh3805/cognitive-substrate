@@ -10,23 +10,21 @@ use cs_core::{
     ObservationId, ProposalId, Result, TenantId,
 };
 use cs_memory::{
-    ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome, JobStatus, Lease,
-    Observation, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
-    ResolutionProposal,
+    ClaimedJob, ExtractionRun, Job, JobError, JobKind, JobOutcome, JobStatus, Lease, Observation,
+    ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind, ResolutionProposal,
 };
 use cs_storage::{
-    BeliefQuery, BeliefSupersede, EmbeddingCoverage, IdempotencyKey, JobClaim, JobCount, JobEffects,
-    MemorySupersede,
-    ProposalMutations, PurgeKind, StoredBelief,
+    BeliefQuery, BeliefSupersede, EmbeddingCoverage, IdempotencyKey, JobClaim, JobCount,
+    JobEffects, MemorySupersede, ProposalMutations, PurgeKind, StoredBelief,
 };
 use sqlx::{Row, postgres::PgRow, types::Json};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    BELIEF_COLS, EmbeddingTarget, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event, belief_from_row, db_err,
-    insert_belief_rows, insert_memory_row, parse, project_ids, register_key, scope_from_row,
-    upsert_embedding,
+    BELIEF_COLS, EmbeddingTarget, PgStore, TABLE_ACCESS_COLS, Tx, access_sql, append_event,
+    belief_from_row, db_err, insert_belief_rows, insert_memory_row, parse, project_ids,
+    register_key, scope_from_row, upsert_embedding,
 };
 
 // ---- rows ---------------------------------------------------------------------
@@ -399,7 +397,13 @@ async fn ledger(tx: &mut Tx<'_>, kind: PurgeKind, id: Uuid, at: OffsetDateTime) 
 impl PgStore {
     pub(crate) async fn m3_query_beliefs(&self, q: &BeliefQuery) -> Result<Vec<StoredBelief>> {
         let clause = access_sql(
-            ["b.tenant_id", "b.owner_user_id", "b.agent_id", "b.project_id", "b.visibility::text"],
+            [
+                "b.tenant_id",
+                "b.owner_user_id",
+                "b.agent_id",
+                "b.project_id",
+                "b.visibility::text",
+            ],
             [1, 2, 3, 4],
         );
         let (model, version) = q.embedding_model.clone().unwrap_or_default();

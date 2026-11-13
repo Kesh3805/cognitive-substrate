@@ -1143,7 +1143,10 @@ impl CognitiveStore for PgStore {
     }
     // ---- M3 (implemented in m3.rs) -------------------------------------------
 
-    async fn query_beliefs(&self, q: &cs_storage::BeliefQuery) -> Result<Vec<cs_storage::StoredBelief>> {
+    async fn query_beliefs(
+        &self,
+        q: &cs_storage::BeliefQuery,
+    ) -> Result<Vec<cs_storage::StoredBelief>> {
         self.m3_query_beliefs(q).await
     }
 
@@ -1157,7 +1160,8 @@ impl CognitiveStore for PgStore {
         model_name: &str,
         model_version: &str,
     ) -> Result<cs_storage::EmbeddingCoverage> {
-        self.m3_embedding_coverage(tenant, model_name, model_version).await
+        self.m3_embedding_coverage(tenant, model_name, model_version)
+            .await
     }
 
     async fn enqueue_job(&self, job: &cs_memory::Job) -> Result<cs_memory::Job> {

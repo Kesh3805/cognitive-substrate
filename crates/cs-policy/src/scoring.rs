@@ -64,13 +64,21 @@ pub fn estimate_tokens(text: &str) -> u32 {
 /// rather than silently scoring every candidate as dense-dissimilar.
 pub fn effective_weights(policy: &RecallPolicy, dense_available: bool) -> (f64, f64, f64) {
     if dense_available || policy.dense_weight == 0.0 {
-        return (policy.dense_weight, policy.lexical_weight, policy.recency_weight);
+        return (
+            policy.dense_weight,
+            policy.lexical_weight,
+            policy.recency_weight,
+        );
     }
     let rest = policy.lexical_weight + policy.recency_weight;
     if rest <= 0.0 {
         return (0.0, 0.0, 0.0);
     }
-    (0.0, policy.lexical_weight / rest, policy.recency_weight / rest)
+    (
+        0.0,
+        policy.lexical_weight / rest,
+        policy.recency_weight / rest,
+    )
 }
 
 /// One rankable item: a stable two-part key (identity, revision), the text
@@ -113,7 +121,11 @@ pub fn imputed_dense(dense: &[Option<f64>]) -> f64 {
     }
     known.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     let mid = known.len() / 2;
-    if known.len() % 2 == 1 { known[mid] } else { (known[mid - 1] + known[mid]) / 2.0 }
+    if known.len() % 2 == 1 {
+        known[mid]
+    } else {
+        (known[mid - 1] + known[mid]) / 2.0
+    }
 }
 
 /// Score and rank items under the policy's weights; select under `limits`.
@@ -436,9 +448,15 @@ mod tests {
             datetime!(2026-11-01 0:00 UTC),
             &[a, b, c],
         );
-        let pending = out.iter().find(|x| x.memory_id == MemoryId(Uuid::from_u128(3))).unwrap();
+        let pending = out
+            .iter()
+            .find(|x| x.memory_id == MemoryId(Uuid::from_u128(3)))
+            .unwrap();
         assert!(pending.dense_score.is_none());
-        assert_eq!(pending.rank, 2, "ranked between its embedded peers: {out:?}");
+        assert_eq!(
+            pending.rank, 2,
+            "ranked between its embedded peers: {out:?}"
+        );
     }
 
     #[test]

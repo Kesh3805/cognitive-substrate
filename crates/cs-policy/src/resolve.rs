@@ -93,7 +93,10 @@ impl ResolutionConfig {
 
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
-            return Err(format!("unsupported schema_version {}", self.schema_version));
+            return Err(format!(
+                "unsupported schema_version {}",
+                self.schema_version
+            ));
         }
         for (id, s) in &self.spaces {
             if s.calibration.trim().is_empty() {
@@ -670,12 +673,26 @@ mod tests {
     #[test]
     fn uncalibrated_or_mismatched_spaces_are_disabled() {
         let c = ResolutionConfig::default();
-        assert!(c.threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic).is_some());
-        assert!(c.threshold(Some("ollama/nomic@v1+d768+l2+pp1"), MemoryDomain::Semantic).is_none());
+        assert!(
+            c.threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic)
+                .is_some()
+        );
+        assert!(
+            c.threshold(Some("ollama/nomic@v1+d768+l2+pp1"), MemoryDomain::Semantic)
+                .is_none()
+        );
         assert!(c.threshold(None, MemoryDomain::Semantic).is_none());
         let mut stale = c.clone();
-        stale.spaces.get_mut(HASHING_SPACE_384).unwrap().detector_version = "resolve-v0".into();
-        assert!(stale.threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic).is_none());
+        stale
+            .spaces
+            .get_mut(HASHING_SPACE_384)
+            .unwrap()
+            .detector_version = "resolve-v0".into();
+        assert!(
+            stale
+                .threshold(Some(HASHING_SPACE_384), MemoryDomain::Semantic)
+                .is_none()
+        );
     }
 
     #[test]
@@ -683,8 +700,15 @@ mod tests {
         let json = serde_json::to_string(&ResolutionConfig::default()).unwrap();
         assert!(ResolutionConfig::from_json(&json).is_ok());
         let mut bad = ResolutionConfig::default();
-        bad.spaces.get_mut(HASHING_SPACE_384).unwrap().thresholds.insert(MemoryDomain::Semantic, 0.5);
-        assert!(bad.validate().is_err(), "threshold below the hard-negative ceiling");
+        bad.spaces
+            .get_mut(HASHING_SPACE_384)
+            .unwrap()
+            .thresholds
+            .insert(MemoryDomain::Semantic, 0.5);
+        assert!(
+            bad.validate().is_err(),
+            "threshold below the hard-negative ceiling"
+        );
     }
 
     #[test]
