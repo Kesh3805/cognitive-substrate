@@ -8,6 +8,7 @@ members = [
     "crates/cs-postgres",
     "crates/cs-engine",
     "crates/cs-server",
+    "tests/conformance",
 ]
 
 [workspace.package]

@@ -1,0 +1,25 @@
+[package]
+name = "cs-conformance"
+description = "Behavioural conformance suite run against every storage adapter."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cs-core.workspace = true
+cs-memory.workspace = true
+cs-policy.workspace = true
+cs-storage.workspace = true
+cs-engine.workspace = true
+time.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+cs-postgres.workspace = true
+sqlx.workspace = true
+
+[lints]
+workspace = true
