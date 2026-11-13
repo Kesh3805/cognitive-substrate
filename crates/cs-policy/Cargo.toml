@@ -15,9 +15,9 @@ serde.workspace = true
 time.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-uuid.workspace = true
 serde_json.workspace = true
 
 [lints]

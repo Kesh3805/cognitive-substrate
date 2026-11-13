@@ -15,8 +15,9 @@
 
 use std::cmp::Ordering;
 
-use cs_core::{MemoryId, MemoryRevisionId};
-use cs_memory::{RecallCandidate, RecallPolicy};
+use cs_core::{BeliefId, MemoryId, MemoryRevisionId};
+use cs_memory::{RecallBeliefCandidate, RecallCandidate, RecallPolicy};
+use uuid::Uuid;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
@@ -58,7 +59,115 @@ pub fn estimate_tokens(text: &str) -> u32 {
     u32::try_from(text.chars().count().div_ceil(4)).unwrap_or(u32::MAX)
 }
 
-/// Score, rank and select candidates under `policy`.
+/// One rankable item: a stable two-part key (identity, revision), the text
+/// to score, an optional embedding and when it was observed.
+#[derive(Debug, Clone)]
+pub struct RankItem<'a> {
+    pub key: (Uuid, Uuid),
+    pub text: &'a str,
+    pub embedding: Option<&'a [f32]>,
+    pub observed_at: OffsetDateTime,
+}
+
+/// A ranked item with its component scores and selection decision.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ranked {
+    pub key: (Uuid, Uuid),
+    pub rank: u32,
+    pub score: f64,
+    pub dense: Option<f64>,
+    pub lexical: f64,
+    pub recency: f64,
+    pub selected: bool,
+    pub reason: &'static str,
+}
+
+/// Selection limits applied while walking the ranking.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    pub min_score: f64,
+    pub max_results: u32,
+    pub max_context_tokens: Option<u32>,
+}
+
+/// Score and rank items under the policy's weights; select under `limits`.
+/// Ranking is `(score DESC, key ASC)`, which is total and deterministic.
+pub fn rank_items(
+    policy: &RecallPolicy,
+    limits: Limits,
+    query: &str,
+    query_embedding: Option<&[f32]>,
+    as_of: OffsetDateTime,
+    items: &[RankItem<'_>],
+) -> Vec<Ranked> {
+    let texts: Vec<&str> = items.iter().map(|i| i.text).collect();
+    let lexical = bm25_normalized(query, &texts);
+
+    let mut scored: Vec<(Ranked, u32)> = items
+        .iter()
+        .zip(lexical)
+        .map(|(item, lex)| {
+            let dense = match (query_embedding, item.embedding) {
+                (Some(q), Some(e)) => cosine_similarity(q, e).map(|c| (c + 1.0) / 2.0),
+                _ => None,
+            };
+            let age_days = ((as_of - item.observed_at).as_seconds_f64() / 86_400.0).max(0.0);
+            let recency = 0.5_f64.powf(age_days / policy.recency_half_life_days);
+            let score = policy.dense_weight * dense.unwrap_or(0.0)
+                + policy.lexical_weight * lex
+                + policy.recency_weight * recency;
+            (
+                Ranked {
+                    key: item.key,
+                    rank: 0,
+                    score,
+                    dense,
+                    lexical: lex,
+                    recency,
+                    selected: false,
+                    reason: "",
+                },
+                estimate_tokens(item.text),
+            )
+        })
+        .collect();
+
+    scored.sort_by(|(a, _), (b, _)| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.key.cmp(&b.key))
+    });
+
+    let mut selected_count = 0_u32;
+    let mut tokens_used = 0_u32;
+    scored
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (mut r, tokens))| {
+            let (selected, reason) = if r.score < limits.min_score {
+                (false, "below_min_score")
+            } else if selected_count >= limits.max_results {
+                (false, "max_results_reached")
+            } else if limits
+                .max_context_tokens
+                .is_some_and(|budget| tokens_used.saturating_add(tokens) > budget)
+            {
+                (false, "context_budget_exceeded")
+            } else {
+                selected_count += 1;
+                tokens_used = tokens_used.saturating_add(tokens);
+                (true, "selected")
+            };
+            r.rank = u32::try_from(idx + 1).unwrap_or(u32::MAX);
+            r.selected = selected;
+            r.reason = reason;
+            r
+        })
+        .collect()
+}
+
+/// Score, rank and select memory candidates under `policy`.
 ///
 /// `as_of` must be the resolved as-of transaction time (never "now" read
 /// inside this function).
@@ -69,87 +178,84 @@ pub fn score_candidates(
     as_of: OffsetDateTime,
     inputs: &[ScoringInput<'_>],
 ) -> Vec<RecallCandidate> {
-    let texts: Vec<&str> = inputs.iter().map(|i| i.text).collect();
-    let lexical = bm25_normalized(query, &texts);
-
-    struct Scored {
-        memory_id: MemoryId,
-        revision_id: MemoryRevisionId,
-        tokens: u32,
-        score: f64,
-        dense: Option<f64>,
-        lexical: f64,
-        recency: f64,
-    }
-
-    let mut scored: Vec<Scored> = inputs
+    let items: Vec<RankItem<'_>> = inputs
         .iter()
-        .zip(lexical)
-        .map(|(input, lex)| {
-            let dense = match (query_embedding, input.embedding) {
-                (Some(q), Some(e)) => cosine_similarity(q, e).map(|c| (c + 1.0) / 2.0),
-                _ => None,
-            };
-            let age_days = ((as_of - input.observed_at).as_seconds_f64() / 86_400.0).max(0.0);
-            let recency = 0.5_f64.powf(age_days / policy.recency_half_life_days);
-            let score = policy.dense_weight * dense.unwrap_or(0.0)
-                + policy.lexical_weight * lex
-                + policy.recency_weight * recency;
-            Scored {
-                memory_id: input.memory_id,
-                revision_id: input.revision_id,
-                tokens: estimate_tokens(input.text),
-                score,
-                dense,
-                lexical: lex,
-                recency,
-            }
+        .map(|i| RankItem {
+            key: (i.memory_id.0, i.revision_id.0),
+            text: i.text,
+            embedding: i.embedding,
+            observed_at: i.observed_at,
         })
         .collect();
-
-    scored.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.memory_id.cmp(&b.memory_id))
-            .then_with(|| a.revision_id.cmp(&b.revision_id))
-    });
-
-    let mut selected_count = 0_u32;
-    let mut tokens_used = 0_u32;
-    scored
+    let limits = Limits {
+        min_score: policy.min_score,
+        max_results: policy.max_results,
+        max_context_tokens: policy.max_context_tokens,
+    };
+    rank_items(policy, limits, query, query_embedding, as_of, &items)
         .into_iter()
-        .enumerate()
-        .map(|(idx, s)| {
-            let (selected, reason) = if s.score < policy.min_score {
-                (false, "below_min_score")
-            } else if selected_count >= policy.max_results {
-                (false, "max_results_reached")
-            } else if policy
-                .max_context_tokens
-                .is_some_and(|budget| tokens_used.saturating_add(s.tokens) > budget)
-            {
-                (false, "context_budget_exceeded")
-            } else {
-                selected_count += 1;
-                tokens_used = tokens_used.saturating_add(s.tokens);
-                (true, "selected")
-            };
-            RecallCandidate {
-                memory_id: s.memory_id,
-                revision_id: s.revision_id,
-                rank: u32::try_from(idx + 1).unwrap_or(u32::MAX),
-                score: s.score,
-                dense_score: s.dense,
-                lexical_score: Some(s.lexical),
-                recency_score: Some(s.recency),
-                selected,
-                reason: reason.to_owned(),
-            }
+        .map(|r| RecallCandidate {
+            memory_id: MemoryId(r.key.0),
+            revision_id: MemoryRevisionId(r.key.1),
+            rank: r.rank,
+            score: r.score,
+            dense_score: r.dense,
+            lexical_score: Some(r.lexical),
+            recency_score: Some(r.recency),
+            selected: r.selected,
+            reason: r.reason.to_owned(),
         })
         .collect()
 }
 
+/// A belief revision to score: `key` is `(lineage_id, revision_id)`.
+#[derive(Debug, Clone)]
+pub struct BeliefScoringInput<'a> {
+    pub lineage_id: BeliefId,
+    pub belief_id: BeliefId,
+    pub text: &'a str,
+    pub embedding: Option<&'a [f32]>,
+    pub observed_at: OffsetDateTime,
+}
+
+/// Score beliefs with the same function as memories. Relevance only:
+/// belief confidence is deliberately *not* blended in.
+pub fn score_belief_candidates(
+    policy: &RecallPolicy,
+    query: &str,
+    query_embedding: Option<&[f32]>,
+    as_of: OffsetDateTime,
+    inputs: &[BeliefScoringInput<'_>],
+) -> Vec<RecallBeliefCandidate> {
+    let items: Vec<RankItem<'_>> = inputs
+        .iter()
+        .map(|i| RankItem {
+            key: (i.lineage_id.0, i.belief_id.0),
+            text: i.text,
+            embedding: i.embedding,
+            observed_at: i.observed_at,
+        })
+        .collect();
+    let limits = Limits {
+        min_score: policy.min_score,
+        max_results: policy.max_belief_results,
+        max_context_tokens: None,
+    };
+    rank_items(policy, limits, query, query_embedding, as_of, &items)
+        .into_iter()
+        .map(|r| RecallBeliefCandidate {
+            lineage_id: BeliefId(r.key.0),
+            belief_id: BeliefId(r.key.1),
+            rank: r.rank,
+            score: r.score,
+            dense_score: r.dense,
+            lexical_score: Some(r.lexical),
+            recency_score: Some(r.recency),
+            selected: r.selected,
+            reason: r.reason.to_owned(),
+        })
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use time::{Duration, macros::datetime};
