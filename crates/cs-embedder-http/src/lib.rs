@@ -122,7 +122,9 @@ impl HttpEmbedder {
             return Err(Failure::Retryable(format!("endpoint returned {status}")));
         }
         if matches!(status.as_u16(), 400 | 413 | 422) {
-            return Err(Failure::Rejected(format!("endpoint rejected input: {status}")));
+            return Err(Failure::Rejected(format!(
+                "endpoint rejected input: {status}"
+            )));
         }
         if !status.is_success() {
             return Err(Failure::Permanent(format!("endpoint returned {status}")));
@@ -136,11 +138,7 @@ impl HttpEmbedder {
 
     /// Embed one batch, bisecting on input rejection so a single poison
     /// item cannot fail its neighbours.
-    fn embed_range<'a>(
-        &'a self,
-        texts: &'a [String],
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<Result<Vec<f32>, EmbedError>>> + Send + 'a>>
-    {
+    fn embed_range<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Vec<ItemResult>> {
         Box::pin(async move {
             match self.call(texts).await {
                 Ok(vectors) => vectors.into_iter().map(Ok).collect(),
@@ -169,6 +167,11 @@ impl HttpEmbedder {
     }
 }
 
+/// One input's outcome.
+type ItemResult = Result<Vec<f32>, EmbedError>;
+/// Boxed future, needed because bisection recurses.
+type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
 #[derive(Debug)]
 enum Failure {
     Retryable(String),
@@ -193,7 +196,11 @@ struct OpenAiItem {
 }
 
 /// Decode a response body for `expected` inputs. Public for testing.
-pub fn decode(protocol: Protocol, value: &serde_json::Value, expected: usize) -> Result<Vec<Vec<f32>>, String> {
+pub fn decode(
+    protocol: Protocol,
+    value: &serde_json::Value,
+    expected: usize,
+) -> Result<Vec<Vec<f32>>, String> {
     match protocol {
         Protocol::OpenAi => {
             let mut items: Vec<OpenAiItem> = serde_json::from_value(value["data"].clone())
@@ -211,7 +218,10 @@ pub fn decode(protocol: Protocol, value: &serde_json::Value, expected: usize) ->
             let vectors: Vec<Vec<f32>> = serde_json::from_value(value["embeddings"].clone())
                 .map_err(|e| format!("unexpected response shape: {e}"))?;
             if vectors.len() != expected {
-                return Err(format!("expected {expected} embeddings, got {}", vectors.len()));
+                return Err(format!(
+                    "expected {expected} embeddings, got {}",
+                    vectors.len()
+                ));
             }
             Ok(vectors)
         }
@@ -272,7 +282,10 @@ mod tests {
             { "index": 1, "embedding": [0.0, 1.0] },
             { "index": 0, "embedding": [1.0, 0.0] }
         ]});
-        assert_eq!(decode(Protocol::OpenAi, &v, 2).unwrap(), vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+        assert_eq!(
+            decode(Protocol::OpenAi, &v, 2).unwrap(),
+            vec![vec![1.0, 0.0], vec![0.0, 1.0]]
+        );
         let gap = json!({ "data": [ { "index": 0, "embedding": [1.0] }, { "index": 2, "embedding": [1.0] } ] });
         assert!(decode(Protocol::OpenAi, &gap, 2).is_err());
         assert!(decode(Protocol::OpenAi, &v, 3).is_err());
