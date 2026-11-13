@@ -1,0 +1,35 @@
+name: cognitive-substrate
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: cs
+      POSTGRES_PASSWORD: cs
+      POSTGRES_DB: cs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cs -d cs"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  substrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cs:cs@postgres:5432/cs
+      RUST_LOG: info
+      # CS_API_KEY: change-me
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
