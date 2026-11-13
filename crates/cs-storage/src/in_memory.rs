@@ -16,22 +16,26 @@ use cs_core::{
     temporal::truncate_micros,
 };
 use cs_memory::{
-    Belief, BeliefDependency, BeliefEvidence, ClaimedJob, EmbeddingRecord, Evidence, ExtractionRun,
-    Job, JobOutcome, JobStatus, Lease, MemoryRecord, Observation, ProposalDecision, ProposalStatus,
+    Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence, ExtractionRun,
+    Job, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation, ProposalDecision, ProposalStatus,
     RecallTrace, RecordVersion, ResolutionProposal,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    BeliefQuery, BeliefSupersede, CognitiveStore, IdempotencyKey, JobClaim, JobEffects,
-    MemoryQuery, MemorySupersede, ProposalMutations, PurgeKind, StoredMemory,
+    BeliefQuery, BeliefSupersede, CognitiveStore, EmbeddingCoverage, IdempotencyKey, JobClaim,
+    JobCount, JobEffects,
+    MemoryQuery, MemorySupersede, ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
 };
 
 #[derive(Debug, Default)]
 struct State {
     memories: Vec<MemoryRecord>,
-    embeddings: HashMap<MemoryRevisionId, EmbeddingRecord>,
+    /// Keyed by (revision, embedding space): a revision may hold vectors
+    /// from several spaces during a model migration.
+    embeddings: HashMap<(MemoryRevisionId, String), EmbeddingRecord>,
+    belief_embeddings: HashMap<(BeliefId, String), EmbeddingRecord>,
     evidence: BTreeMap<EvidenceId, Evidence>,
     beliefs: Vec<Belief>,
     belief_evidence: Vec<(BeliefId, BeliefEvidence)>,
@@ -57,6 +61,18 @@ impl State {
         let event = draft.into_event(sequence, truncate_micros(OffsetDateTime::now_utc()));
         self.events.push(event.clone());
         event
+    }
+
+    fn put_embedding(&mut self, revision: MemoryRevisionId, e: EmbeddingRecord) {
+        self.embeddings.insert((revision, e.space_id()), e);
+    }
+
+    fn drop_embeddings(&mut self, revision: MemoryRevisionId) {
+        self.embeddings.retain(|(r, _), _| *r != revision);
+    }
+
+    fn put_belief_embedding(&mut self, id: BeliefId, e: EmbeddingRecord) {
+        self.belief_embeddings.insert((id, e.space_id()), e);
     }
 
     fn register(&mut self, key: Option<IdempotencyKey<'_>>, id: Uuid) -> Result<()> {
@@ -110,6 +126,7 @@ impl CognitiveStore for InMemoryStore {
         record: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut s = self.lock();
@@ -119,7 +136,10 @@ impl CognitiveStore for InMemoryStore {
         s.register(idempotency, record.id.0)?;
         s.memories.push(record.clone());
         if let Some(e) = embedding {
-            s.embeddings.insert(record.revision_id, e.clone());
+            s.put_embedding(record.revision_id, e.clone());
+        }
+        for j in follow_up {
+            enqueue(&mut s, j);
         }
         Ok(s.append(event))
     }
@@ -130,6 +150,7 @@ impl CognitiveStore for InMemoryStore {
         closed_at: OffsetDateTime,
         next: &MemoryRecord,
         embedding: Option<&EmbeddingRecord>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut s = self.lock();
@@ -146,7 +167,10 @@ impl CognitiveStore for InMemoryStore {
         old.superseded_by = Some(next.revision_id);
         s.memories.push(next.clone());
         if let Some(e) = embedding {
-            s.embeddings.insert(next.revision_id, e.clone());
+            s.put_embedding(next.revision_id, e.clone());
+        }
+        for j in follow_up {
+            enqueue(&mut s, j);
         }
         Ok(s.append(event))
     }
@@ -192,8 +216,8 @@ impl CognitiveStore for InMemoryStore {
                 record: m.clone(),
                 embedding: q.embedding_model.as_ref().and_then(|(name, version)| {
                     s.embeddings
-                        .get(&m.revision_id)
-                        .filter(|e| e.same_model(name, version))
+                        .get(&(m.revision_id, format!("{name}@{version}")))
+                        .filter(|e| e.embedded_at.is_none_or(|t| t <= q.as_of_transaction_time))
                         .map(|e| e.vector.clone())
                 }),
             })
@@ -223,7 +247,7 @@ impl CognitiveStore for InMemoryStore {
         }
         s.memories.retain(|m| m.id != id);
         for r in revisions {
-            s.embeddings.remove(&r);
+            s.drop_embeddings(r);
         }
         s.purges.insert(
             (PurgeKind::Memory.as_str(), id.0),
@@ -258,12 +282,20 @@ impl CognitiveStore for InMemoryStore {
         belief: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
         idempotency: Option<IdempotencyKey<'_>>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut s = self.lock();
         check_links(&s, belief, evidence, dependencies)?;
         s.register(idempotency, belief.id.0)?;
+        if let Some(e) = embedding {
+            s.put_belief_embedding(belief.id, e.clone());
+        }
+        for j in follow_up {
+            enqueue(&mut s, j);
+        }
         s.beliefs.push(belief.clone());
         s.belief_evidence
             .extend(evidence.iter().map(|e| (belief.id, e.clone())));
@@ -278,6 +310,8 @@ impl CognitiveStore for InMemoryStore {
         next: &Belief,
         evidence: &[BeliefEvidence],
         dependencies: &[BeliefDependency],
+        embedding: Option<&EmbeddingRecord>,
+        follow_up: &[Job],
         event: EventDraft,
     ) -> Result<CognitiveEvent> {
         let mut s = self.lock();
@@ -297,6 +331,12 @@ impl CognitiveStore for InMemoryStore {
         s.belief_evidence
             .extend(evidence.iter().map(|e| (next.id, e.clone())));
         s.dependencies.extend(dependencies.iter().cloned());
+        if let Some(e) = embedding {
+            s.put_belief_embedding(next.id, e.clone());
+        }
+        for j in follow_up {
+            enqueue(&mut s, j);
+        }
         Ok(s.append(event))
     }
 
@@ -444,7 +484,7 @@ impl CognitiveStore for InMemoryStore {
 
     // ---- M3 ------------------------------------------------------------------
 
-    async fn query_beliefs(&self, q: &BeliefQuery) -> Result<Vec<Belief>> {
+    async fn query_beliefs(&self, q: &BeliefQuery) -> Result<Vec<StoredBelief>> {
         let s = self.lock();
         let mut out: Vec<Belief> = s
             .beliefs
@@ -468,7 +508,68 @@ impl CognitiveStore for InMemoryStore {
                 .then_with(|| a.id.cmp(&b.id))
         });
         out.truncate(q.limit as usize);
-        Ok(out)
+        Ok(out
+            .into_iter()
+            .map(|b| StoredBelief {
+                embedding: q.embedding_model.as_ref().and_then(|(name, version)| {
+                    s.belief_embeddings
+                        .get(&(b.id, format!("{name}@{version}")))
+                        .filter(|e| e.embedded_at.is_none_or(|t| t <= q.as_of_transaction_time))
+                        .map(|e| e.vector.clone())
+                }),
+                belief: b,
+            })
+            .collect())
+    }
+
+    async fn job_counts(&self, tenant_id: TenantId) -> Result<Vec<JobCount>> {
+        let s = self.lock();
+        let mut groups: BTreeMap<(&'static str, &'static str), JobCount> = BTreeMap::new();
+        for j in s.jobs.values().filter(|j| j.tenant_id == tenant_id) {
+            let g = groups
+                .entry((j.kind.as_str(), j.status.as_str()))
+                .or_insert(JobCount {
+                    kind: j.kind,
+                    status: j.status,
+                    count: 0,
+                    oldest_available_at: None,
+                });
+            g.count += 1;
+            g.oldest_available_at = Some(
+                g.oldest_available_at
+                    .map_or(j.available_at, |o| o.min(j.available_at)),
+            );
+        }
+        Ok(groups.into_values().collect())
+    }
+
+    async fn embedding_coverage(
+        &self,
+        tenant: Option<TenantId>,
+        model_name: &str,
+        model_version: &str,
+    ) -> Result<EmbeddingCoverage> {
+        let s = self.lock();
+        let space = format!("{model_name}@{model_version}");
+        let in_tenant = |t: TenantId| tenant.is_none_or(|x| x == t);
+        let mut c = EmbeddingCoverage::default();
+        for m in s.memories.iter().filter(|m| {
+            m.is_current() && m.status != MemoryStatus::Tombstoned && in_tenant(m.scope.tenant_id)
+        }) {
+            c.memories_total += 1;
+            if s.embeddings.contains_key(&(m.revision_id, space.clone())) {
+                c.memories_embedded += 1;
+            }
+        }
+        for b in s.beliefs.iter().filter(|b| {
+            b.is_current() && b.status != BeliefStatus::Retracted && in_tenant(b.scope.tenant_id)
+        }) {
+            c.beliefs_total += 1;
+            if s.belief_embeddings.contains_key(&(b.id, space.clone())) {
+                c.beliefs_embedded += 1;
+            }
+        }
+        Ok(c)
     }
 
     async fn enqueue_job(&self, job: &Job) -> Result<Job> {
@@ -550,7 +651,7 @@ impl CognitiveStore for InMemoryStore {
         }
         for (m, e) in effects.memories {
             if let Some(e) = e {
-                s.embeddings.insert(m.revision_id, e);
+                s.put_embedding(m.revision_id, e);
             }
             s.memories.push(m);
         }
@@ -568,6 +669,17 @@ impl CognitiveStore for InMemoryStore {
         }
         for j in &effects.jobs {
             enqueue(&mut s, j);
+        }
+        for (rev, e) in effects.memory_embeddings {
+            // Purged revisions are skipped, never resurrected.
+            if s.memories.iter().any(|m| m.revision_id == rev) {
+                s.put_embedding(rev, e);
+            }
+        }
+        for (id, e) in effects.belief_embeddings {
+            if s.beliefs.iter().any(|b| b.id == id) {
+                s.put_belief_embedding(id, e);
+            }
         }
         let job = fenced(&mut s, lease)?;
         apply_outcome(job, now, outcome);
@@ -658,7 +770,10 @@ impl CognitiveStore for InMemoryStore {
                 old.superseded_by = Some(m.next.revision_id);
             }
             if let Some(e) = m.embedding {
-                s.embeddings.insert(m.next.revision_id, e);
+                s.put_embedding(m.next.revision_id, e);
+            }
+            for j in &m.follow_up {
+                enqueue(&mut s, j);
             }
             s.memories.push(m.next);
         }
@@ -674,7 +789,7 @@ impl CognitiveStore for InMemoryStore {
             .collect();
         s.memories.retain(|m| !derived.contains(&m.id));
         for r in revisions {
-            s.embeddings.remove(&r);
+            s.drop_embeddings(r);
         }
         for m in derived {
             s.purges.insert((PurgeKind::Memory.as_str(), m.0), now);
@@ -732,7 +847,10 @@ impl CognitiveStore for InMemoryStore {
                 old.superseded_by = Some(m.next.revision_id);
             }
             if let Some(e) = m.embedding {
-                s.embeddings.insert(m.next.revision_id, e);
+                s.put_embedding(m.next.revision_id, e);
+            }
+            for j in &m.follow_up {
+                enqueue(&mut s, j);
             }
             s.memories.push(m.next);
         }
@@ -745,6 +863,12 @@ impl CognitiveStore for InMemoryStore {
             s.belief_evidence
                 .extend(b.evidence.into_iter().map(|e| (next_id, e)));
             s.dependencies.extend(b.dependencies);
+            if let Some(e) = b.embedding {
+                s.put_belief_embedding(next_id, e);
+            }
+            for j in &b.follow_up {
+                enqueue(&mut s, j);
+            }
             s.beliefs.push(b.next);
         }
         for e in events {
