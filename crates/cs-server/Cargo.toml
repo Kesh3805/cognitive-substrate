@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# Local ONNX embeddings (links ONNX Runtime, downloads models on first use).
+fastembed = ["dep:cs-embedder-fastembed"]
+
 [[bin]]
 name = "cognitive-substrate"
 path = "src/main.rs"
@@ -17,6 +21,9 @@ cs-core.workspace = true
 cs-memory.workspace = true
 cs-engine.workspace = true
 cs-extractor-http.workspace = true
+cs-embedder-http.workspace = true
+cs-embedder-fastembed = { path = "../cs-embedder-fastembed", optional = true }
+cs-policy.workspace = true
 cs-storage.workspace = true
 cs-postgres.workspace = true
 axum.workspace = true
