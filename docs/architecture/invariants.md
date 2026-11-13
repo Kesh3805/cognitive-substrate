@@ -19,3 +19,7 @@ These rules are enforced in code review and, where noted, by tests.
 10. **Every performance or quality claim is backed by a reproducible benchmark.**
 11. **The event log is append-only at the storage boundary.** A PostgreSQL trigger rejects `UPDATE`, `DELETE` and `TRUNCATE`.
 12. **Unreadable is indistinguishable from missing.** Reads of out-of-scope records return `not_found`, never `forbidden`.
+13. **Detectors propose; they never mutate.** Resolution produces version-bound proposals, and only an explicit, authorized decision applies one, atomically and only if every bound revision is still current.
+14. **Background effects are fenced.** A job's writes commit in the same transaction as its lease-checked completion, guarded against read skew.
+15. **Extracted content is untrusted.** Every extractor's output is validated, stored only as `candidate`, and rejected wholesale if any item is invalid.
+16. **Purges keep what other sources support.** Derived memories are erased with their only source, and re-homed when another source still stands behind them.
