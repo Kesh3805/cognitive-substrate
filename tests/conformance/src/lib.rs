@@ -9,6 +9,7 @@
 )]
 
 pub mod m3;
+pub mod m3x;
 
 use std::sync::Arc;
 
@@ -867,5 +868,13 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         beliefs_are_recalled_with_evidence,
         evidence_purge_flags_beliefs,
         observation_purge_keeps_corroborated_facts,
+    );
+    use m3x::*;
+    scenario!(
+        writes_survive_embedder_outage,
+        backfill_never_changes_a_replay,
+        fallback_recalls_replay_as_fallback,
+        shadow_space_migration,
+        purged_revisions_are_never_re_embedded,
     );
 }
