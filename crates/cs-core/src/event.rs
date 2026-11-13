@@ -28,10 +28,19 @@ pub enum CognitiveEventType {
     EvidenceRecorded,
     DependencyCreated,
     RecallExecuted,
+    ObservationRecorded,
+    ObservationPurged,
+    ExtractionCompleted,
+    EvidencePurged,
+    ProposalCreated,
+    ProposalAccepted,
+    ProposalRejected,
+    ProposalStale,
+    JobDeadLettered,
 }
 
 impl CognitiveEventType {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 23] = [
         Self::MemoryCreated,
         Self::MemoryRevised,
         Self::MemoryPromoted,
@@ -46,6 +55,15 @@ impl CognitiveEventType {
         Self::EvidenceRecorded,
         Self::DependencyCreated,
         Self::RecallExecuted,
+        Self::ObservationRecorded,
+        Self::ObservationPurged,
+        Self::ExtractionCompleted,
+        Self::EvidencePurged,
+        Self::ProposalCreated,
+        Self::ProposalAccepted,
+        Self::ProposalRejected,
+        Self::ProposalStale,
+        Self::JobDeadLettered,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -64,6 +82,15 @@ impl CognitiveEventType {
             Self::EvidenceRecorded => "evidence_recorded",
             Self::DependencyCreated => "dependency_created",
             Self::RecallExecuted => "recall_executed",
+            Self::ObservationRecorded => "observation_recorded",
+            Self::ObservationPurged => "observation_purged",
+            Self::ExtractionCompleted => "extraction_completed",
+            Self::EvidencePurged => "evidence_purged",
+            Self::ProposalCreated => "proposal_created",
+            Self::ProposalAccepted => "proposal_accepted",
+            Self::ProposalRejected => "proposal_rejected",
+            Self::ProposalStale => "proposal_stale",
+            Self::JobDeadLettered => "job_dead_lettered",
         }
     }
 
