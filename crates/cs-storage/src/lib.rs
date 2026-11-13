@@ -38,6 +38,8 @@ pub struct MemoryQuery {
     pub as_of_transaction_time: OffsetDateTime,
     /// Include revisions already closed at `as_of_transaction_time`.
     pub include_superseded: bool,
+    /// Skip the valid-time filter (resolution compares across valid time).
+    pub ignore_valid_time: bool,
     /// Embedding model whose vectors should be returned.
     pub embedding_model: Option<(String, String)>,
     pub limit: u32,
@@ -297,6 +299,7 @@ pub struct BeliefQuery {
     pub as_of_valid_time: OffsetDateTime,
     pub as_of_transaction_time: OffsetDateTime,
     pub include_superseded: bool,
+    pub ignore_valid_time: bool,
     pub limit: u32,
 }
 
@@ -317,6 +320,8 @@ pub struct JobEffects {
     /// Proposals whose fingerprint already exists (any status) are skipped.
     pub proposals: Vec<ResolutionProposal>,
     pub events: Vec<EventDraft>,
+    /// Follow-up jobs, enqueued with the usual active-only dedupe.
+    pub jobs: Vec<Job>,
     /// Read-skew guards checked inside the commit: the observation must
     /// still exist unpurged, and these revisions must still be current.
     pub require_unpurged_observation: Option<ObservationId>,
@@ -329,6 +334,7 @@ impl JobEffects {
             && self.extraction_run.is_none()
             && self.proposals.is_empty()
             && self.events.is_empty()
+            && self.jobs.is_empty()
     }
 }
 

@@ -313,6 +313,11 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
         }
         append_event(tx, ev).await?;
     }
+    let mut jobs = e.jobs;
+    jobs.sort_by_key(|j| j.id);
+    for j in &jobs {
+        insert_job(tx, j).await?;
+    }
     Ok(())
 }
 
@@ -380,7 +385,7 @@ impl PgStore {
                AND status::text = ANY($5) \
                AND lower(transaction_time) <= $6 \
                AND ($7 OR transaction_time @> $6) \
-               AND valid_time @> $8 \
+               AND ($13 OR valid_time @> $8) \
                AND ($9::uuid IS NULL OR project_id = $9) \
                AND ($10::uuid IS NULL OR conversation_id = $10) \
                AND ($11::uuid IS NULL OR agent_id = $11) \
@@ -398,6 +403,7 @@ impl PgStore {
         .bind(filter.conversation_id.map(|c| c.0))
         .bind(filter.agent_id.map(|a| a.0))
         .bind(i64::from(q.limit))
+        .bind(q.ignore_valid_time)
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?

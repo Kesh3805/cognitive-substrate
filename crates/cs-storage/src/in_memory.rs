@@ -185,7 +185,7 @@ impl CognitiveStore for InMemoryStore {
                     && q.scope_filter.as_ref().is_none_or(|f| f.matches(&m.scope))
                     && tx.start <= q.as_of_transaction_time
                     && (q.include_superseded || tx.contains(q.as_of_transaction_time))
-                    && m.temporal.valid_time.contains(q.as_of_valid_time)
+                    && (q.ignore_valid_time || m.temporal.valid_time.contains(q.as_of_valid_time))
                     && !m.is_expired(q.as_of_transaction_time)
             })
             .map(|m| StoredMemory {
@@ -453,7 +453,7 @@ impl CognitiveStore for InMemoryStore {
                     && q.scope_filter.as_ref().is_none_or(|f| f.matches(&b.scope))
                     && tx.start <= q.as_of_transaction_time
                     && (q.include_superseded || tx.contains(q.as_of_transaction_time))
-                    && b.temporal.valid_time.contains(q.as_of_valid_time)
+                    && (q.ignore_valid_time || b.temporal.valid_time.contains(q.as_of_valid_time))
             })
             .cloned()
             .collect();
@@ -557,6 +557,9 @@ impl CognitiveStore for InMemoryStore {
         }
         for e in effects.events {
             s.append(e);
+        }
+        for j in &effects.jobs {
+            enqueue(&mut s, j);
         }
         let job = fenced(&mut s, lease)?;
         apply_outcome(job, now, outcome);

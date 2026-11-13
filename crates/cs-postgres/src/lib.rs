@@ -622,7 +622,7 @@ impl CognitiveStore for PgStore {
                AND m.status::text = ANY($8) \
                AND lower(m.transaction_time) <= $9 \
                AND ($10 OR m.transaction_time @> $9) \
-               AND m.valid_time @> $11 \
+               AND ($16 OR m.valid_time @> $11) \
                AND (m.expires_at IS NULL OR m.expires_at > $9) \
                AND ($12::uuid IS NULL OR m.project_id = $12) \
                AND ($13::uuid IS NULL OR m.conversation_id = $13) \
@@ -650,6 +650,7 @@ impl CognitiveStore for PgStore {
             .bind(filter.conversation_id.map(|c| c.0))
             .bind(filter.agent_id.map(|a| a.0))
             .bind(i64::from(q.limit))
+            .bind(q.ignore_valid_time)
             .fetch_all(&self.pool)
             .await
             .map_err(db_err)?;
