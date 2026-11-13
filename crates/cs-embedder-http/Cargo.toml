@@ -1,0 +1,24 @@
+[package]
+name = "cs-embedder-http"
+description = "Embeddings over HTTP: OpenAI-compatible /embeddings and Ollama's native /api/embed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+cs-engine.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
