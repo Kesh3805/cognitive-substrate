@@ -16,11 +16,22 @@
 //! | `CS_API_KEY`              | —              | Require `Authorization: Bearer <key>`   |
 //! | `CS_EMBEDDING_DIMENSIONS` | `384`          | Hashing embedder dimensionality         |
 //! | `CS_LOG_FORMAT`           | `pretty`       | `pretty` or `json`                      |
+//! | `CS_WORKER`               | `true`         | Run the background worker in-process    |
+//! | `CS_WORKER_POLL_MS`       | `1000`         | Idle poll interval                      |
+//! | `CS_AUTO_RESOLVE`         | `true`         | Queue resolution on every write         |
+//! | `CS_EXTRACTOR`            | `rules`        | `rules` or `openai` (any compatible API) |
+//! | `CS_EXTRACTOR_URL`        | —              | e.g. `http://localhost:11434/v1`        |
+//! | `CS_EXTRACTOR_MODEL`      | —              | Model name for `openai`                 |
+//! | `CS_EXTRACTOR_API_KEY`    | —              | Bearer key for `openai`                 |
 //! | `RUST_LOG`                | `info`         |                                         |
 
 use std::{process::ExitCode, sync::Arc};
 
-use cs_engine::{CognitiveEngine, HashingEmbedder};
+use cs_engine::{
+    CognitiveEngine, Extractor, HashingEmbedder, ProcessingConfig, RuleExtractor, Worker,
+    WorkerConfig,
+};
+use cs_extractor_http::{HttpExtractor, HttpExtractorConfig};
 use cs_postgres::PgStore;
 use cs_server::{AppState, AuthConfig, router};
 use cs_storage::{CognitiveStore, InMemoryStore};
@@ -113,7 +124,19 @@ async fn serve() -> Result<(), String> {
         .unwrap_or(384);
     let engine = CognitiveEngine::builder(store)
         .embedder(Arc::new(HashingEmbedder::new(dims)))
+        .processing(ProcessingConfig {
+            auto_resolve: env("CS_AUTO_RESOLVE").as_deref() != Some("false"),
+            ..ProcessingConfig::default()
+        })
         .build();
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let worker = if env("CS_WORKER").as_deref() == Some("false") {
+        None
+    } else {
+        let w = Worker::new(engine.clone(), extractor()?, WorkerConfig::default());
+        tracing::info!(owner = %w.config().owner, "background worker enabled");
+        Some(tokio::spawn(run_worker(w, stop_rx)))
+    };
     let api_key = env("CS_API_KEY");
     if api_key.is_none() {
         tracing::warn!("CS_API_KEY not set: the API accepts unauthenticated principal headers");
@@ -125,10 +148,66 @@ async fn serve() -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     tracing::info!(%bind, "cognitive-substrate listening");
-    axum::serve(listener, app)
+    let served = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    let _ = stop_tx.send(true);
+    if let Some(handle) = worker {
+        let _ = handle.await;
+    }
+    served
+}
+
+fn extractor() -> Result<Arc<dyn Extractor>, String> {
+    match env("CS_EXTRACTOR").as_deref().unwrap_or("rules") {
+        "rules" => Ok(Arc::new(RuleExtractor)),
+        "openai" => {
+            let base_url = env("CS_EXTRACTOR_URL").ok_or("CS_EXTRACTOR_URL is required")?;
+            let model = env("CS_EXTRACTOR_MODEL").ok_or("CS_EXTRACTOR_MODEL is required")?;
+            let ex = HttpExtractor::new(HttpExtractorConfig {
+                base_url,
+                model,
+                api_key: env("CS_EXTRACTOR_API_KEY"),
+                timeout: std::time::Duration::from_secs(60),
+            })?;
+            Ok(Arc::new(ex))
+        }
+        other => Err(format!("unknown CS_EXTRACTOR '{other}' (expected rules or openai)")),
+    }
+}
+
+/// Poll for work until shutdown. A pass that finds work runs again
+/// immediately; an idle pass waits `CS_WORKER_POLL_MS`. In-flight jobs
+/// finish (or their leases expire and are reclaimed) on shutdown.
+async fn run_worker(worker: Worker, mut stop: tokio::sync::watch::Receiver<bool>) {
+    let idle = std::time::Duration::from_millis(
+        env("CS_WORKER_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(1000),
+    );
+    loop {
+        if *stop.borrow() {
+            break;
+        }
+        let busy = match worker.run_once().await {
+            Ok(r) => {
+                if r.claimed > 0 {
+                    tracing::debug!(?r, "worker pass");
+                }
+                r.claimed > 0
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "worker pass failed");
+                false
+            }
+        };
+        if !busy {
+            tokio::select! {
+                _ = tokio::time::sleep(idle) => {}
+                _ = stop.changed() => {}
+            }
+        }
+    }
+    tracing::info!("background worker stopped");
 }
 
 #[tokio::main]

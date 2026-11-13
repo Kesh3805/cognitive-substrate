@@ -16,6 +16,7 @@ path = "src/main.rs"
 cs-core.workspace = true
 cs-memory.workspace = true
 cs-engine.workspace = true
+cs-extractor-http.workspace = true
 cs-storage.workspace = true
 cs-postgres.workspace = true
 axum.workspace = true
