@@ -14,8 +14,8 @@ use axum::{
     routing::{get, post},
 };
 use cs_core::{
-    BeliefId, CognitiveEventType, EntityId, EventQuery, EventStreamId, EvidenceId, JobId, MemoryId,
-    ObservationId, ProposalId, RecallTraceId,
+    BeliefId, CognitiveEventType, DerivationId, EntityId, EventQuery, EventStreamId, EvidenceId,
+    JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
 };
 use cs_engine::{
     CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation,
@@ -127,7 +127,10 @@ pub fn router(state: AppState) -> Router {
             "/entities/{id}/merge-candidates",
             post(detect_entity_merges),
         )
-        .route("/entity-merges", post(propose_entity_merge));
+        .route("/entity-merges", post(propose_entity_merge))
+        .route("/derivations", get(list_derivations))
+        .route("/derivations/{id}", get(get_derivation))
+        .route("/derivations/{id}/revalidate", post(revalidate_derivation));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -604,5 +607,44 @@ async fn propose_entity_merge(
     Ok((
         StatusCode::CREATED,
         Json(s.engine.propose_entity_merge(&ctx, req).await?),
+    ))
+}
+
+// ---- knowledge compilation --------------------------------------------------
+
+async fn list_derivations(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::derivation::Derivation>> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    let status = parse_status(
+        p.status.as_deref(),
+        cs_memory::derivation::DerivationStatus::parse,
+    )?;
+    ok(s.engine.list_derivations(&ctx, status, p.limit).await?)
+}
+
+async fn get_derivation(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::derivation::Derivation> {
+    ok(s.engine.get_derivation(&ctx, DerivationId(id)).await?)
+}
+
+async fn revalidate_derivation(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::Job> {
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(
+            s.engine
+                .revalidate_derivation(&ctx, DerivationId(id))
+                .await?,
+        ),
     ))
 }
