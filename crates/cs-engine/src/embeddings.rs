@@ -240,7 +240,16 @@ impl CognitiveEngine {
             .await;
         // Every write path plans its follow-ups here, so the entity
         // projection rides along with the revision's commit.
-        jobs.extend(self.projection_job(ctx, m));
+        match self.projection_job(ctx, m) {
+            Some(j) => jobs.push(j),
+            // Episodes are compiled after projection (the project job
+            // queues it); one without names still revalidates whatever
+            // cited an earlier revision.
+            None if self.processing.auto_compile && m.domain() == MemoryDomain::Episodic => {
+                jobs.push(self.compile_job(ctx, m));
+            }
+            None => {}
+        }
         (inline, jobs)
     }
 

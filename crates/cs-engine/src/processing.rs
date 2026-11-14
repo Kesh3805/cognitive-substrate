@@ -44,6 +44,9 @@ pub struct ProcessingConfig {
     pub embed_inline: bool,
     /// Candidates compared per resolution job.
     pub resolution_window: u32,
+    /// Compile recurring episodes into semantic candidates (M4.3).
+    pub auto_compile: bool,
+    pub compilation: cs_memory::derivation::CompilationThresholds,
 }
 
 impl Default for ProcessingConfig {
@@ -54,6 +57,8 @@ impl Default for ProcessingConfig {
             retry: RetryPolicy::default(),
             embed_inline: true,
             resolution_window: 500,
+            auto_compile: true,
+            compilation: cs_memory::derivation::CompilationThresholds::default(),
         }
     }
 }
@@ -1202,6 +1207,7 @@ impl CognitiveEngine {
             }),
             now,
         );
+        let revalidate = self.revalidation_jobs(ctx, &delete).await?;
         for m in &mut rehome {
             let (e, jobs) = self.memory_embedding_plan(ctx, &m.next).await;
             m.embedding = e;
@@ -1210,6 +1216,11 @@ impl CognitiveEngine {
         self.store
             .purge_observation(id, now, &delete, rehome, event)
             .await?;
+        // The purge already flagged these derivations atomically; the jobs
+        // decide whether their remaining support still holds.
+        for j in &revalidate {
+            self.store.enqueue_job(j).await?;
+        }
         Ok(PurgeReport {
             id: id.0,
             already_purged: false,

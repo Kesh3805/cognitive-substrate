@@ -124,6 +124,7 @@ impl Worker {
             JobKind::Resolve => self.engine.resolve(job).await,
             JobKind::Embed => self.engine.embed(job).await,
             JobKind::Project => self.engine.project(job).await,
+            JobKind::Compile => self.engine.compile(job).await,
         };
         let now = self.engine.now();
         let (outcome, effects, kind) = match handled {
