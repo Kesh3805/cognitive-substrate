@@ -713,6 +713,7 @@ impl CognitiveStore for PgStore {
 
     async fn purge_memory(&self, id: MemoryId, event: EventDraft) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
+        let touched = m4::entities_mentioned_by(&mut tx, &[id.0]).await?;
         let deleted = sqlx::query("DELETE FROM memory_records WHERE memory_id = $1")
             .bind(id.0)
             .execute(&mut *tx)
@@ -721,6 +722,7 @@ impl CognitiveStore for PgStore {
         if deleted.rows_affected() == 0 {
             return Err(Error::not_found("memory", id));
         }
+        m4::drop_orphan_entities(&mut tx, &touched).await?;
         sqlx::query(
             "INSERT INTO purge_ledger (kind, record_id, purged_at) VALUES ('memory', $1, $2) \
              ON CONFLICT (kind, record_id) DO NOTHING",
@@ -1332,6 +1334,13 @@ impl CognitiveStore for PgStore {
         limit: u32,
     ) -> Result<Vec<cs_memory::entity::Entity>> {
         self.m4_partition_entities(partition, limit).await
+    }
+
+    async fn merged_into(
+        &self,
+        ids: &[cs_core::EntityId],
+    ) -> Result<Vec<cs_memory::entity::Entity>> {
+        self.m4_merged_into(ids).await
     }
 
     async fn entity_edges(

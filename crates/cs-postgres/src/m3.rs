@@ -797,11 +797,13 @@ impl PgStore {
             supersede_memory_in(&mut tx, m).await?;
         }
         let ids: Vec<Uuid> = delete.iter().map(|m| m.0).collect();
+        let touched = super::m4::entities_mentioned_by(&mut tx, &ids).await?;
         sqlx::query("DELETE FROM memory_records WHERE memory_id = ANY($1)")
             .bind(&ids)
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+        super::m4::drop_orphan_entities(&mut tx, &touched).await?;
         for m in &ids {
             ledger(&mut tx, PurgeKind::Memory, *m, now).await?;
         }
