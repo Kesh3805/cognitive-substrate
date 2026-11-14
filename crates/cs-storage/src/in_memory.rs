@@ -31,9 +31,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    BeliefQuery, BeliefSupersede, CognitiveStore, EdgeDirection, EdgeQuery, EmbeddingCoverage,
-    EntityMerge, IdempotencyKey, JobClaim, JobCount, JobEffects, MemoryQuery, MemorySupersede,
-    ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
+    BeliefQuery, BeliefSupersede, CandidateOrder, CognitiveStore, EdgeDirection, EdgeQuery,
+    EmbeddingCoverage, EntityMerge, IdempotencyKey, JobClaim, JobCount, JobEffects, MemoryQuery,
+    MemorySupersede, ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
 };
 
 #[derive(Debug, Default)]
@@ -414,14 +414,45 @@ impl CognitiveStore for InMemoryStore {
                 }),
             })
             .collect();
-        out.sort_by(|a, b| {
+        let recent = |a: &StoredMemory, b: &StoredMemory| {
             b.record
                 .temporal
                 .transaction_time
                 .start
                 .cmp(&a.record.temporal.transaction_time.start)
                 .then_with(|| a.record.revision_id.cmp(&b.record.revision_id))
-        });
+        };
+        match &q.order {
+            CandidateOrder::Recent => out.sort_by(recent),
+            CandidateOrder::Lexical(terms) => {
+                let mut keyed: Vec<(usize, StoredMemory)> = out
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            cs_memory::lexical::overlap(&m.record.content.index_terms(), terms),
+                            m,
+                        )
+                    })
+                    .filter(|(n, _)| *n > 0)
+                    .collect();
+                keyed.sort_by(|(na, a), (nb, b)| nb.cmp(na).then_with(|| recent(a, b)));
+                out = keyed.into_iter().map(|(_, m)| m).collect();
+            }
+            CandidateOrder::Nearest(query) => {
+                let mut keyed: Vec<(f64, StoredMemory)> = out
+                    .into_iter()
+                    .filter_map(|m| {
+                        let d = cosine_distance(m.embedding.as_deref()?, query)?;
+                        Some((d, m))
+                    })
+                    .collect();
+                keyed.sort_by(|(da, a), (db, b)| {
+                    da.total_cmp(db)
+                        .then_with(|| a.record.revision_id.cmp(&b.record.revision_id))
+                });
+                out = keyed.into_iter().map(|(_, m)| m).collect();
+            }
+        }
         out.truncate(q.limit as usize);
         Ok(out)
     }
@@ -1535,6 +1566,21 @@ fn apply_outcome(job: &mut Job, now: OffsetDateTime, outcome: JobOutcome) {
             job.last_error = Some(error);
         }
     }
+}
+
+/// Cosine distance as pgvector's `<=>` defines it (`1 - cos`), in f64.
+fn cosine_distance(a: &[f32], b: &[f32]) -> Option<f64> {
+    if a.len() != b.len() {
+        return None;
+    }
+    let (mut dot, mut na, mut nb) = (0.0f64, 0.0f64, 0.0f64);
+    for (x, y) in a.iter().zip(b) {
+        let (x, y) = (f64::from(*x), f64::from(*y));
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    (na > 0.0 && nb > 0.0).then(|| 1.0 - dot / (na.sqrt() * nb.sqrt()))
 }
 
 fn contention(s: &State, effects: &JobEffects) -> Option<&'static str> {

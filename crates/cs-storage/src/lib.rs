@@ -46,6 +46,24 @@ pub struct MemoryQuery {
     /// Embedding model whose vectors should be returned.
     pub embedding_model: Option<(String, String)>,
     pub limit: u32,
+    /// Which records fill the limit, in what order.
+    pub order: CandidateOrder,
+}
+
+/// Candidate ordering for [`MemoryQuery`]. Every order is total and
+/// deterministic, and identical across stores.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum CandidateOrder {
+    /// Transaction start DESC, then revision id ASC (v1).
+    #[default]
+    Recent,
+    /// Records sharing at least one of these terms (sorted, distinct; the
+    /// shared lexical contract), by number of shared terms DESC, then the
+    /// `Recent` order.
+    Lexical(Vec<String>),
+    /// Records with a vector in `embedding_model` available as of the
+    /// as-of time, by exact cosine distance ASC, then revision id ASC.
+    Nearest(Vec<f32>),
 }
 
 /// Deterministic order: transaction start DESC, then revision id ASC.
