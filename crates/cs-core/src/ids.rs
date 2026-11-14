@@ -83,4 +83,6 @@ id_type!(
     EntityMentionId,
     /// One typed edge between entities, derived from a memory revision.
     EdgeId,
+    /// A record of how a compiled memory was derived and from what.
+    DerivationId,
 );

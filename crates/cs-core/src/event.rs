@@ -42,10 +42,12 @@ pub enum CognitiveEventType {
     EntityKindChanged,
     EntitiesMerged,
     ProjectionUpdated,
+    DerivationRecorded,
+    DerivationUpdated,
 }
 
 impl CognitiveEventType {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 30] = [
         Self::MemoryCreated,
         Self::MemoryRevised,
         Self::MemoryPromoted,
@@ -74,6 +76,8 @@ impl CognitiveEventType {
         Self::EntityKindChanged,
         Self::EntitiesMerged,
         Self::ProjectionUpdated,
+        Self::DerivationRecorded,
+        Self::DerivationUpdated,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -106,6 +110,8 @@ impl CognitiveEventType {
             Self::EntityKindChanged => "entity_kind_changed",
             Self::EntitiesMerged => "entities_merged",
             Self::ProjectionUpdated => "projection_updated",
+            Self::DerivationRecorded => "derivation_recorded",
+            Self::DerivationUpdated => "derivation_updated",
         }
     }
 
