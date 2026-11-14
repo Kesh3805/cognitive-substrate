@@ -839,6 +839,7 @@ impl PgStore {
             .map_err(db_err)?;
         super::m4::drop_orphan_entities(&mut tx, &touched).await?;
         super::m43::flag_derivations(&mut tx, &ids, now).await?;
+        super::m44::drop_capability_records(&mut tx, &ids).await?;
         for m in &ids {
             ledger(&mut tx, PurgeKind::Memory, *m, now).await?;
         }

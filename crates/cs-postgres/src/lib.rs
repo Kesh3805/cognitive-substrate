@@ -32,6 +32,7 @@ use uuid::Uuid;
 mod m3;
 mod m4;
 mod m43;
+mod m44;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -725,6 +726,7 @@ impl CognitiveStore for PgStore {
         }
         m4::drop_orphan_entities(&mut tx, &touched).await?;
         m43::flag_derivations(&mut tx, &[id.0], event.occurred_at).await?;
+        m44::drop_capability_records(&mut tx, &[id.0]).await?;
         sqlx::query(
             "INSERT INTO purge_ledger (kind, record_id, purged_at) VALUES ('memory', $1, $2) \
              ON CONFLICT (kind, record_id) DO NOTHING",
@@ -1336,6 +1338,66 @@ impl CognitiveStore for PgStore {
         limit: u32,
     ) -> Result<Vec<cs_memory::entity::Entity>> {
         self.m4_partition_entities(partition, limit).await
+    }
+
+    async fn insert_execution(
+        &self,
+        execution: &cs_memory::capability::Execution,
+        event: EventDraft,
+    ) -> Result<cs_memory::capability::Execution> {
+        self.m44_insert_execution(execution, event).await
+    }
+
+    async fn finish_execution(
+        &self,
+        id: cs_core::ExecutionId,
+        status: cs_memory::capability::ExecutionStatus,
+        abort_reason: Option<cs_memory::capability::AbortReason>,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<cs_memory::capability::Execution> {
+        self.m44_finish_execution(id, status, abort_reason, at, event)
+            .await
+    }
+
+    async fn add_verification(
+        &self,
+        verification: &cs_memory::capability::Verification,
+        ratchet: Option<(&cs_memory::capability::EvaluationCase, EventDraft)>,
+        event: EventDraft,
+    ) -> Result<cs_memory::capability::Execution> {
+        self.m44_add_verification(verification, ratchet, event)
+            .await
+    }
+
+    async fn get_execution(
+        &self,
+        id: cs_core::ExecutionId,
+    ) -> Result<Option<cs_memory::capability::Execution>> {
+        self.m44_get_execution(id).await
+    }
+
+    async fn executions_for(
+        &self,
+        capability: MemoryId,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::capability::Execution>> {
+        self.m44_executions_for(capability, limit).await
+    }
+
+    async fn insert_case(
+        &self,
+        case: &cs_memory::capability::EvaluationCase,
+        event: EventDraft,
+    ) -> Result<cs_memory::capability::EvaluationCase> {
+        self.m44_insert_case(case, event).await
+    }
+
+    async fn cases_for(
+        &self,
+        capability: MemoryId,
+    ) -> Result<Vec<cs_memory::capability::EvaluationCase>> {
+        self.m44_cases_for(capability).await
     }
 
     async fn get_derivation(
