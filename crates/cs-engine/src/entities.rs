@@ -214,6 +214,9 @@ impl CognitiveEngine {
             self.now(),
         ));
         effects.projection = Some(p);
+        if self.processing.auto_compile && rev.domain() == cs_memory::MemoryDomain::Episodic {
+            effects.jobs.push(self.compile_job(&job.principal, &rev));
+        }
         Ok((effects, json!({ "mentions": mentions, "edges": edges })))
     }
 
@@ -227,7 +230,11 @@ impl CognitiveEngine {
 
     /// `id` plus every entity merged into it (transitively) as of `t`, or
     /// at any time when `t` is `None`. Ordered: `id` first, then by depth.
-    async fn members(&self, id: EntityId, t: Option<OffsetDateTime>) -> Result<Vec<EntityId>> {
+    pub(crate) async fn members(
+        &self,
+        id: EntityId,
+        t: Option<OffsetDateTime>,
+    ) -> Result<Vec<EntityId>> {
         let mut out = vec![id];
         let mut frontier = vec![id];
         for _ in 0..64 {
@@ -250,7 +257,11 @@ impl CognitiveEngine {
     }
 
     /// Follow merge redirects in effect at transaction time `t`.
-    async fn canonical_as_of(&self, mut id: EntityId, t: OffsetDateTime) -> Result<EntityId> {
+    pub(crate) async fn canonical_as_of(
+        &self,
+        mut id: EntityId,
+        t: OffsetDateTime,
+    ) -> Result<EntityId> {
         for _ in 0..64 {
             match self
                 .store
@@ -590,7 +601,7 @@ impl CognitiveEngine {
                     direction: req.direction,
                     relations: relations.clone(),
                     as_of_transaction_time: as_of,
-                    as_of_valid_time: valid_at,
+                    as_of_valid_time: Some(valid_at),
                     include_candidates: req.include_candidates,
                     limit: u32::try_from(remaining + 1).unwrap_or(u32::MAX),
                 })

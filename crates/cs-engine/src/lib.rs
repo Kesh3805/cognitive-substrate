@@ -9,6 +9,7 @@
 //! 2. preserves history (revisions close transaction time, never overwrite),
 //! 3. is persisted atomically with a cognitive event.
 
+mod compile;
 pub mod embedding;
 mod embeddings;
 pub mod entities;
@@ -556,7 +557,14 @@ impl CognitiveEngine {
             json!({ "memory_id": id, "revisions_purged": history.len(), "reason": req.reason }),
             self.now(),
         );
-        self.store.purge_memory(id, event).await
+        let revalidate = self.revalidation_jobs(ctx, &[id]).await?;
+        let event = self.store.purge_memory(id, event).await?;
+        // The purge flagged citing derivations atomically; these jobs decide
+        // whether their remaining support still holds.
+        for j in &revalidate {
+            self.store.enqueue_job(j).await?;
+        }
+        Ok(event)
     }
 
     // ======================================================================
