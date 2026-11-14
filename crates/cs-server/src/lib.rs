@@ -15,11 +15,14 @@ use axum::{
 };
 use cs_core::{
     BeliefId, CognitiveEventType, DerivationId, EntityId, EventQuery, EventStreamId, EvidenceId,
-    JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
+    ExecutionId, JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
 };
 use cs_engine::{
     CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation,
     RecallRequest, ReplayRequest, ReviseBelief, ReviseMemory, StatusChange,
+    capabilities::{
+        CapabilityView, ChangeStage, FinishExecution, NewCase, StartExecution, VerifyExecution,
+    },
     entities::{
         AddAlias, EntityView, Neighborhood, NeighborhoodRequest, ProposeEntityMerge, SetEntityKind,
     },
@@ -130,7 +133,17 @@ pub fn router(state: AppState) -> Router {
         .route("/entity-merges", post(propose_entity_merge))
         .route("/derivations", get(list_derivations))
         .route("/derivations/{id}", get(get_derivation))
-        .route("/derivations/{id}/revalidate", post(revalidate_derivation));
+        .route("/derivations/{id}/revalidate", post(revalidate_derivation))
+        .route("/capabilities/{id}", get(get_capability))
+        .route("/capabilities/{id}/stage", post(change_capability_stage))
+        .route("/capabilities/{id}/cases", post(add_case))
+        .route(
+            "/capabilities/{id}/executions",
+            get(list_executions).post(start_execution),
+        )
+        .route("/executions/{id}", get(get_execution))
+        .route("/executions/{id}/finish", post(finish_execution))
+        .route("/executions/{id}/verifications", post(verify_execution));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -644,6 +657,104 @@ async fn revalidate_derivation(
         Json(
             s.engine
                 .revalidate_derivation(&ctx, DerivationId(id))
+                .await?,
+        ),
+    ))
+}
+
+// ---- procedural learning ----------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct LimitParams {
+    limit: Option<u32>,
+}
+
+async fn get_capability(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<CapabilityView> {
+    ok(s.engine.get_capability(&ctx, MemoryId(id)).await?)
+}
+
+async fn change_capability_stage(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<ChangeStage>,
+) -> ApiResult<cs_memory::MemoryRecord> {
+    ok(s.engine
+        .change_capability_stage(&ctx, MemoryId(id), req)
+        .await?)
+}
+
+async fn add_case(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<NewCase>,
+) -> ApiResult<cs_memory::capability::EvaluationCase> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.engine.add_case(&ctx, MemoryId(id), req).await?),
+    ))
+}
+
+async fn start_execution(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<StartExecution>,
+) -> ApiResult<cs_memory::capability::Execution> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.engine.start_execution(&ctx, MemoryId(id), req).await?),
+    ))
+}
+
+async fn list_executions(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    params: Result<Query<LimitParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::capability::Execution>> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    ok(s.engine
+        .list_executions(&ctx, MemoryId(id), p.limit)
+        .await?)
+}
+
+async fn get_execution(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::capability::Execution> {
+    ok(s.engine.get_execution(&ctx, ExecutionId(id)).await?)
+}
+
+async fn finish_execution(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<FinishExecution>,
+) -> ApiResult<cs_memory::capability::Execution> {
+    ok(s.engine
+        .finish_execution(&ctx, ExecutionId(id), req)
+        .await?)
+}
+
+async fn verify_execution(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<VerifyExecution>,
+) -> ApiResult<cs_memory::capability::Execution> {
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            s.engine
+                .verify_execution(&ctx, ExecutionId(id), req)
                 .await?,
         ),
     ))
