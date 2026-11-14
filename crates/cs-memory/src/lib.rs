@@ -7,6 +7,7 @@
 //! * a `CognitiveEvent` (in `cs-core`) — an immutable record of a change.
 
 pub mod belief;
+pub mod derivation;
 pub mod embedding;
 pub mod entity;
 pub mod job;
