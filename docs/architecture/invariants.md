@@ -23,3 +23,6 @@ These rules are enforced in code review and, where noted, by tests.
 14. **Background effects are fenced.** A job's writes commit in the same transaction as its lease-checked completion, guarded against read skew.
 15. **Extracted content is untrusted.** Every extractor's output is validated, stored only as `candidate`, and rejected wholesale if any item is invalid.
 16. **Purges keep what other sources support.** Derived memories are erased with their only source, and re-homed when another source still stands behind them.
+17. **Identity is never linked silently.** Names share an entity only by exact normalized key within one identity partition. Aliases and merges are explicit, version-checked decisions (ADR-0018).
+18. **Merges are not retroactive.** A merge records a timestamped redirect; reads resolve identity as of their own transaction time, so earlier reads replay unchanged.
+19. **A derived edge is exactly as visible as its source revision**, by scope, transaction time, status and valid time, and it is purged with it (ADR-0019).
