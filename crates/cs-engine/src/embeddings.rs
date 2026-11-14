@@ -230,13 +230,18 @@ impl CognitiveEngine {
             memory_id: m.id,
             revision_id: m.revision_id,
         };
-        self.embedding_plan(
-            ctx,
-            target,
-            &m.content.index_text(),
-            m.status == MemoryStatus::Tombstoned,
-        )
-        .await
+        let (inline, mut jobs) = self
+            .embedding_plan(
+                ctx,
+                target,
+                &m.content.index_text(),
+                m.status == MemoryStatus::Tombstoned,
+            )
+            .await;
+        // Every write path plans its follow-ups here, so the entity
+        // projection rides along with the revision's commit.
+        jobs.extend(self.projection_job(ctx, m));
+        (inline, jobs)
     }
 
     pub(crate) async fn belief_embedding_plan(
