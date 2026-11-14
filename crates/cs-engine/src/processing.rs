@@ -957,7 +957,6 @@ impl CognitiveEngine {
                     json!({
                         "survivor": s.id,
                         "merged": m.id,
-                        "merged_name": m.canonical_name,
                         "proposal_id": id,
                     }),
                     at,
