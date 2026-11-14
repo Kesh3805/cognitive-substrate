@@ -544,6 +544,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cs-bench"
+version = "0.1.0"
+dependencies = [
+ "cs-core",
+ "cs-engine",
+ "cs-memory",
+ "cs-policy",
+ "cs-postgres",
+ "cs-storage",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cs-conformance"
 version = "0.1.0"
 dependencies = [
