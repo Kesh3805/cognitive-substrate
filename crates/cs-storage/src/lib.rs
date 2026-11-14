@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EventDraft, EventQuery, EvidenceId, JobId, MemoryId,
+    AccessContext, BeliefId, CognitiveEvent, EntityId, EventDraft, EventQuery, EvidenceId, JobId, MemoryId,
     MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
@@ -15,6 +15,7 @@ use cs_memory::{
     ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain, MemoryRecord,
     MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion,
     ResolutionProposal,
+    entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -278,6 +279,15 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
 
     async fn get_proposal(&self, id: ProposalId) -> Result<Option<ResolutionProposal>>;
 
+    /// Record a proposal made outside a job (e.g. an explicit request).
+    /// Deduplicated by fingerprint: if one exists in any status, it is
+    /// returned unchanged and `event` is not appended.
+    async fn insert_proposal(
+        &self,
+        proposal: &ResolutionProposal,
+        event: EventDraft,
+    ) -> Result<ResolutionProposal>;
+
     async fn list_proposals(
         &self,
         access: &AccessContext,
@@ -300,6 +310,47 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
 
     /// When (if ever) a record was purged.
     async fn purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>>;
+
+    // ---- entities & graph (M4) ---------------------------------------------
+
+    async fn get_entity(&self, id: EntityId) -> Result<Option<Entity>>;
+
+    /// Entities whose alias key matches, across the partitions the caller
+    /// can read. Ordered by id.
+    async fn entities_by_key(&self, access: &AccessContext, key: &str) -> Result<Vec<Entity>>;
+
+    async fn entity_aliases(&self, id: EntityId) -> Result<Vec<EntityAlias>>;
+
+    async fn entity_mentions(&self, id: EntityId, limit: u32) -> Result<Vec<EntityMention>>;
+
+    /// Add an alias to an active entity. Fails with `Conflict` if the
+    /// entity's version moved or the key already names another entity in
+    /// the partition.
+    async fn add_entity_alias(
+        &self,
+        id: EntityId,
+        expected_version: u32,
+        alias: &EntityAlias,
+        event: EventDraft,
+    ) -> Result<Entity>;
+
+    async fn set_entity_kind(
+        &self,
+        id: EntityId,
+        expected_version: u32,
+        kind: EntityKind,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Entity>;
+
+    /// Entities in one partition (for merge detection), ordered by id.
+    async fn partition_entities(&self, partition: &str, limit: u32) -> Result<Vec<Entity>>;
+
+    /// Edges touching `entity_ids`, visible to the query: the caller can
+    /// read the edge's scope, its source revision is current at the as-of
+    /// transaction time with an allowed status, and its valid time holds.
+    /// Ordered by (relation, other entity, edge id).
+    async fn entity_edges(&self, query: &EdgeQuery) -> Result<Vec<KnowledgeEdge>>;
 
     /// Erase evidence content and its belief links; record the purge.
     /// Returns the belief revisions that lost a link.
@@ -384,6 +435,10 @@ pub struct JobEffects {
     /// Backfilled vectors, keyed by the exact revision they embed. Upserted
     /// idempotently; skipped if the revision no longer exists (purged).
     pub memory_embeddings: Vec<(MemoryRevisionId, EmbeddingRecord)>,
+    /// An entity projection of one revision: names are resolved to entities
+    /// inside the commit (creating them with deterministic ids if new), and
+    /// mentions and edges are written idempotently.
+    pub projection: Option<Projection>,
     pub belief_embeddings: Vec<(BeliefId, EmbeddingRecord)>,
     /// Read-skew guards checked inside the commit: the observation must
     /// still exist unpurged, and these revisions must still be current.
@@ -399,6 +454,7 @@ impl JobEffects {
             && self.events.is_empty()
             && self.jobs.is_empty()
             && self.memory_embeddings.is_empty()
+            && self.projection.is_none()
             && self.belief_embeddings.is_empty()
     }
 }
@@ -427,6 +483,40 @@ pub struct BeliefSupersede {
 pub struct ProposalMutations {
     pub memories: Vec<MemorySupersede>,
     pub beliefs: Vec<BeliefSupersede>,
+    pub entity_merges: Vec<EntityMerge>,
+}
+
+/// Merge `merged` into `survivor` (same partition, both active, versions
+/// unchanged): aliases, mentions and edges move to the survivor and the
+/// merged entity redirects.
+#[derive(Debug, Clone, Copy)]
+pub struct EntityMerge {
+    pub survivor: EntityId,
+    pub survivor_version: u32,
+    pub merged: EntityId,
+    pub merged_version: u32,
+    pub at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeDirection {
+    #[default]
+    Out,
+    In,
+    Both,
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgeQuery {
+    pub access: AccessContext,
+    pub entity_ids: Vec<EntityId>,
+    pub direction: EdgeDirection,
+    pub relations: Option<Vec<String>>,
+    pub as_of_transaction_time: OffsetDateTime,
+    pub as_of_valid_time: OffsetDateTime,
+    pub include_candidates: bool,
+    pub limit: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
