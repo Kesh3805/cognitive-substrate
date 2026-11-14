@@ -5,13 +5,14 @@
 //! match (see the conformance suite).
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::{Mutex, MutexGuard},
 };
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, Error, EventDraft, EventQuery, EvidenceId, JobId,
+    AccessContext, BeliefId, CognitiveEvent, EdgeId, EntityId, EntityMentionId, Error, EventDraft,
+    EventQuery, EvidenceId, JobId,
     MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
     temporal::truncate_micros,
 };
@@ -19,14 +20,18 @@ use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
     ExtractionRun, Job, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation,
     ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
+    entity::{
+        AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
+        EntityStatus, KnowledgeEdge, Projection, entity_id_for, partition_scope,
+    },
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
     BeliefQuery, BeliefSupersede, CognitiveStore, EmbeddingCoverage, IdempotencyKey, JobClaim,
-    JobCount, JobEffects, MemoryQuery, MemorySupersede, ProposalMutations, PurgeKind, StoredBelief,
-    StoredMemory,
+    EdgeDirection, EdgeQuery, EntityMerge, JobCount, JobEffects, MemoryQuery, MemorySupersede,
+    ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
 };
 
 #[derive(Debug, Default)]
@@ -48,6 +53,12 @@ struct State {
     extraction_runs: Vec<ExtractionRun>,
     proposals: BTreeMap<ProposalId, ResolutionProposal>,
     purges: HashMap<(&'static str, Uuid), OffsetDateTime>,
+    entities: BTreeMap<EntityId, Entity>,
+    /// Keyed by (partition, key): one entity per name per partition.
+    aliases: BTreeMap<(String, String), EntityAlias>,
+    mentions: Vec<EntityMention>,
+    edges: Vec<KnowledgeEdge>,
+    projected: HashSet<MemoryRevisionId>,
 }
 
 impl State {
@@ -73,6 +84,131 @@ impl State {
 
     fn put_belief_embedding(&mut self, id: BeliefId, e: EmbeddingRecord) {
         self.belief_embeddings.insert((id, e.space_id()), e);
+    }
+
+    /// Resolve a name in a partition to its entity, creating it (with a
+    /// deterministic id) if the name is new. Follows merge redirects.
+    fn resolve_entity(&mut self, p: &Projection, surface: &str, key: &str, now: OffsetDateTime) -> EntityId {
+        let slot = (p.partition.clone(), key.to_owned());
+        let id = match self.aliases.get(&slot) {
+            Some(a) => a.entity_id,
+            None => {
+                let id = entity_id_for(&p.partition, key);
+                self.entities.entry(id).or_insert_with(|| Entity {
+                    id,
+                    scope: partition_scope(&p.scope),
+                    partition: p.partition.clone(),
+                    kind: EntityKind::Unknown,
+                    canonical_name: surface.to_owned(),
+                    key: key.to_owned(),
+                    status: EntityStatus::Active,
+                    version: 1,
+                    created_at: now,
+                    updated_at: now,
+                });
+                self.aliases.insert(
+                    slot,
+                    EntityAlias {
+                        entity_id: id,
+                        surface: surface.to_owned(),
+                        key: key.to_owned(),
+                        normalization_version: ENTITY_NORMALIZATION_VERSION,
+                        source: AliasSource::Canonical,
+                        created_at: now,
+                    },
+                );
+                id
+            }
+        };
+        self.canonical_entity(id)
+    }
+
+    fn canonical_entity(&self, mut id: EntityId) -> EntityId {
+        for _ in 0..64 {
+            match self.entities.get(&id).map(|e| e.status) {
+                Some(EntityStatus::Merged { into }) => id = into,
+                _ => break,
+            }
+        }
+        id
+    }
+
+    fn apply_projection(&mut self, p: &Projection, now: OffsetDateTime) {
+        if self.projected.contains(&p.revision_id)
+            || !self.memories.iter().any(|m| m.revision_id == p.revision_id)
+        {
+            return;
+        }
+        for m in &p.mentions {
+            let entity_id = self.resolve_entity(p, &m.surface, &m.key, now);
+            if !self.mentions.iter().any(|x| x.revision_id == p.revision_id && x.key == m.key && x.role == m.role) {
+                self.mentions.push(EntityMention {
+                    id: EntityMentionId::new_v7(),
+                    entity_id,
+                    surface: m.surface.clone(),
+                    key: m.key.clone(),
+                    role: m.role,
+                    memory_id: p.memory_id,
+                    revision_id: p.revision_id,
+                });
+            }
+        }
+        for e in &p.edges {
+            let from = self.resolve_entity(p, &e.from.surface, &e.from.key, now);
+            let to = self.resolve_entity(p, &e.to.surface, &e.to.key, now);
+            let dup = self.edges.iter().any(|x| {
+                x.revision_id == p.revision_id && x.from == from && x.to == to && x.relation == e.relation
+            });
+            if from != to && !dup {
+                self.edges.push(KnowledgeEdge {
+                    id: EdgeId::new_v7(),
+                    scope: p.scope.clone(),
+                    from,
+                    relation: e.relation.clone(),
+                    to,
+                    memory_id: p.memory_id,
+                    revision_id: p.revision_id,
+                    valid_time: p.valid_time,
+                });
+            }
+        }
+        self.projected.insert(p.revision_id);
+    }
+
+    /// Projections are derived data: they go with their revisions.
+    fn drop_projections_of_memories(&mut self, ids: &[MemoryId]) {
+        self.mentions.retain(|m| !ids.contains(&m.memory_id));
+        self.edges.retain(|e| !ids.contains(&e.memory_id));
+        let live: HashSet<MemoryRevisionId> = self.memories.iter().map(|m| m.revision_id).collect();
+        self.projected.retain(|r| live.contains(r));
+    }
+
+    fn merge_entities(&mut self, m: &EntityMerge) {
+        if let Some(e) = self.entities.get_mut(&m.merged) {
+            e.status = EntityStatus::Merged { into: m.survivor };
+            e.version += 1;
+            e.updated_at = m.at;
+        }
+        if let Some(e) = self.entities.get_mut(&m.survivor) {
+            e.version += 1;
+            e.updated_at = m.at;
+        }
+        for a in self.aliases.values_mut().filter(|a| a.entity_id == m.merged) {
+            a.entity_id = m.survivor;
+            a.source = AliasSource::Merge;
+        }
+        for x in self.mentions.iter_mut().filter(|x| x.entity_id == m.merged) {
+            x.entity_id = m.survivor;
+        }
+        for x in &mut self.edges {
+            if x.from == m.merged {
+                x.from = m.survivor;
+            }
+            if x.to == m.merged {
+                x.to = m.survivor;
+            }
+        }
+        self.edges.retain(|x| x.from != x.to);
     }
 
     fn register(&mut self, key: Option<IdempotencyKey<'_>>, id: Uuid) -> Result<()> {
@@ -246,6 +382,7 @@ impl CognitiveStore for InMemoryStore {
             return Err(Error::not_found("memory", id));
         }
         s.memories.retain(|m| m.id != id);
+        s.drop_projections_of_memories(&[id]);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -681,6 +818,9 @@ impl CognitiveStore for InMemoryStore {
                 s.put_belief_embedding(id, e);
             }
         }
+        if let Some(p) = effects.projection {
+            s.apply_projection(&p, now);
+        }
         let job = fenced(&mut s, lease)?;
         apply_outcome(job, now, outcome);
         Ok(job.clone())
@@ -788,6 +928,7 @@ impl CognitiveStore for InMemoryStore {
             .map(|m| m.revision_id)
             .collect();
         s.memories.retain(|m| !derived.contains(&m.id));
+        s.drop_projections_of_memories(derived);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -801,6 +942,22 @@ impl CognitiveStore for InMemoryStore {
 
     async fn get_proposal(&self, id: ProposalId) -> Result<Option<ResolutionProposal>> {
         Ok(self.lock().proposals.get(&id).cloned())
+    }
+
+    async fn insert_proposal(
+        &self,
+        proposal: &ResolutionProposal,
+        event: EventDraft,
+    ) -> Result<ResolutionProposal> {
+        let mut s = self.lock();
+        if let Some(existing) = s.proposals.values().find(|x| {
+            x.scope.tenant_id == proposal.scope.tenant_id && x.fingerprint == proposal.fingerprint
+        }) {
+            return Ok(existing.clone());
+        }
+        s.proposals.insert(proposal.id, proposal.clone());
+        s.append(event);
+        Ok(proposal.clone())
     }
 
     async fn list_proposals(
@@ -840,6 +997,12 @@ impl CognitiveStore for InMemoryStore {
         }
         for b in &mutations.beliefs {
             check_belief_supersede(&s, b)?;
+        }
+        for m in &mutations.entity_merges {
+            check_entity_merge(&s, m)?;
+        }
+        for m in &mutations.entity_merges {
+            s.merge_entities(m);
         }
         for m in mutations.memories {
             if let Some(old) = s.memories.iter_mut().find(|x| x.revision_id == m.current) {
@@ -883,6 +1046,133 @@ impl CognitiveStore for InMemoryStore {
         p.decided_by = Some(decision.decided_by.clone());
         p.decision_reason = Some(decision.reason.clone());
         Ok(p.clone())
+    }
+
+    async fn get_entity(&self, id: EntityId) -> Result<Option<Entity>> {
+        Ok(self.lock().entities.get(&id).cloned())
+    }
+
+    async fn entities_by_key(&self, access: &AccessContext, key: &str) -> Result<Vec<Entity>> {
+        let s = self.lock();
+        let ids: BTreeSet<EntityId> = s
+            .aliases
+            .values()
+            .filter(|a| a.key == key)
+            .map(|a| s.canonical_entity(a.entity_id))
+            .collect();
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| s.entities.get(&id))
+            .filter(|e| access.can_read(&e.scope))
+            .cloned()
+            .collect())
+    }
+
+    async fn entity_aliases(&self, id: EntityId) -> Result<Vec<EntityAlias>> {
+        let s = self.lock();
+        let mut v: Vec<EntityAlias> = s.aliases.values().filter(|a| a.entity_id == id).cloned().collect();
+        v.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(v)
+    }
+
+    async fn entity_mentions(&self, id: EntityId, limit: u32) -> Result<Vec<EntityMention>> {
+        let s = self.lock();
+        let mut v: Vec<EntityMention> = s.mentions.iter().filter(|m| m.entity_id == id).cloned().collect();
+        v.sort_by_key(|m| m.id);
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn add_entity_alias(
+        &self,
+        id: EntityId,
+        expected_version: u32,
+        alias: &EntityAlias,
+        event: EventDraft,
+    ) -> Result<Entity> {
+        let mut s = self.lock();
+        let e = s.entities.get(&id).cloned().ok_or_else(|| Error::not_found("entity", id))?;
+        if e.version != expected_version || e.status != EntityStatus::Active {
+            return Err(Error::conflict("entity changed; reload it"));
+        }
+        let slot = (e.partition.clone(), alias.key.clone());
+        if let Some(existing) = s.aliases.get(&slot) {
+            if s.canonical_entity(existing.entity_id) == id {
+                return Ok(e); // idempotent
+            }
+            return Err(Error::conflict("that name already identifies another entity in this partition"));
+        }
+        s.aliases.insert(slot, EntityAlias { entity_id: id, ..alias.clone() });
+        let at = alias.created_at;
+        let entity = s.entities.get_mut(&id).ok_or_else(|| Error::not_found("entity", id))?;
+        entity.version += 1;
+        entity.updated_at = at;
+        let out = entity.clone();
+        s.append(event);
+        Ok(out)
+    }
+
+    async fn set_entity_kind(
+        &self,
+        id: EntityId,
+        expected_version: u32,
+        kind: EntityKind,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Entity> {
+        let mut s = self.lock();
+        let entity = s.entities.get_mut(&id).ok_or_else(|| Error::not_found("entity", id))?;
+        if entity.version != expected_version || entity.status != EntityStatus::Active {
+            return Err(Error::conflict("entity changed; reload it"));
+        }
+        entity.kind = kind;
+        entity.version += 1;
+        entity.updated_at = at;
+        let out = entity.clone();
+        s.append(event);
+        Ok(out)
+    }
+
+    async fn partition_entities(&self, partition: &str, limit: u32) -> Result<Vec<Entity>> {
+        Ok(self
+            .lock()
+            .entities
+            .values()
+            .filter(|e| e.partition == partition)
+            .take(limit as usize)
+            .cloned()
+            .collect())
+    }
+
+    async fn entity_edges(&self, q: &EdgeQuery) -> Result<Vec<KnowledgeEdge>> {
+        let s = self.lock();
+        let ids: HashSet<EntityId> = q.entity_ids.iter().copied().collect();
+        let mut out: Vec<(String, EntityId, KnowledgeEdge)> = s
+            .edges
+            .iter()
+            .filter_map(|e| {
+                let other = match q.direction {
+                    EdgeDirection::Out if ids.contains(&e.from) => e.to,
+                    EdgeDirection::In if ids.contains(&e.to) => e.from,
+                    EdgeDirection::Both if ids.contains(&e.from) => e.to,
+                    EdgeDirection::Both if ids.contains(&e.to) => e.from,
+                    _ => return None,
+                };
+                let visible = q.access.can_read(&e.scope)
+                    && q.relations.as_ref().is_none_or(|r| r.contains(&e.relation))
+                    && e.valid_time.contains(q.as_of_valid_time)
+                    && s.memories.iter().any(|m| {
+                        m.revision_id == e.revision_id
+                            && m.temporal.transaction_time.contains(q.as_of_transaction_time)
+                            && (m.status == MemoryStatus::Active
+                                || (q.include_candidates && m.status == MemoryStatus::Candidate))
+                    });
+                visible.then(|| (e.relation.clone(), other, e.clone()))
+            })
+            .collect();
+        out.sort_by(|a, b| (&a.0, a.1, a.2.id).cmp(&(&b.0, b.1, b.2.id)));
+        out.truncate(q.limit as usize);
+        Ok(out.into_iter().map(|(_, _, e)| e).collect())
     }
 
     async fn purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>> {
@@ -977,12 +1267,35 @@ fn precondition_failure(s: &State, effects: &JobEffects) -> Option<&'static str>
                 .beliefs
                 .iter()
                 .any(|b| b.lineage_id == lineage_id && b.id == revision_id && b.is_current()),
+            RecordVersion::Entity { id, version } => s
+                .entities
+                .get(&id)
+                .is_some_and(|e| e.version == version && e.status == EntityStatus::Active),
         };
         if !current {
             return Some("target_changed");
         }
     }
     None
+}
+
+fn check_entity_merge(s: &State, m: &EntityMerge) -> Result<()> {
+    let get = |id: EntityId| s.entities.get(&id).ok_or_else(|| Error::not_found("entity", id));
+    let (a, b) = (get(m.survivor)?, get(m.merged)?);
+    if m.survivor == m.merged {
+        return Err(Error::validation("an entity cannot be merged into itself"));
+    }
+    if a.partition != b.partition {
+        return Err(Error::validation("entities in different partitions cannot be merged"));
+    }
+    if a.version != m.survivor_version
+        || b.version != m.merged_version
+        || a.status != EntityStatus::Active
+        || b.status != EntityStatus::Active
+    {
+        return Err(Error::conflict("entity changed since the proposal"));
+    }
+    Ok(())
 }
 
 fn check_memory_supersede(s: &State, m: &MemorySupersede) -> Result<()> {
