@@ -235,6 +235,12 @@ impl MemoryContent {
         }
     }
 
+    /// Distinct lexical terms of [`Self::index_text`] (the shared lexical
+    /// contract): what lexical candidate generation matches on.
+    pub fn index_terms(&self) -> Vec<String> {
+        crate::lexical::terms(&self.index_text())
+    }
+
     /// Canonical text used for lexical indexing and embedding. Deterministic.
     pub fn index_text(&self) -> String {
         match self {
