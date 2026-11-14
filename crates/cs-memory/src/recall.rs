@@ -51,6 +51,48 @@ pub struct RecallPolicy {
     pub include_disputed_beliefs: bool,
     /// Include retracted beliefs (history inspection).
     pub include_retracted_beliefs: bool,
+    /// How the candidate set is generated. The default is the frozen v1
+    /// control (the newest `max_candidates` revisions).
+    pub candidates: CandidateGeneration,
+}
+
+/// Candidate generation strategy. Every strategy fills the same budget
+/// (`max_candidates` unique revisions) so strategies compare at equal cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "strategy", rename_all = "snake_case")]
+pub enum CandidateGeneration {
+    /// v1, frozen: the newest revisions by transaction time.
+    #[default]
+    RecencyV1,
+    /// Up to `lexical` revisions sharing the most query terms and up to
+    /// `dense` nearest revisions by exact cosine similarity, deduplicated,
+    /// then filled with the newest revisions up to `max_candidates`.
+    Channels { lexical: u32, dense: u32 },
+}
+
+/// Which generation channel proposed a candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateChannel {
+    Recent,
+    Lexical,
+    Dense,
+}
+
+impl CandidateChannel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Recent => "recent",
+            Self::Lexical => "lexical",
+            Self::Dense => "dense",
+        }
+    }
+
+    pub fn parse(v: &str) -> Option<Self> {
+        [Self::Recent, Self::Lexical, Self::Dense]
+            .into_iter()
+            .find(|c| c.as_str() == v)
+    }
 }
 
 impl Default for RecallPolicy {
@@ -76,6 +118,7 @@ impl Default for RecallPolicy {
             max_belief_results: 5,
             include_disputed_beliefs: true,
             include_retracted_beliefs: false,
+            candidates: CandidateGeneration::RecencyV1,
         }
     }
 }
@@ -95,6 +138,13 @@ impl RecallPolicy {
                 "max_candidates must be in 1..={}",
                 Self::MAX_CANDIDATES
             )));
+        }
+        if let CandidateGeneration::Channels { lexical, dense } = self.candidates
+            && u64::from(lexical) + u64::from(dense) > u64::from(self.max_candidates)
+        {
+            return Err(Error::validation(
+                "lexical + dense channel quotas must not exceed max_candidates",
+            ));
         }
         if self.max_results == 0 || self.max_results > self.max_candidates {
             return Err(Error::validation(
@@ -173,6 +223,10 @@ pub struct RecallCandidate {
     pub recency_score: Option<f64>,
     pub selected: bool,
     pub reason: String,
+    /// Channels that proposed this candidate (empty in traces recorded
+    /// before channels existed).
+    #[serde(default)]
+    pub channels: Vec<CandidateChannel>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

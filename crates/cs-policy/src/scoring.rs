@@ -250,6 +250,8 @@ pub fn score_candidates(
             recency_score: Some(r.recency),
             selected: r.selected,
             reason: r.reason.to_owned(),
+            // Attached by the caller, which knows how candidates were generated.
+            channels: Vec::new(),
         })
         .collect()
 }
