@@ -41,7 +41,7 @@ The substrate can observe, extract, detect, propose and recall. Authoritative kn
 
 **Exit gate:** 27 conformance scenarios pass on both stores (including provider outage, backfill-vs-replay, fallback replay, shadow migration and purge-before-backfill). Both embedder adapters pass mock-server contract tests, and FastEmbed runs real local inference behind an opt-in test.
 
-## M4 — Learning systems
+## ✅ M4 — Learning systems
 
 ### ✅ M4.1 — Entities
 
@@ -68,10 +68,14 @@ The substrate can observe, extract, detect, propose and recall. Authoritative kn
 
 Open: weighting by extraction confidence, and excluding episodes conditioned on the compiled knowledge they would reinforce.
 
-### M4.4 — Procedural learning
+### ✅ M4.4 — Procedural learning
 
-- Execution traces → capabilities, with outcome verification separate from execution status and verifier tiers that keep self-judgment from promoting a procedure.
-- Lifecycle evaluation with positive, negative, boundary and regression suites; stated confidence bounds and minimum sample sizes; quarantine distinct from deprecation.
+- Executions recorded at intent and finished once; verifications separate, tagged deterministic, independent or self-assessed; self-assessment can fail a run but never pass it (ADR-0021).
+- Class-weighted Wilson lower bounds (z = 1.96) with minimum class counts for `evaluated` and `trusted`; aborts and timeouts stay in the denominator; evidence tied to the procedure fingerprint.
+- Positive, negative, boundary and regression suites gate promotion; failing production runs ratchet into locked regression cases.
+- Drift detection (consecutive failures, windowed Wilson upper bound) quarantines automatically; quarantine is reinstatable, deprecation is terminal.
+
+**Exit gate:** 40 conformance scenarios pass on both stores, including self-assessment, repetition, ratchet, drift, timeout and purge cases.
 
 ## M5 — Retrieval economics & active acquisition
 
