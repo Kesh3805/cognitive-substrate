@@ -11,6 +11,7 @@
 
 pub mod embedding;
 mod embeddings;
+pub mod entities;
 pub mod extract;
 mod processing;
 pub mod requests;
