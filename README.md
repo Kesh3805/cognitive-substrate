@@ -60,6 +60,16 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Zero-downtime model switch** | Dual-write a shadow space, backfill newest first, watch coverage, then cut over. Startup refuses to serve an under-backfilled active space. |
 | **Process roles** | `api` nodes never claim jobs and `worker` processes serve no HTTP; `all` is for development. |
 
+### Entities & graph (M4.1–M4.2)
+
+| Capability | What it means |
+|---|---|
+| **Source-linked graph** | Every revision's structured fields are projected into mentions and typed edges. Each edge names the exact revision it came from and is visible only when that revision is: same scope, current as of the query, valid at the query time. |
+| **Governed identity** | Names link only by exact normalized key within a read-scope partition (`AuthService` = `auth-service`, but `C++` ≠ `C#`). Aliases and kinds are explicit, version-checked decisions. Merges are proposals bound to entity versions. |
+| **Non-retroactive merges** | Accepting a merge records a timestamped redirect instead of rewriting edges, so as-of reads before the merge still see two entities. |
+| **Bounded traversal** | Breadth-first neighborhoods with depth, node, edge and path budgets, deterministic ordering and explicit truncation. Every reached entity comes with the path and edges that justify it. |
+| **Erasure reaches identity** | Purging a memory removes its edges and any uncurated entity it alone supported. Entity names never enter the event log. |
+
 ## Quick start
 
 ### Run the service
@@ -169,6 +179,10 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `GET` | `/jobs` · `/jobs/{id}` | Background job state (`?status=dead_lettered`) |
 | `GET` | `/processing/status` | Embedding coverage per space and queue counts |
 | `POST` | `/embeddings/reindex` | Backfill a space (`{"space": ...}`, default: the shadow space) (202) |
+| `GET` | `/entities?name=` · `/entities/{id}` | Find entities by name · entity with aliases and mentions |
+| `POST` | `/entities/{id}/aliases` · `/entities/{id}/kind` | Version-checked alias or kind |
+| `POST` | `/entities/{id}/merge-candidates` · `/entity-merges` | Detected or explicit merge proposals |
+| `POST` | `/entities/{id}/neighborhood` | Bounded, as-of graph traversal with paths |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
@@ -205,7 +219,7 @@ cargo test -p cs-embedder-fastembed          # optional ONNX embedder (CS_TEST_F
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
