@@ -18,7 +18,7 @@ A **projection job** (`project`) turns the structured fields of one memory revis
 | relational | subject, object | subject —predicate→ object |
 | semantic with a full triple | subject, object | subject —predicate→ object |
 | temporal | subject, value | subject —predicate→ value |
-| episodic | participants | none |
+| episodic | participants; subject and object when the episode has a triple | subject —predicate→ object, when present |
 
 Every write path plans its follow-ups in one place, so the projection job commits atomically with the revision that needs it. The job is idempotent per revision, and it skips revisions that were purged before it ran.
 
