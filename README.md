@@ -70,6 +70,15 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Bounded traversal** | Breadth-first neighborhoods with depth, node, edge and path budgets, deterministic ordering and explicit truncation. Every reached entity comes with the path and edges that justify it. |
 | **Erasure reaches identity** | Purging a memory removes its edges and any uncurated entity it alone supported. Entity names never enter the event log. |
 
+### Knowledge compilation (M4.3)
+
+| Capability | What it means |
+|---|---|
+| **Episodes → knowledge** | Episodes that carry the same structured triple are compiled into a semantic memory once independent support is sufficient. It is always created as a `candidate`. |
+| **No evidence laundering** | Support counts independent units (actor × origin × day), not records. A retry loop, one tool or one document counts once. It requires several origins and spread over time, and a counterexample vetoes compilation. Derived and unvalidated memories never count. |
+| **Derivation records** | Every compiled memory has a record of its operator, thresholds, support counts and the exact root revisions behind it, with no content and no names. |
+| **Knowledge follows its support** | Revising, tombstoning or purging a root revalidates every derivation citing it. Lost support invalidates the derivation and demotes the compiled memory to `candidate`. |
+
 ## Quick start
 
 ### Run the service
@@ -183,6 +192,8 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `POST` | `/entities/{id}/aliases` · `/entities/{id}/kind` | Version-checked alias or kind |
 | `POST` | `/entities/{id}/merge-candidates` · `/entity-merges` | Detected or explicit merge proposals |
 | `POST` | `/entities/{id}/neighborhood` | Bounded, as-of graph traversal with paths |
+| `GET` | `/derivations` · `/derivations/{id}` | Compiled knowledge and the support behind it (`?status=`) |
+| `POST` | `/derivations/{id}/revalidate` | Queue a recompilation (202) |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
@@ -219,7 +230,7 @@ cargo test -p cs-embedder-fastembed          # optional ONNX embedder (CS_TEST_F
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
