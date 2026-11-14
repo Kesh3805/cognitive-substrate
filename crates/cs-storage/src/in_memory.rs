@@ -12,13 +12,14 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
-    Error, EventDraft, EventQuery, EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId,
+    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId,
     ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
     ExtractionRun, Job, JobError, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus,
     Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
+    capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
@@ -60,6 +61,8 @@ struct State {
     edges: Vec<KnowledgeEdge>,
     projected: HashSet<MemoryRevisionId>,
     derivations: BTreeMap<DerivationId, Derivation>,
+    executions: BTreeMap<ExecutionId, Execution>,
+    cases: BTreeMap<EvaluationCaseId, EvaluationCase>,
 }
 
 impl State {
@@ -229,6 +232,19 @@ impl State {
                 d.updated_at = at;
             }
         }
+    }
+
+    /// Executions, verifications and cases are records about a capability:
+    /// they go when it is purged.
+    fn drop_capability_records(&mut self, ids: &[MemoryId]) {
+        self.executions.retain(|_, e| !ids.contains(&e.capability_id));
+        self.cases.retain(|_, c| !ids.contains(&c.capability_id));
+    }
+
+    fn has_case(&self, c: &EvaluationCase) -> bool {
+        self.cases.values().any(|x| {
+            x.capability_id == c.capability_id && x.kind == c.kind && x.input_class == c.input_class
+        })
     }
 
     /// Record the redirect. Mentions, aliases and edges are left where
@@ -422,6 +438,7 @@ impl CognitiveStore for InMemoryStore {
         s.memories.retain(|m| m.id != id);
         s.drop_projections_of_memories(&[id]);
         s.flag_derivations(&[id], event.occurred_at);
+        s.drop_capability_records(&[id]);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -1003,6 +1020,7 @@ impl CognitiveStore for InMemoryStore {
         s.memories.retain(|m| !derived.contains(&m.id));
         s.drop_projections_of_memories(derived);
         s.flag_derivations(derived, now);
+        s.drop_capability_records(derived);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -1233,6 +1251,104 @@ impl CognitiveStore for InMemoryStore {
         let out = entity.clone();
         s.append(event);
         Ok(out)
+    }
+
+    async fn insert_execution(&self, execution: &Execution, event: EventDraft) -> Result<Execution> {
+        let mut s = self.lock();
+        if s.executions.contains_key(&execution.id) {
+            return Err(Error::conflict("execution already exists"));
+        }
+        s.executions.insert(execution.id, execution.clone());
+        s.append(event);
+        Ok(execution.clone())
+    }
+
+    async fn finish_execution(
+        &self,
+        id: ExecutionId,
+        status: ExecutionStatus,
+        abort_reason: Option<AbortReason>,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Execution> {
+        let mut s = self.lock();
+        let e = s
+            .executions
+            .get_mut(&id)
+            .ok_or_else(|| Error::not_found("execution", id))?;
+        if e.status != ExecutionStatus::Started {
+            return Err(Error::conflict("execution already finished"));
+        }
+        e.status = status;
+        e.abort_reason = abort_reason;
+        e.finished_at = Some(at);
+        let out = e.clone();
+        s.append(event);
+        Ok(out)
+    }
+
+    async fn add_verification(
+        &self,
+        verification: &Verification,
+        ratchet: Option<(&EvaluationCase, EventDraft)>,
+        event: EventDraft,
+    ) -> Result<Execution> {
+        let mut s = self.lock();
+        let e = s
+            .executions
+            .get_mut(&verification.execution_id)
+            .ok_or_else(|| Error::not_found("execution", verification.execution_id))?;
+        e.verifications.push(verification.clone());
+        let out = e.clone();
+        s.append(event);
+        if let Some((case, event)) = ratchet
+            && !s.has_case(case)
+        {
+            s.cases.insert(case.id, case.clone());
+            s.append(event);
+        }
+        Ok(out)
+    }
+
+    async fn get_execution(&self, id: ExecutionId) -> Result<Option<Execution>> {
+        Ok(self.lock().executions.get(&id).cloned())
+    }
+
+    async fn executions_for(&self, capability: MemoryId, limit: u32) -> Result<Vec<Execution>> {
+        let s = self.lock();
+        let mut v: Vec<Execution> = s
+            .executions
+            .values()
+            .filter(|e| e.capability_id == capability)
+            .cloned()
+            .collect();
+        v.sort_by_key(|e| (e.started_at, e.id));
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn insert_case(&self, case: &EvaluationCase, event: EventDraft) -> Result<EvaluationCase> {
+        let mut s = self.lock();
+        if s.has_case(case) {
+            return Err(Error::conflict(
+                "a case of this kind already covers that input class",
+            ));
+        }
+        s.cases.insert(case.id, case.clone());
+        s.append(event);
+        Ok(case.clone())
+    }
+
+    async fn cases_for(&self, capability: MemoryId) -> Result<Vec<EvaluationCase>> {
+        let s = self.lock();
+        let mut v: Vec<EvaluationCase> = s
+            .cases
+            .values()
+            .filter(|c| c.capability_id == capability)
+            .cloned()
+            .collect();
+        v.sort_by_key(|c| (c.created_at, c.id));
+        Ok(v)
     }
 
     async fn get_derivation(&self, id: DerivationId) -> Result<Option<Derivation>> {
