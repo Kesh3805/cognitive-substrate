@@ -2,20 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-const STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by", "did", "do", "does", "for", "from", "has",
-    "have", "how", "in", "is", "it", "its", "of", "on", "or", "that", "the", "this", "to", "was",
-    "we", "what", "when", "where", "which", "who", "why", "with",
-];
-
-/// Lowercased alphanumeric tokens, stopwords removed.
-pub fn tokenize(text: &str) -> Vec<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .map(str::to_lowercase)
-        .filter(|t| !STOPWORDS.contains(&t.as_str()))
-        .collect()
-}
+pub use cs_memory::lexical::tokenize;
 
 const K1: f64 = 1.2;
 const B: f64 = 0.75;
