@@ -342,13 +342,59 @@ pub enum CapabilityStage {
     Candidate,
     Evaluated,
     Trusted,
+    /// Retired on purpose. Terminal.
     Deprecated,
+    /// Suspended because recent evidence says it is failing. Distinct from
+    /// deprecation: a quarantined capability can be reinstated as a
+    /// candidate and must re-earn its evaluation.
+    Quarantined,
 }
 
 impl CapabilityStage {
+    pub const ALL: [Self; 6] = [
+        Self::Observed,
+        Self::Candidate,
+        Self::Evaluated,
+        Self::Trusted,
+        Self::Deprecated,
+        Self::Quarantined,
+    ];
+
     /// Has this capability passed its required evaluation?
     pub fn is_verified(self) -> bool {
         matches!(self, Self::Evaluated | Self::Trusted)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Observed => "observed",
+            Self::Candidate => "candidate",
+            Self::Evaluated => "evaluated",
+            Self::Trusted => "trusted",
+            Self::Deprecated => "deprecated",
+            Self::Quarantined => "quarantined",
+        }
+    }
+
+    pub fn parse(v: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.as_str() == v)
+    }
+}
+
+impl ProceduralMemory {
+    /// Identity of the procedure itself (name, preconditions, steps,
+    /// expected outcome), independent of its lifecycle stage. Evidence
+    /// carries across revisions that only change the stage, and resets
+    /// when the procedure changes.
+    pub fn fingerprint(&self) -> uuid::Uuid {
+        const NS: uuid::Uuid = uuid::Uuid::from_u128(0x8d0b_52e1_44c7_4f3a_b6e9_0a17_c3d5_92f4);
+        let canon = serde_json::json!([
+            self.name,
+            self.preconditions,
+            self.steps,
+            self.expected_outcome
+        ]);
+        uuid::Uuid::new_v5(&NS, canon.to_string().as_bytes())
     }
 }
 
