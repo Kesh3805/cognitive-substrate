@@ -11,6 +11,7 @@
 pub mod m3;
 pub mod m3x;
 pub mod m4;
+pub mod m43;
 
 use std::sync::Arc;
 
@@ -885,5 +886,12 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         aliases_and_kinds_are_version_checked,
         entity_merges_are_governed,
         traversal_is_bounded_and_deterministic,
+    );
+    use m43::*;
+    scenario!(
+        recurring_episodes_compile_to_candidates,
+        correlated_or_contradicted_support_does_not_compile,
+        losing_support_demotes_compiled_knowledge,
+        compilation_follows_entity_merges,
     );
 }
