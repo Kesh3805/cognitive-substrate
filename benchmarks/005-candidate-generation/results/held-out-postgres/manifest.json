@@ -1,0 +1,19 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 7
+  },
+  "commit": "26c739ea33452c37cc37d370617f13538e585c7b",
+  "embedder": "cs/hashing@1 (384d)",
+  "experiment": "005-candidate-generation",
+  "held_out": true,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    101,
+    102,
+    103,
+    104,
+    105
+  ],
+  "store": "postgres"
+}
