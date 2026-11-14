@@ -9,14 +9,19 @@
 /// versions.
 pub const ENTITY_NORMALIZATION_VERSION: u32 = 1;
 
-const ARTICLES: &[&str] = &["the", "a", "an"];
+/// Only the definite article is dropped: "the API" is the API, but
+/// "A record" (DNS) is not "record".
+const ARTICLE: &str = "the";
 
-/// Deterministic key for an entity mention: lowercase alphanumerics only,
-/// with a leading article removed. Separators and case boundaries carry no
+/// Deterministic key for an entity mention: lowercase alphanumerics, with
+/// a leading "the" removed. Separators and case boundaries carry no
 /// identity, so `auth-service`, `auth_service`, `AuthService`,
 /// `Auth Service` and `authservice` share the key `authservice`, and
 /// `PostgreSQL` matches `postgresql`. Word boundaries (including camelCase)
 /// are used only to recognise the leading article.
+///
+/// Symbols that change meaning are kept: `+` and `#` (`C++`, `C#` and `C`
+/// stay distinct) and a `.` between digits (`v1.23` is not `v12.3`).
 ///
 /// Returns `None` when nothing meaningful remains.
 pub fn normalize_entity_name(name: &str) -> Option<String> {
@@ -36,14 +41,19 @@ pub fn normalize_entity_name(name: &str) -> Option<String> {
                 spaced.push(' ');
             }
         }
-        if matches!(c, '-' | '_' | '.' | '/' | ':' | '\\') {
+        let digit = |o: Option<char>| o.is_some_and(|x| x.is_ascii_digit());
+        if c == '.' && digit(prev) && digit(next) {
+            spaced.push('.');
+        } else if matches!(c, '+' | '#') {
+            spaced.push(c);
+        } else if matches!(c, '-' | '_' | '.' | '/' | ':' | '\\') {
             spaced.push(' ');
         } else if c.is_alphanumeric() || c.is_whitespace() {
             spaced.extend(c.to_lowercase());
         }
     }
     let mut words: Vec<&str> = spaced.split_whitespace().collect();
-    if words.len() > 1 && ARTICLES.contains(&words[0]) {
+    if words.len() > 1 && words[0] == ARTICLE {
         words.remove(0);
     }
     let key = words.concat();
@@ -117,10 +127,25 @@ impl EntityKind {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum EntityStatus {
     Active,
-    /// Identity merged into another entity; lookups and traversal redirect.
+    /// Identity merged into another entity at transaction time `at`.
+    /// Mentions, aliases and edges stay attached to this entity; reads
+    /// redirect to the survivor only as of `at` or later, so earlier
+    /// as-of reads still see the graph as it was.
     Merged {
         into: EntityId,
+        #[serde(with = "time::serde::rfc3339")]
+        at: OffsetDateTime,
     },
+}
+
+impl EntityStatus {
+    /// The survivor this entity redirects to as of transaction time `t`.
+    pub fn redirect_as_of(&self, t: OffsetDateTime) -> Option<EntityId> {
+        match *self {
+            Self::Merged { into, at } if at <= t => Some(into),
+            _ => None,
+        }
+    }
 }
 
 /// The identity partition: entities, aliases and edges are only shared by
@@ -413,7 +438,20 @@ mod tests {
         assert_ne!(n("auth service"), n("auth services"));
         assert_ne!(n("cs-core"), n("cs-memory"));
         assert!(normalize_entity_name(" -- ").is_none());
-        assert_eq!(n("A"), "a", "a lone article is a name, not an article");
+        assert_eq!(n("The"), "the", "a lone article is a name, not an article");
+    }
+
+    #[test]
+    fn meaningful_symbols_survive() {
+        let keys = [n("C"), n("C++"), n("C#"), n("A+"), n("A")];
+        for (i, a) in keys.iter().enumerate() {
+            for b in &keys[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert_ne!(n("v1.23"), n("v12.3"));
+        assert_eq!(n("Node.js"), n("nodejs"));
+        assert_eq!(n("A record"), "arecord", "only \"the\" is an article");
     }
 
     #[test]
