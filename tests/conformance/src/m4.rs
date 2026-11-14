@@ -185,7 +185,20 @@ pub async fn edges_follow_their_source_revisions(h: &Harness) {
     assert_eq!(then.edges[0].revision_id, m.revision_id);
 
     // Purging the source removes its projection from every point in time;
-    // identity (the entity itself) remains.
+    // curated identity remains, uncurated names it alone supported go.
+    let g = h.engine.get_entity(&h.alice, gateway).await.unwrap().entity;
+    h.engine
+        .set_entity_kind(
+            &h.alice,
+            gateway,
+            SetEntityKind {
+                kind: EntityKind::Service,
+                expected_version: g.version,
+            },
+        )
+        .await
+        .unwrap();
+    let billing = entity(h, "billing").await;
     h.engine
         .purge_memory(
             &h.alice,
@@ -211,6 +224,17 @@ pub async fn edges_follow_their_source_revisions(h: &Harness) {
     assert!(then.edges.is_empty());
     let view = h.engine.get_entity(&h.alice, gateway).await.unwrap();
     assert!(view.mentions.is_empty());
+    assert!(matches!(
+        h.engine.get_entity(&h.alice, billing).await,
+        Err(Error::NotFound { .. })
+    ));
+    assert!(
+        h.engine
+            .find_entities(&h.alice, "billing")
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 pub async fn aliases_and_kinds_are_version_checked(h: &Harness) {
@@ -356,26 +380,56 @@ pub async fn entity_merges_are_governed(h: &Harness) {
     // Nothing changed yet.
     assert_eq!(entity(h, "auth-service").await, auth_service);
 
+    let before = h.clock.now();
+    h.clock.advance(Duration::seconds(10));
     h.engine
         .accept_proposal(&h.alice, p.id, reason("same service"))
         .await
         .unwrap();
     let merged = h.engine.get_entity(&h.alice, auth_service).await.unwrap();
-    assert_eq!(merged.entity.status, EntityStatus::Merged { into: auth });
+    assert!(matches!(
+        merged.entity.status,
+        EntityStatus::Merged { into, .. } if into == auth
+    ));
     assert_eq!(entity(h, "auth-service").await, auth);
+    let survivor = h.engine.get_entity(&h.alice, auth).await.unwrap();
+    assert_eq!(survivor.aliases.len(), 2, "aliases of both names resolve");
+    assert_eq!(survivor.mentions.len(), 2);
+    let inbound = |as_of| NeighborhoodRequest {
+        direction: EdgeDirection::In,
+        as_of,
+        ..depth(1)
+    };
     let n = h
         .engine
-        .entity_neighborhood(
-            &h.alice,
-            auth,
-            NeighborhoodRequest {
-                direction: EdgeDirection::In,
-                ..depth(1)
-            },
-        )
+        .entity_neighborhood(&h.alice, auth, inbound(None))
         .await
         .unwrap();
     assert_eq!(n.edges.len(), 2, "edges of both names now meet");
+    assert!(n.edges.iter().all(|e| e.to == auth));
+    // Asking for the merged entity lands on the survivor.
+    let via_merged = h
+        .engine
+        .entity_neighborhood(&h.alice, auth_service, inbound(None))
+        .await
+        .unwrap();
+    assert_eq!(via_merged.root, auth);
+
+    // The merge is not retroactive: as of before it, the names were
+    // separate and each had its own edge.
+    let then = h
+        .engine
+        .entity_neighborhood(&h.alice, auth, inbound(Some(before)))
+        .await
+        .unwrap();
+    assert_eq!(then.edges.len(), 1);
+    let then = h
+        .engine
+        .entity_neighborhood(&h.alice, auth_service, inbound(Some(before)))
+        .await
+        .unwrap();
+    assert_eq!(then.root, auth_service);
+    assert_eq!(then.edges.len(), 1);
 
     // A proposal is bound to entity versions: a change makes it stale.
     let api = entity(h, "api").await;
