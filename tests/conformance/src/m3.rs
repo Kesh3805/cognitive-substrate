@@ -71,7 +71,8 @@ pub async fn perception_creates_candidates_idempotently(h: &Harness) {
     assert_eq!(view.job.as_ref().unwrap().kind, JobKind::Perceive);
 
     let report = rules(h).drain().await.unwrap();
-    assert_eq!(report.succeeded, 1, "{report:?}");
+    // One perception, then one entity projection per extracted candidate.
+    assert_eq!(report.succeeded, 3, "{report:?}");
     let view = h.engine.get_observation(&h.alice, id).await.unwrap();
     assert_eq!(view.job.unwrap().status, JobStatus::Succeeded);
     assert_eq!(view.extraction_runs.len(), 1);
