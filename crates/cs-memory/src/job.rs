@@ -22,16 +22,19 @@ pub enum JobKind {
     Resolve,
     /// Compute (or backfill) an embedding for one revision in one space.
     Embed,
+    /// Project one memory revision into entity mentions and edges.
+    Project,
 }
 
 impl JobKind {
-    pub const ALL: [Self; 3] = [Self::Perceive, Self::Resolve, Self::Embed];
+    pub const ALL: [Self; 4] = [Self::Perceive, Self::Resolve, Self::Embed, Self::Project];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Perceive => "perceive",
             Self::Resolve => "resolve",
             Self::Embed => "embed",
+            Self::Project => "project",
         }
     }
 
