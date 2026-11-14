@@ -79,6 +79,15 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Derivation records** | Every compiled memory has a record of its operator, thresholds, support counts and the exact root revisions behind it, with no content and no names. |
 | **Knowledge follows its support** | Revising, tombstoning or purging a root revalidates every derivation citing it. Lost support invalidates the derivation and demotes the compiled memory to `candidate`. |
 
+### Procedural learning (M4.4)
+
+| Capability | What it means |
+|---|---|
+| **Outcome, not exit status** | Executions are recorded when they start and finished once. Whether they achieved their goal is a separate verification, made by a deterministic, independent or self-assessed verifier. Self-assessment can fail a run but never pass it. |
+| **Honest statistics** | Success rates and Wilson bounds (z = 1.96) are computed over input classes, so repeating one input proves nothing. Aborts and runs that never report back count as failures. |
+| **Suites and a failure ratchet** | Positive, negative, boundary and regression cases gate promotion. A production run that fails verification becomes a locked regression case that every later version must pass. |
+| **Drift quarantine** | A run of failures, or a recent window that is confidently failing, quarantines a capability automatically. Quarantine can be reinstated; deprecation is final. |
+
 ## Quick start
 
 ### Run the service
@@ -194,6 +203,11 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `POST` | `/entities/{id}/neighborhood` | Bounded, as-of graph traversal with paths |
 | `GET` | `/derivations` · `/derivations/{id}` | Compiled knowledge and the support behind it (`?status=`) |
 | `POST` | `/derivations/{id}/revalidate` | Queue a recompilation (202) |
+| `GET` | `/capabilities/{id}` | Capability with its suite and evaluation |
+| `POST` | `/capabilities/{id}/stage` · `/capabilities/{id}/cases` | Lifecycle transition · add an evaluation case |
+| `POST` `GET` | `/capabilities/{id}/executions` | Start an execution · list them |
+| `GET` | `/executions/{id}` | Execution with its verifications |
+| `POST` | `/executions/{id}/finish` · `/executions/{id}/verifications` | Finish once · record a verifier's verdict |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
@@ -230,7 +244,7 @@ cargo test -p cs-embedder-fastembed          # optional ONNX embedder (CS_TEST_F
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
