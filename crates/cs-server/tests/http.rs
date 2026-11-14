@@ -458,3 +458,92 @@ async fn governed_processing_over_http() {
     let (status, _) = c.send("GET", "/v1/proposals?status=bogus", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn entity_graph_over_http() {
+    use cs_engine::{RuleExtractor, Worker, WorkerConfig};
+    let engine = CognitiveEngine::new(Arc::new(InMemoryStore::new()));
+    let worker = Worker::new(
+        engine.clone(),
+        Arc::new(RuleExtractor),
+        WorkerConfig::default(),
+    );
+    let c = Client {
+        app: router(AppState::new(engine, AuthConfig::default())),
+        tenant: Uuid::now_v7(),
+        user: Uuid::now_v7(),
+        key: None,
+    };
+    for (s, p, o) in [
+        ("API", "depends on", "auth"),
+        ("Gateway", "calls", "auth service"),
+    ] {
+        let (status, _) = c
+            .send(
+                "POST",
+                "/v1/memories",
+                Some(json!({
+                    "scope": c.private_scope(),
+                    "content": { "domain": "relational", "data": {
+                        "subject": s, "predicate": p, "object": o
+                    }},
+                    "provenance": { "source": { "type": "user_input" } }
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    worker.drain().await.unwrap();
+
+    let (status, found) = c
+        .send("GET", "/v1/entities?name=Auth%20Service", None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let auth_service = found[0]["id"].as_str().unwrap().to_owned();
+    let (_, found) = c.send("GET", "/v1/entities?name=auth", None).await;
+    let auth = found[0]["id"].as_str().unwrap().to_owned();
+
+    let (status, view) = c.send("GET", &format!("/v1/entities/{auth}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["aliases"][0]["key"], "auth");
+
+    let (status, proposals) = c
+        .send(
+            "POST",
+            &format!("/v1/entities/{auth}/merge-candidates"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let id = proposals[0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(proposals[0]["kind"], "entity_merge");
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/proposals/{id}/accept"),
+            Some(json!({ "reason": "same service" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, merged) = c
+        .send("GET", &format!("/v1/entities/{auth_service}"), None)
+        .await;
+    assert_eq!(merged["entity"]["status"]["state"], "merged");
+    assert_eq!(merged["entity"]["status"]["into"], auth.as_str());
+
+    let (status, n) = c
+        .send(
+            "POST",
+            &format!("/v1/entities/{auth}/neighborhood"),
+            Some(json!({ "direction": "in", "depth": 1 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(n["edges"].as_array().unwrap().len(), 2);
+
+    let (status, _) = c
+        .as_user(Uuid::now_v7())
+        .send("GET", &format!("/v1/entities/{auth}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
