@@ -28,3 +28,5 @@ These rules are enforced in code review and, where noted, by tests.
 19. **A derived edge is exactly as visible as its source revision**, by scope, transaction time, status and valid time, and it is purged with it (ADR-0019).
 20. **Compilation never launders evidence.** Support is counted in independent units (actor, origin, valid-time bucket) over validated, non-derived roots, with temporal dispersion and a counterexample veto. Compiled memories start as `candidate` (ADR-0020).
 21. **Derived knowledge follows its support.** A purge flags citing derivations in the same transaction; losing support invalidates the derivation and demotes its memory to `candidate`.
+22. **Execution status is not outcome, and self-judgment never promotes.** Success needs a deterministic or independent verification; aborts and silent runs count as failures (ADR-0021).
+23. **Capability evidence cannot be inflated by repetition.** Success rates and Wilson bounds are computed over input classes, not runs; failing production runs ratchet into locked regression cases.
