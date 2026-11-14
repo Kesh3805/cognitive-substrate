@@ -7,7 +7,8 @@
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EntityId, EventDraft, EventQuery, EvidenceId, JobId,
+    AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
+    EvidenceId, JobId,
     MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter,
     TenantId,
 };
@@ -16,6 +17,7 @@ use cs_memory::{
     ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain, MemoryRecord,
     MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion,
     ResolutionProposal,
+    derivation::{Derivation, DerivationStatus},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
 };
 use time::OffsetDateTime;
@@ -351,6 +353,28 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// by id. Readers filter by merge time to resolve as of a point.
     async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>>;
 
+    // ---- derivations (M4.3) --------------------------------------------------
+
+    async fn get_derivation(&self, id: DerivationId) -> Result<Option<Derivation>>;
+
+    async fn derivation_for(
+        &self,
+        partition: &str,
+        operator: &str,
+        signature: &str,
+    ) -> Result<Option<Derivation>>;
+
+    /// Derivations with `memory` among their roots. Ordered by id.
+    async fn derivations_citing(&self, memory: MemoryId) -> Result<Vec<Derivation>>;
+
+    /// Derivations the caller can read, newest first.
+    async fn list_derivations(
+        &self,
+        access: &AccessContext,
+        status: Option<DerivationStatus>,
+        limit: u32,
+    ) -> Result<Vec<Derivation>>;
+
     /// Edges touching `entity_ids`, visible to the query: the caller can
     /// read the edge's scope, its source revision is current at the as-of
     /// transaction time with an allowed status, and its valid time holds.
@@ -449,6 +473,20 @@ pub struct JobEffects {
     /// still exist unpurged, and these revisions must still be current.
     pub require_unpurged_observation: Option<ObservationId>,
     pub require_current: Vec<RecordVersion>,
+    /// Derivations to insert or update. A version mismatch means another
+    /// job changed the derivation first: the job is retried, not failed.
+    pub derivations: Vec<DerivationWrite>,
+    /// Revisions to write over current ones (e.g. demoting a compiled
+    /// memory). A revision that is no longer current makes the job retry.
+    pub supersedes: Vec<MemorySupersede>,
+}
+
+/// Insert (`expected_version: None`) or update a derivation. The written
+/// derivation's `version` must be `expected_version + 1` (or 1).
+#[derive(Debug, Clone)]
+pub struct DerivationWrite {
+    pub derivation: Derivation,
+    pub expected_version: Option<u32>,
 }
 
 impl JobEffects {
@@ -461,6 +499,8 @@ impl JobEffects {
             && self.memory_embeddings.is_empty()
             && self.projection.is_none()
             && self.belief_embeddings.is_empty()
+            && self.derivations.is_empty()
+            && self.supersedes.is_empty()
     }
 }
 
@@ -519,7 +559,8 @@ pub struct EdgeQuery {
     pub direction: EdgeDirection,
     pub relations: Option<Vec<String>>,
     pub as_of_transaction_time: OffsetDateTime,
-    pub as_of_valid_time: OffsetDateTime,
+    /// Valid-time point the edge must hold at; `None` accepts any.
+    pub as_of_valid_time: Option<OffsetDateTime>,
     pub include_candidates: bool,
     pub limit: u32,
 }
