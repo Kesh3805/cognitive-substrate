@@ -12,7 +12,7 @@
 //!   with node, edge and path budgets; every reported path names the edges
 //!   (and so the source revisions) it relies on.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
 
 use cs_core::{
     AccessContext, CognitiveEventType, EdgeId, EntityId, Error, MemoryId, MemoryRevisionId,
@@ -53,6 +53,10 @@ const STEM_SUFFIXES: [&str; 9] = [
     "app",
     "co",
 ];
+
+/// Explicit aliases per entity: keeps one entity from absorbing a
+/// partition's vocabulary.
+pub const MAX_ALIASES: usize = 64;
 
 /// Traversal limits: requests are clamped to these.
 pub const MAX_DEPTH: u32 = 3;
@@ -221,14 +225,64 @@ impl CognitiveEngine {
             .ok_or_else(|| Error::not_found("entity", id))
     }
 
-    /// An entity with its aliases and most recent mentions. A merged
-    /// entity is returned as-is; its status names the survivor.
+    /// `id` plus every entity merged into it (transitively) as of `t`, or
+    /// at any time when `t` is `None`. Ordered: `id` first, then by depth.
+    async fn members(&self, id: EntityId, t: Option<OffsetDateTime>) -> Result<Vec<EntityId>> {
+        let mut out = vec![id];
+        let mut frontier = vec![id];
+        for _ in 0..64 {
+            if frontier.is_empty() {
+                break;
+            }
+            let next: Vec<EntityId> = self
+                .store
+                .merged_into(&frontier)
+                .await?
+                .into_iter()
+                .filter(|e| t.is_none_or(|t| e.status.redirect_as_of(t).is_some()))
+                .map(|e| e.id)
+                .filter(|m| !out.contains(m))
+                .collect();
+            out.extend(&next);
+            frontier = next;
+        }
+        Ok(out)
+    }
+
+    /// Follow merge redirects in effect at transaction time `t`.
+    async fn canonical_as_of(&self, mut id: EntityId, t: OffsetDateTime) -> Result<EntityId> {
+        for _ in 0..64 {
+            match self
+                .store
+                .get_entity(id)
+                .await?
+                .and_then(|e| e.status.redirect_as_of(t))
+            {
+                Some(into) => id = into,
+                None => break,
+            }
+        }
+        Ok(id)
+    }
+
+    /// An entity with its aliases and most recent mentions, including
+    /// those of entities merged into it. A merged entity is returned
+    /// as-is; its status names the survivor.
     pub async fn get_entity(&self, ctx: &AccessContext, id: EntityId) -> Result<EntityView> {
         let entity = self.readable_entity(ctx, id).await?;
+        let mut aliases = Vec::new();
+        let mut mentions = Vec::new();
+        for m in self.members(id, None).await? {
+            aliases.extend(self.store.entity_aliases(m).await?);
+            mentions.extend(self.store.entity_mentions(m, 50).await?);
+        }
+        aliases.sort_by(|a, b| a.key.cmp(&b.key));
+        mentions.sort_by_key(|m| std::cmp::Reverse(m.id));
+        mentions.truncate(50);
         Ok(EntityView {
-            aliases: self.store.entity_aliases(id).await?,
-            mentions: self.store.entity_mentions(id, 50).await?,
             entity,
+            aliases,
+            mentions,
         })
     }
 
@@ -253,13 +307,20 @@ impl CognitiveEngine {
         }
         let key = normalize_entity_name(surface)
             .ok_or_else(|| Error::validation("name has no identifying characters"))?;
+        if self.store.entity_aliases(id).await?.len() >= MAX_ALIASES {
+            return Err(Error::validation(format!(
+                "an entity has at most {MAX_ALIASES} aliases"
+            )));
+        }
         let now = self.now();
+        // Names stay out of the (append-only) event log so they can be
+        // erased with the identity rows that hold them.
         let event = self.draft(
             ctx,
             id.0,
             &e.scope,
             CognitiveEventType::EntityAliasAdded,
-            json!({ "entity_id": id, "surface": surface, "key": key, "version": req.expected_version + 1 }),
+            json!({ "entity_id": id, "version": req.expected_version + 1 }),
             now,
         );
         let alias = EntityAlias {
@@ -450,14 +511,22 @@ impl CognitiveEngine {
         Ok(out)
     }
 
-    /// Bounded breadth-first neighborhood of an entity.
+    /// Bounded breadth-first neighborhood of an entity, with identity
+    /// resolved as of the request's transaction time: entities merged by
+    /// then are folded into their survivor (edges are reported with
+    /// survivor endpoints), entities merged later are still separate.
     pub async fn entity_neighborhood(
         &self,
         ctx: &AccessContext,
         id: EntityId,
         req: NeighborhoodRequest,
     ) -> Result<Neighborhood> {
-        let root = self.readable_entity(ctx, id).await?;
+        self.readable_entity(ctx, id).await?;
+        let now = self.now();
+        let as_of = req.as_of.unwrap_or(now);
+        let valid_at = req.valid_at.unwrap_or(now);
+        let root_id = self.canonical_as_of(id, as_of).await?;
+        let root = self.readable_entity(ctx, root_id).await?;
         let depth = req.depth.unwrap_or(2).clamp(1, MAX_DEPTH);
         let max_nodes = req.max_nodes.unwrap_or(200).clamp(1, MAX_NODES) as usize;
         let max_edges = req.max_edges.unwrap_or(1_000).clamp(1, MAX_EDGES) as usize;
@@ -473,9 +542,6 @@ impl CognitiveEngine {
             ),
             None => None,
         };
-        let now = self.now();
-        let as_of = req.as_of.unwrap_or(now);
-        let valid_at = req.valid_at.unwrap_or(now);
 
         let mut truncated_by = Vec::new();
         let note = |l: TraversalLimit, t: &mut Vec<TraversalLimit>| {
@@ -495,6 +561,8 @@ impl CognitiveEngine {
         let mut edges: Vec<KnowledgeEdge> = Vec::new();
         let mut seen_edges = HashSet::new();
         let mut frontier = vec![root.id];
+        // Raw entity id → its survivor as of `as_of`.
+        let mut canon: HashMap<EntityId, EntityId> = HashMap::new();
 
         for _ in 0..depth {
             if frontier.is_empty() {
@@ -505,11 +573,20 @@ impl CognitiveEngine {
                 note(TraversalLimit::MaxEdges, &mut truncated_by);
                 break;
             }
+            let mut members = HashSet::new();
+            for f in &frontier {
+                for m in self.members(*f, Some(as_of)).await? {
+                    canon.insert(m, *f);
+                    members.insert(m);
+                }
+            }
+            let mut member_ids: Vec<EntityId> = members.iter().copied().collect();
+            member_ids.sort();
             let batch = self
                 .store
                 .entity_edges(&EdgeQuery {
                     access: ctx.clone(),
-                    entity_ids: frontier.clone(),
+                    entity_ids: member_ids,
                     direction: req.direction,
                     relations: relations.clone(),
                     as_of_transaction_time: as_of,
@@ -521,16 +598,25 @@ impl CognitiveEngine {
             if batch.len() > remaining {
                 note(TraversalLimit::MaxEdges, &mut truncated_by);
             }
-            let in_frontier: HashSet<EntityId> = frontier.iter().copied().collect();
             let mut next = Vec::new();
-            for e in batch.into_iter().take(remaining) {
+            for mut e in batch.into_iter().take(remaining) {
                 if !seen_edges.insert(e.id) {
                     continue;
+                }
+                let from_member = members.contains(&e.from);
+                for end in [e.from, e.to] {
+                    if let Entry::Vacant(slot) = canon.entry(end) {
+                        slot.insert(self.canonical_as_of(end, as_of).await?);
+                    }
+                }
+                (e.from, e.to) = (canon[&e.from], canon[&e.to]);
+                if e.from == e.to {
+                    continue; // both ends are one identity as of `as_of`
                 }
                 let (here, other) = match req.direction {
                     EdgeDirection::Out => (e.from, e.to),
                     EdgeDirection::In => (e.to, e.from),
-                    EdgeDirection::Both if in_frontier.contains(&e.from) => (e.from, e.to),
+                    EdgeDirection::Both if from_member => (e.from, e.to),
                     EdgeDirection::Both => (e.to, e.from),
                 };
                 if !nodes.contains_key(&other) {
