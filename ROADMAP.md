@@ -57,11 +57,16 @@ The substrate can observe, extract, detect, propose and recall. Authoritative kn
 
 **Exit gate:** 32 conformance scenarios pass on both stores, including non-retroactive merges, purge erasure of orphan names, and stale merge proposals.
 
-### M4.3 — Knowledge compilation
+### ✅ M4.3 — Knowledge compilation
 
-- Narrow, structured operators from episodes to generalizations, each with a derivation record.
-- Support counted by independent root observations (by source, session and actor), never by derived memories; counterexamples queried, not ignored; extraction confidence propagated.
-- Revalidation when supporting roots are purged, superseded or contradicted.
+- Episodes may carry a structured triple, projected into source-linked edges.
+- Operator `recurring-episode/1`: recurring episode triples become a semantic **candidate**, with a derivation record (operator, thresholds, support, witnesses, roots; no content).
+- Support counted in independent units (actor, origin, valid-time bucket) over validated, non-derived roots; origin diversity, temporal dispersion and a counterexample veto (ADR-0020).
+- Revalidation is recompilation: root revisions and tombstones recompile citing derivations; purges flag them atomically; lost support invalidates the derivation and demotes its memory; contended writes retry.
+
+**Exit gate:** 36 conformance scenarios pass on both stores, including correlated-support, counterexample and candidate-root vetoes, purge-triggered revalidation, and merge-pooled support.
+
+Open: weighting by extraction confidence, and excluding episodes conditioned on the compiled knowledge they would reinforce.
 
 ### M4.4 — Procedural learning
 
