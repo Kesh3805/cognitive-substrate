@@ -11,14 +11,14 @@ use std::{
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EdgeId, EntityId, EntityMentionId, Error, EventDraft,
-    EventQuery, EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
-    RecallTraceId, Result, TenantId, DerivationId, temporal::truncate_micros,
+    AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
+    Error, EventDraft, EventQuery, EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId,
+    ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
-    ExtractionRun, Job, JobError, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation,
-    ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
+    ExtractionRun, Job, JobError, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus,
+    Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
     derivation::{Derivation, DerivationStatus},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
@@ -1249,7 +1249,9 @@ impl CognitiveStore for InMemoryStore {
             .lock()
             .derivations
             .values()
-            .find(|d| d.partition == partition && d.operator == operator && d.signature == signature)
+            .find(|d| {
+                d.partition == partition && d.operator == operator && d.signature == signature
+            })
             .cloned())
     }
 
@@ -1276,7 +1278,7 @@ impl CognitiveStore for InMemoryStore {
             .filter(|d| access.can_read(&d.scope) && status.is_none_or(|x| d.status == x))
             .cloned()
             .collect();
-        v.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+        v.sort_by_key(|d| std::cmp::Reverse((d.created_at, d.id)));
         v.truncate(limit as usize);
         Ok(v)
     }

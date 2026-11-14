@@ -109,7 +109,11 @@ impl CognitiveEngine {
                 let partition = partition_key(&m.scope);
                 let existing = self
                     .store
-                    .derivation_for(&partition, RECURRING_EPISODE_OPERATOR, &signature(s, &rel, o))
+                    .derivation_for(
+                        &partition,
+                        RECURRING_EPISODE_OPERATOR,
+                        &signature(s, &rel, o),
+                    )
                     .await?;
                 if !existing
                     .as_ref()
@@ -196,9 +200,18 @@ impl CognitiveEngine {
                 .derivation_for(&d.partition, &d.operator, &sig)
                 .await?
         {
-            self.retire(ctx, d, "superseded by a derivation of the merged names", effects)
-                .await?;
-            if effects.derivations.iter().any(|w| w.derivation.id == other.id) {
+            self.retire(
+                ctx,
+                d,
+                "superseded by a derivation of the merged names",
+                effects,
+            )
+            .await?;
+            if effects
+                .derivations
+                .iter()
+                .any(|w| w.derivation.id == other.id)
+            {
                 return Ok(None);
             }
             let scope = other.scope.clone();
@@ -436,7 +449,7 @@ impl CognitiveEngine {
                 bucket: r.bucket,
             })
             .collect();
-        witnesses.sort_by(|a, b| (a.bucket, a.unit_key).cmp(&(b.bucket, b.unit_key)));
+        witnesses.sort_by_key(|w| (w.bucket, w.unit_key));
         let counter_units: BTreeSet<uuid::Uuid> = counter_roots.iter().map(|r| r.unit).collect();
         let support = Support::of(
             &witnesses,
@@ -627,7 +640,11 @@ impl CognitiveEngine {
 
     // ---- API ---------------------------------------------------------------
 
-    pub async fn get_derivation(&self, ctx: &AccessContext, id: DerivationId) -> Result<Derivation> {
+    pub async fn get_derivation(
+        &self,
+        ctx: &AccessContext,
+        id: DerivationId,
+    ) -> Result<Derivation> {
         self.store
             .get_derivation(id)
             .await?
@@ -647,7 +664,11 @@ impl CognitiveEngine {
     }
 
     /// Queue a revalidation of one derivation.
-    pub async fn revalidate_derivation(&self, ctx: &AccessContext, id: DerivationId) -> Result<Job> {
+    pub async fn revalidate_derivation(
+        &self,
+        ctx: &AccessContext,
+        id: DerivationId,
+    ) -> Result<Job> {
         let d = self.get_derivation(ctx, id).await?;
         ctx.ensure_write(&d.scope)?;
         self.store

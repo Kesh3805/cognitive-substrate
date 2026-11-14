@@ -627,11 +627,12 @@ impl PgStore {
             return Ok(job);
         }
         if let Some(reason) = super::m43::contention(&mut tx, &effects).await? {
-            let attempt = sqlx::query_scalar::<_, i32>("SELECT attempts FROM processing_jobs WHERE id = $1")
-                .bind(lease.job_id.0)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db_err)?;
+            let attempt =
+                sqlx::query_scalar::<_, i32>("SELECT attempts FROM processing_jobs WHERE id = $1")
+                    .bind(lease.job_id.0)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db_err)?;
             let job = write_outcome(
                 &mut tx,
                 lease.job_id,

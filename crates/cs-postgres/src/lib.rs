@@ -1351,7 +1351,8 @@ impl CognitiveStore for PgStore {
         operator: &str,
         signature: &str,
     ) -> Result<Option<cs_memory::derivation::Derivation>> {
-        self.m43_derivation_for(partition, operator, signature).await
+        self.m43_derivation_for(partition, operator, signature)
+            .await
     }
 
     async fn derivations_citing(
