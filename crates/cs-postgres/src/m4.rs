@@ -580,7 +580,7 @@ impl PgStore {
              FROM knowledge_edges e JOIN memory_records m ON m.revision_id = e.revision_id \
              WHERE {dir} AND {clause} \
                AND ($6::text[] IS NULL OR e.relation = ANY($6)) \
-               AND e.valid_time @> $7 AND m.transaction_time @> $8 \
+               AND ($7::timestamptz IS NULL OR e.valid_time @> $7) AND m.transaction_time @> $8 \
                AND (m.status = 'active' OR ($9 AND m.status = 'candidate')) \
              ORDER BY e.relation COLLATE \"C\", {other}, e.id LIMIT $10"
         ))

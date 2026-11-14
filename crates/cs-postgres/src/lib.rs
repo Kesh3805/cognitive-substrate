@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 mod m3;
 mod m4;
+mod m43;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -723,6 +724,7 @@ impl CognitiveStore for PgStore {
             return Err(Error::not_found("memory", id));
         }
         m4::drop_orphan_entities(&mut tx, &touched).await?;
+        m43::flag_derivations(&mut tx, &[id.0], event.occurred_at).await?;
         sqlx::query(
             "INSERT INTO purge_ledger (kind, record_id, purged_at) VALUES ('memory', $1, $2) \
              ON CONFLICT (kind, record_id) DO NOTHING",
@@ -1334,6 +1336,38 @@ impl CognitiveStore for PgStore {
         limit: u32,
     ) -> Result<Vec<cs_memory::entity::Entity>> {
         self.m4_partition_entities(partition, limit).await
+    }
+
+    async fn get_derivation(
+        &self,
+        id: cs_core::DerivationId,
+    ) -> Result<Option<cs_memory::derivation::Derivation>> {
+        self.m43_get_derivation(id).await
+    }
+
+    async fn derivation_for(
+        &self,
+        partition: &str,
+        operator: &str,
+        signature: &str,
+    ) -> Result<Option<cs_memory::derivation::Derivation>> {
+        self.m43_derivation_for(partition, operator, signature).await
+    }
+
+    async fn derivations_citing(
+        &self,
+        memory: MemoryId,
+    ) -> Result<Vec<cs_memory::derivation::Derivation>> {
+        self.m43_derivations_citing(memory).await
+    }
+
+    async fn list_derivations(
+        &self,
+        access: &AccessContext,
+        status: Option<cs_memory::derivation::DerivationStatus>,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::derivation::Derivation>> {
+        self.m43_list_derivations(access, status, limit).await
     }
 
     async fn merged_into(

@@ -317,6 +317,16 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects, now: OffsetDateTime) -> R
     if let Some(p) = &e.projection {
         super::m4::apply_projection(tx, p, now).await?;
     }
+    let mut supersedes = e.supersedes;
+    supersedes.sort_by_key(|m| m.current);
+    for m in &supersedes {
+        supersede_memory_in(tx, m).await?;
+    }
+    let mut derivations = e.derivations;
+    derivations.sort_by_key(|w| w.derivation.id);
+    for w in &derivations {
+        super::m43::write_derivation(tx, w).await?;
+    }
     Ok(())
 }
 
@@ -616,6 +626,29 @@ impl PgStore {
             tx.commit().await.map_err(db_err)?;
             return Ok(job);
         }
+        if let Some(reason) = super::m43::contention(&mut tx, &effects).await? {
+            let attempt = sqlx::query_scalar::<_, i32>("SELECT attempts FROM processing_jobs WHERE id = $1")
+                .bind(lease.job_id.0)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db_err)?;
+            let job = write_outcome(
+                &mut tx,
+                lease.job_id,
+                now,
+                &JobOutcome::Retry {
+                    at: now + time::Duration::seconds(1),
+                    error: JobError {
+                        permanent: false,
+                        message: reason.to_owned(),
+                        attempt: u32::try_from(attempt).unwrap_or(0),
+                    },
+                },
+            )
+            .await?;
+            tx.commit().await.map_err(db_err)?;
+            return Ok(job);
+        }
         // Effects run under a savepoint: a constraint violation must not
         // abort the transaction that records the job's fate.
         sqlx::query("SAVEPOINT apply_effects")
@@ -804,6 +837,7 @@ impl PgStore {
             .await
             .map_err(db_err)?;
         super::m4::drop_orphan_entities(&mut tx, &touched).await?;
+        super::m43::flag_derivations(&mut tx, &ids, now).await?;
         for m in &ids {
             ledger(&mut tx, PurgeKind::Memory, *m, now).await?;
         }
