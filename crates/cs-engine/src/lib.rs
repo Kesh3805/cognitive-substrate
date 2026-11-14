@@ -652,22 +652,23 @@ impl CognitiveEngine {
             statuses.push(MemoryStatus::Candidate);
         }
         let space_key = self.space_key();
-        let stored = self
-            .store
-            .query_memories(&MemoryQuery {
-                access: ctx.clone(),
-                domains: policy.allowed_domains.clone(),
-                statuses,
-                scope_filter: policy.scope_filter.clone(),
-                as_of_valid_time: as_of_valid,
-                as_of_transaction_time: as_of_tx,
-                include_superseded: policy.include_superseded,
-                ignore_valid_time: false,
-                embedding_model: space_key.clone(),
-                limit: policy.max_candidates,
-            })
-            .await?;
         let (query_embedding, dense) = self.query_vector(query, policy, recorded).await;
+        let base = MemoryQuery {
+            access: ctx.clone(),
+            domains: policy.allowed_domains.clone(),
+            statuses,
+            scope_filter: policy.scope_filter.clone(),
+            as_of_valid_time: as_of_valid,
+            as_of_transaction_time: as_of_tx,
+            include_superseded: policy.include_superseded,
+            ignore_valid_time: false,
+            embedding_model: space_key.clone(),
+            limit: policy.max_candidates,
+            order: cs_storage::CandidateOrder::Recent,
+        };
+        let (stored, channels) = self
+            .generate_candidates(query, policy, query_embedding.as_deref(), base)
+            .await?;
 
         let texts: Vec<String> = stored
             .iter()
@@ -684,13 +685,18 @@ impl CognitiveEngine {
                 observed_at: s.record.provenance.observed_at,
             })
             .collect();
-        let candidates = cs_policy::score_candidates(
+        let mut candidates = cs_policy::score_candidates(
             policy,
             query,
             query_embedding.as_deref(),
             as_of_tx,
             &inputs,
         );
+        for c in &mut candidates {
+            if let Some(ch) = channels.get(&c.revision_id) {
+                c.channels = ch.iter().copied().collect();
+            }
+        }
         let embedded = stored.iter().filter(|s| s.embedding.is_some()).count();
         let dense_coverage =
             (dense.is_used() && !stored.is_empty()).then(|| embedded as f64 / stored.len() as f64);
@@ -754,6 +760,68 @@ impl CognitiveEngine {
             query_embedding,
             dense_coverage,
         })
+    }
+
+    /// Build the candidate set the policy asks for. Every strategy fills
+    /// the same budget, `max_candidates` unique revisions, so strategies
+    /// compare at equal cost.
+    async fn generate_candidates(
+        &self,
+        query: &str,
+        policy: &RecallPolicy,
+        query_embedding: Option<&[f32]>,
+        base: MemoryQuery,
+    ) -> Result<(
+        Vec<cs_storage::StoredMemory>,
+        BTreeMap<MemoryRevisionId, BTreeSet<cs_memory::CandidateChannel>>,
+    )> {
+        use cs_memory::{CandidateChannel as Ch, CandidateGeneration};
+        use cs_storage::CandidateOrder;
+        let mut picked: Vec<cs_storage::StoredMemory> = Vec::new();
+        let mut channels: BTreeMap<MemoryRevisionId, BTreeSet<Ch>> = BTreeMap::new();
+        let mut add = |found: Vec<cs_storage::StoredMemory>, ch: Ch, room: usize| {
+            for m in found {
+                let rev = m.record.revision_id;
+                if let Some(set) = channels.get_mut(&rev) {
+                    set.insert(ch);
+                } else if picked.len() < room {
+                    channels.insert(rev, BTreeSet::from([ch]));
+                    picked.push(m);
+                }
+            }
+        };
+        let budget = policy.max_candidates as usize;
+        if let CandidateGeneration::Channels { lexical, dense } = policy.candidates {
+            let terms = cs_memory::lexical::terms(query);
+            if lexical > 0 && !terms.is_empty() {
+                let found = self
+                    .store
+                    .query_memories(&MemoryQuery {
+                        limit: lexical,
+                        order: CandidateOrder::Lexical(terms),
+                        ..base.clone()
+                    })
+                    .await?;
+                add(found, Ch::Lexical, budget);
+            }
+            if dense > 0
+                && let Some(v) = query_embedding
+            {
+                let found = self
+                    .store
+                    .query_memories(&MemoryQuery {
+                        limit: dense,
+                        order: CandidateOrder::Nearest(v.to_vec()),
+                        ..base.clone()
+                    })
+                    .await?;
+                add(found, Ch::Dense, budget);
+            }
+        }
+        // Fill (or, for v1, form) the budget with the newest revisions.
+        let recent = self.store.query_memories(&base).await?;
+        add(recent, Ch::Recent, budget);
+        Ok((picked, channels))
     }
 
     fn snapshot(&self, policy: &RecallPolicy, dense: &DenseStatus) -> String {
@@ -1432,6 +1500,7 @@ impl CognitiveEngine {
                 ignore_valid_time: false,
                 embedding_model: None,
                 limit: RecallPolicy::MAX_CANDIDATES,
+                order: cs_storage::CandidateOrder::Recent,
             })
             .await?
             .into_iter()

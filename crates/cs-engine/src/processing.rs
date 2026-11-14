@@ -521,6 +521,7 @@ impl CognitiveEngine {
                     ignore_valid_time: true,
                     embedding_model: model,
                     limit: self.processing.resolution_window,
+                    order: cs_storage::CandidateOrder::Recent,
                 })
                 .await?;
             // The target's own stored vector in the active space, if any;
@@ -1133,6 +1134,7 @@ impl CognitiveEngine {
                 ignore_valid_time: false,
                 embedding_model: None,
                 limit: cs_memory::RecallPolicy::MAX_CANDIDATES,
+                order: cs_storage::CandidateOrder::Recent,
             })
             .await?;
         derived.extend(all.into_iter().filter_map(|s| {

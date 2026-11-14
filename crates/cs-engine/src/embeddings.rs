@@ -381,6 +381,7 @@ impl CognitiveEngine {
                 ignore_valid_time: true,
                 embedding_model: Some(key.clone()),
                 limit: cs_memory::RecallPolicy::MAX_CANDIDATES,
+                order: cs_storage::CandidateOrder::Recent,
             })
             .await?;
         for s in memories {
