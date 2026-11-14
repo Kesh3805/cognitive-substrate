@@ -4,6 +4,7 @@
 //! the same inputs it always produces the same outputs, which is what makes
 //! recall traces replayable and debt reports auditable.
 
+pub mod capability;
 pub mod debt;
 pub mod lexical;
 pub mod resolve;
