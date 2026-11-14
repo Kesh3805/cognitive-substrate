@@ -29,9 +29,10 @@ use sqlx::{
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// Embedded migrations (`/migrations`).
 mod m3;
+mod m4;
 
+/// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Debug, Clone)]
@@ -1247,6 +1248,14 @@ impl CognitiveStore for PgStore {
         self.m3_get_proposal(id).await
     }
 
+    async fn insert_proposal(
+        &self,
+        proposal: &cs_memory::ResolutionProposal,
+        event: EventDraft,
+    ) -> Result<cs_memory::ResolutionProposal> {
+        self.m3_insert_proposal(proposal, event).await
+    }
+
     async fn list_proposals(
         &self,
         access: &AccessContext,
@@ -1265,6 +1274,71 @@ impl CognitiveStore for PgStore {
     ) -> Result<cs_memory::ResolutionProposal> {
         self.m3_decide_proposal(id, decision, mutations, events)
             .await
+    }
+
+    async fn get_entity(&self, id: cs_core::EntityId) -> Result<Option<cs_memory::entity::Entity>> {
+        self.m4_get_entity(id).await
+    }
+
+    async fn entities_by_key(
+        &self,
+        access: &AccessContext,
+        key: &str,
+    ) -> Result<Vec<cs_memory::entity::Entity>> {
+        self.m4_entities_by_key(access, key).await
+    }
+
+    async fn entity_aliases(
+        &self,
+        id: cs_core::EntityId,
+    ) -> Result<Vec<cs_memory::entity::EntityAlias>> {
+        self.m4_entity_aliases(id).await
+    }
+
+    async fn entity_mentions(
+        &self,
+        id: cs_core::EntityId,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::entity::EntityMention>> {
+        self.m4_entity_mentions(id, limit).await
+    }
+
+    async fn add_entity_alias(
+        &self,
+        id: cs_core::EntityId,
+        expected_version: u32,
+        alias: &cs_memory::entity::EntityAlias,
+        event: EventDraft,
+    ) -> Result<cs_memory::entity::Entity> {
+        self.m4_add_entity_alias(id, expected_version, alias, event)
+            .await
+    }
+
+    async fn set_entity_kind(
+        &self,
+        id: cs_core::EntityId,
+        expected_version: u32,
+        kind: cs_memory::entity::EntityKind,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<cs_memory::entity::Entity> {
+        self.m4_set_entity_kind(id, expected_version, kind, at, event)
+            .await
+    }
+
+    async fn partition_entities(
+        &self,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::entity::Entity>> {
+        self.m4_partition_entities(partition, limit).await
+    }
+
+    async fn entity_edges(
+        &self,
+        query: &cs_storage::EdgeQuery,
+    ) -> Result<Vec<cs_memory::entity::KnowledgeEdge>> {
+        self.m4_entity_edges(query).await
     }
 
     async fn purged_at(

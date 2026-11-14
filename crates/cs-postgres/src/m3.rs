@@ -243,6 +243,12 @@ async fn precondition_failure(tx: &mut Tx<'_>, e: &JobEffects) -> Result<Option<
             )
             .bind(lineage_id.0)
             .bind(revision_id.0),
+            RecordVersion::Entity { id, version } => sqlx::query_scalar(
+                "SELECT 1 FROM entities WHERE id = $1 AND version = $2 AND merged_into IS NULL \
+                 FOR SHARE",
+            )
+            .bind(id.0)
+            .bind(i32::try_from(version).map_err(Error::storage)?),
         }
         .fetch_optional(&mut **tx)
         .await
@@ -254,7 +260,7 @@ async fn precondition_failure(tx: &mut Tx<'_>, e: &JobEffects) -> Result<Option<
     Ok(None)
 }
 
-async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
+async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects, now: OffsetDateTime) -> Result<()> {
     let mut memories = e.memories;
     memories.sort_by_key(|(m, _)| m.revision_id);
     for (m, emb) in &memories {
@@ -278,31 +284,7 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
     proposals.sort_by_key(|p| p.id);
     let mut inserted = std::collections::BTreeSet::new();
     for p in &proposals {
-        let r = sqlx::query(
-            "INSERT INTO resolution_proposals (id, tenant_id, owner_user_id, agent_id, project_id, \
-             conversation_id, visibility, kind, status, operation, rationale, detection, based_on, \
-             fingerprint, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7::visibility, $8, 'pending', $9, $10, $11, $12, $13, $14) \
-             ON CONFLICT (tenant_id, fingerprint) DO NOTHING",
-        )
-        .bind(p.id.0)
-        .bind(p.scope.tenant_id.0)
-        .bind(p.scope.owner_user_id.map(|u| u.0))
-        .bind(p.scope.agent_id.map(|u| u.0))
-        .bind(p.scope.project_id.map(|u| u.0))
-        .bind(p.scope.conversation_id.map(|u| u.0))
-        .bind(p.scope.visibility.as_str())
-        .bind(p.kind.as_str())
-        .bind(Json(&p.operation))
-        .bind(Json(&p.rationale))
-        .bind(Json(&p.detection))
-        .bind(Json(&p.based_on))
-        .bind(&p.fingerprint)
-        .bind(p.created_at)
-        .execute(&mut **tx)
-        .await
-        .map_err(db_err)?;
-        if r.rows_affected() == 1 {
+        if insert_proposal_row(tx, p).await? {
             inserted.insert(p.id);
         }
     }
@@ -332,7 +314,39 @@ async fn apply_effects(tx: &mut Tx<'_>, e: JobEffects) -> Result<()> {
     for (id, emb) in &vectors {
         upsert_embedding(tx, EmbeddingTarget::Belief, id.0, emb).await?;
     }
+    if let Some(p) = &e.projection {
+        super::m4::apply_projection(tx, p, now).await?;
+    }
     Ok(())
+}
+
+/// Insert a pending proposal; `false` if its fingerprint already exists.
+async fn insert_proposal_row(tx: &mut Tx<'_>, p: &ResolutionProposal) -> Result<bool> {
+    let r = sqlx::query(
+        "INSERT INTO resolution_proposals (id, tenant_id, owner_user_id, agent_id, project_id, \
+         conversation_id, visibility, kind, status, operation, rationale, detection, based_on, \
+         fingerprint, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7::visibility, $8, 'pending', $9, $10, $11, $12, $13, $14) \
+         ON CONFLICT (tenant_id, fingerprint) DO NOTHING",
+    )
+    .bind(p.id.0)
+    .bind(p.scope.tenant_id.0)
+    .bind(p.scope.owner_user_id.map(|u| u.0))
+    .bind(p.scope.agent_id.map(|u| u.0))
+    .bind(p.scope.project_id.map(|u| u.0))
+    .bind(p.scope.conversation_id.map(|u| u.0))
+    .bind(p.scope.visibility.as_str())
+    .bind(p.kind.as_str())
+    .bind(Json(&p.operation))
+    .bind(Json(&p.rationale))
+    .bind(Json(&p.detection))
+    .bind(Json(&p.based_on))
+    .bind(&p.fingerprint)
+    .bind(p.created_at)
+    .execute(&mut **tx)
+    .await
+    .map_err(db_err)?;
+    Ok(r.rows_affected() == 1)
 }
 
 async fn supersede_memory_in(tx: &mut Tx<'_>, m: &MemorySupersede) -> Result<()> {
@@ -608,7 +622,7 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
-        let attempt = match apply_effects(&mut tx, effects).await {
+        let attempt = match apply_effects(&mut tx, effects, now).await {
             Ok(()) => outcome,
             Err(e) => {
                 sqlx::query("ROLLBACK TO SAVEPOINT apply_effects")
@@ -811,6 +825,28 @@ impl PgStore {
         row.as_ref().map(proposal_from_row).transpose()
     }
 
+    pub(crate) async fn m3_insert_proposal(
+        &self,
+        p: &ResolutionProposal,
+        event: EventDraft,
+    ) -> Result<ResolutionProposal> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+        if insert_proposal_row(&mut tx, p).await? {
+            append_event(&mut tx, event).await?;
+        }
+        let row = sqlx::query(&format!(
+            "SELECT {PROPOSAL_COLS} FROM resolution_proposals \
+             WHERE tenant_id = $1 AND fingerprint = $2"
+        ))
+        .bind(p.scope.tenant_id.0)
+        .bind(&p.fingerprint)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db_err)?;
+        tx.commit().await.map_err(db_err)?;
+        proposal_from_row(&row)
+    }
+
     pub(crate) async fn m3_list_proposals(
         &self,
         access: &AccessContext,
@@ -866,6 +902,9 @@ impl PgStore {
         beliefs.sort_by_key(|b| b.current);
         for b in &beliefs {
             supersede_belief_in(&mut tx, b).await?;
+        }
+        for m in &mutations.entity_merges {
+            super::m4::merge_entities(&mut tx, m).await?;
         }
         let row = sqlx::query(&format!(
             "UPDATE resolution_proposals SET status = $2::proposal_status, decided_at = $3, \
