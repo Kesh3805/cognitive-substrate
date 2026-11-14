@@ -47,6 +47,8 @@ pub struct ProcessingConfig {
     /// Compile recurring episodes into semantic candidates (M4.3).
     pub auto_compile: bool,
     pub compilation: cs_memory::derivation::CompilationThresholds,
+    /// Capability evaluation and quarantine policy (M4.4).
+    pub capability: cs_policy::capability::CapabilityPolicy,
 }
 
 impl Default for ProcessingConfig {
@@ -59,6 +61,7 @@ impl Default for ProcessingConfig {
             resolution_window: 500,
             auto_compile: true,
             compilation: cs_memory::derivation::CompilationThresholds::default(),
+            capability: cs_policy::capability::CapabilityPolicy::default(),
         }
     }
 }

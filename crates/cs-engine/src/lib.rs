@@ -9,6 +9,7 @@
 //! 2. preserves history (revisions close transaction time, never overwrite),
 //! 3. is persisted atomically with a cognitive event.
 
+pub mod capabilities;
 mod compile;
 pub mod embedding;
 mod embeddings;
