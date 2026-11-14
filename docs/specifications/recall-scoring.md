@@ -12,9 +12,22 @@ The storage adapter returns revisions that satisfy **all** of the following:
 - `valid_time ∋ as_of_valid`;
 - not expired at `as_of_tx`.
 
-The set is ordered by transaction start descending, then revision id ascending, and truncated to `max_candidates`.
-
 Defaults: `as_of_tx = now` and `as_of_valid = as_of_tx`. The resolved values are recorded in the trace.
+
+### Candidate generation
+
+`policy.candidates` chooses which eligible revisions fill the budget of `max_candidates` unique revisions. Every strategy fills the same budget.
+
+| Strategy | Candidate set |
+|---|---|
+| `recency_v1` (default, **frozen control**) | The newest eligible revisions: transaction start DESC, then revision id ASC |
+| `channels { lexical: L, dense: D }` | In this order, adding only revisions not already present: up to `L` **lexical** candidates, up to `D` **dense** candidates, then the newest revisions until the budget is full |
+
+- **Lexical channel.** Takes revisions sharing at least one term with the query, ordered by the number of shared distinct terms DESC, then the recency order. Terms follow the shared lexical contract, `cs_memory::lexical` (tokenizer v1): lowercased alphanumeric tokens, stopwords removed, distinct. Records store their terms (`index_terms`), so every store matches identically. Postgres full-text search is not used.
+- **Dense channel.** Takes revisions with a vector in the active space that was available at `as_of_tx`, ordered by exact cosine distance ASC, then revision id ASC. If the query cannot be embedded, the channel contributes nothing.
+- **Channels in the trace.** Every candidate records the channels that proposed it (`recent`, `lexical`, `dense`).
+
+The BM25 component is computed over whichever candidate set was generated, so changing the strategy can change lexical scores as well as membership.
 
 ## Score
 
