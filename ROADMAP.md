@@ -43,9 +43,30 @@ The substrate can observe, extract, detect, propose and recall. Authoritative kn
 
 ## M4 — Learning systems
 
-- Knowledge compilation: episodes → generalizations → semantic knowledge, reversibly linked to evidence.
-- Procedural learning: execution traces → capabilities, with lifecycle evaluation including negative tests.
-- Entity resolution and typed relationships; multi-hop traversal.
+### ✅ M4.1 — Entities
+
+- Projection jobs turn structured fields of every revision into mentions and typed edges, committed with the write and idempotent per revision.
+- Exact-key identity within a read-scope partition; deterministic ids; symbol-preserving normalization.
+- Explicit, version-checked aliases and kinds; merges only through version-bound proposals, recorded as timestamped redirects so they are never retroactive (ADR-0018).
+- Purges remove derived edges and uncurated orphan entities; entity names never enter the event log.
+
+### ✅ M4.2 — Bounded traversal
+
+- Edges visible exactly when their source revision is (scope, transaction time, status, valid time).
+- Breadth-first neighborhoods with depth, node, edge and path budgets, deterministic ordering, as-of identity resolution and explicit truncation reporting (ADR-0019).
+
+**Exit gate:** 32 conformance scenarios pass on both stores, including non-retroactive merges, purge erasure of orphan names, and stale merge proposals.
+
+### M4.3 — Knowledge compilation
+
+- Narrow, structured operators from episodes to generalizations, each with a derivation record.
+- Support counted by independent root observations (by source, session and actor), never by derived memories; counterexamples queried, not ignored; extraction confidence propagated.
+- Revalidation when supporting roots are purged, superseded or contradicted.
+
+### M4.4 — Procedural learning
+
+- Execution traces → capabilities, with outcome verification separate from execution status and verifier tiers that keep self-judgment from promoting a procedure.
+- Lifecycle evaluation with positive, negative, boundary and regression suites; stated confidence bounds and minimum sample sizes; quarantine distinct from deprecation.
 
 ## M5 — Retrieval economics & active acquisition
 
