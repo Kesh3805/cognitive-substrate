@@ -14,12 +14,15 @@ use axum::{
     routing::{get, post},
 };
 use cs_core::{
-    BeliefId, CognitiveEventType, EventQuery, EventStreamId, EvidenceId, JobId, MemoryId,
+    BeliefId, CognitiveEventType, EntityId, EventQuery, EventStreamId, EvidenceId, JobId, MemoryId,
     ObservationId, ProposalId, RecallTraceId,
 };
 use cs_engine::{
     CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation,
     RecallRequest, ReplayRequest, ReviseBelief, ReviseMemory, StatusChange,
+    entities::{
+        AddAlias, EntityView, Neighborhood, NeighborhoodRequest, ProposeEntityMerge, SetEntityKind,
+    },
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -114,7 +117,17 @@ pub fn router(state: AppState) -> Router {
         .route("/jobs", get(list_jobs))
         .route("/jobs/{id}", get(get_job))
         .route("/processing/status", get(processing_status))
-        .route("/embeddings/reindex", post(reindex));
+        .route("/embeddings/reindex", post(reindex))
+        .route("/entities", get(find_entities))
+        .route("/entities/{id}", get(get_entity))
+        .route("/entities/{id}/aliases", post(add_entity_alias))
+        .route("/entities/{id}/kind", post(set_entity_kind))
+        .route("/entities/{id}/neighborhood", post(entity_neighborhood))
+        .route(
+            "/entities/{id}/merge-candidates",
+            post(detect_entity_merges),
+        )
+        .route("/entity-merges", post(propose_entity_merge));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -512,5 +525,84 @@ async fn reindex(
     Ok((
         StatusCode::ACCEPTED,
         Json(s.engine.request_reembedding(&ctx, req).await?),
+    ))
+}
+
+// ---- entities & graph -------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct EntityParams {
+    name: String,
+}
+
+async fn find_entities(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<EntityParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::entity::Entity>> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    ok(s.engine.find_entities(&ctx, &p.name).await?)
+}
+
+async fn get_entity(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<EntityView> {
+    ok(s.engine.get_entity(&ctx, EntityId(id)).await?)
+}
+
+async fn add_entity_alias(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<AddAlias>,
+) -> ApiResult<cs_memory::entity::Entity> {
+    ok(s.engine.add_entity_alias(&ctx, EntityId(id), req).await?)
+}
+
+async fn set_entity_kind(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<SetEntityKind>,
+) -> ApiResult<cs_memory::entity::Entity> {
+    ok(s.engine.set_entity_kind(&ctx, EntityId(id), req).await?)
+}
+
+async fn entity_neighborhood(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    body: axum::body::Bytes,
+) -> ApiResult<Neighborhood> {
+    let req: NeighborhoodRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        NeighborhoodRequest::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.to_string()))?
+    };
+    ok(s.engine
+        .entity_neighborhood(&ctx, EntityId(id), req)
+        .await?)
+}
+
+async fn detect_entity_merges(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Vec<cs_memory::ResolutionProposal>> {
+    ok(s.engine.detect_entity_merges(&ctx, EntityId(id)).await?)
+}
+
+async fn propose_entity_merge(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    ApiJson(req): ApiJson<ProposeEntityMerge>,
+) -> ApiResult<cs_memory::ResolutionProposal> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.engine.propose_entity_merge(&ctx, req).await?),
     ))
 }
