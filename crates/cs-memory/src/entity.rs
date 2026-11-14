@@ -1,8 +1,9 @@
 //! Entities: the things memories are about.
 //!
 //! Entity identity is never inferred silently. Mentions resolve to an
-//! entity only by exact normalized key within one scope; anything looser
-//! (aliases, merges) is a version-bound proposal decided explicitly.
+//! entity only by exact normalized key within one partition; anything looser
+//! is an explicit decision: a version-checked alias, or a merge proposal
+//! bound to entity versions.
 
 /// Version of [`normalize_entity_name`]. Bumping it changes which mentions
 /// share a key, so stored keys are recomputed rather than compared across
