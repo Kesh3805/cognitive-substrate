@@ -547,3 +547,73 @@ async fn entity_graph_over_http() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn compilation_over_http() {
+    use cs_engine::{RuleExtractor, Worker, WorkerConfig};
+    let engine = CognitiveEngine::new(Arc::new(InMemoryStore::new()));
+    let worker = Worker::new(
+        engine.clone(),
+        Arc::new(RuleExtractor),
+        WorkerConfig::default(),
+    );
+    let c = Client {
+        app: router(AppState::new(engine, AuthConfig::default())),
+        tenant: Uuid::now_v7(),
+        user: Uuid::now_v7(),
+        key: None,
+    };
+    for (day, source) in [
+        (1, json!({ "type": "user_input" })),
+        (
+            1,
+            json!({ "type": "tool_output", "tool": "monitor", "execution_id": "a" }),
+        ),
+        (
+            2,
+            json!({ "type": "tool_output", "tool": "monitor", "execution_id": "b" }),
+        ),
+    ] {
+        let (status, _) = c
+            .send(
+                "POST",
+                "/v1/memories",
+                Some(json!({
+                    "scope": c.private_scope(),
+                    "content": { "domain": "episodic", "data": {
+                        "description": "API called auth",
+                        "subject": "API", "predicate": "called", "object": "auth"
+                    }},
+                    "provenance": { "source": source },
+                    "valid_time": { "start": format!("2026-05-0{day}T12:00:00Z") }
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    worker.drain().await.unwrap();
+
+    let (status, list) = c.send("GET", "/v1/derivations?status=active", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    let id = list[0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(list[0]["support"]["units"], 3);
+
+    let (status, d) = c.send("GET", &format!("/v1/derivations/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let memory = d["derived_memory_id"].as_str().unwrap().to_owned();
+    let (_, m) = c.send("GET", &format!("/v1/memories/{memory}"), None).await;
+    assert_eq!(m["status"], "candidate");
+
+    let (status, job) = c
+        .send("POST", &format!("/v1/derivations/{id}/revalidate"), None)
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(job["kind"], "compile");
+
+    let (status, _) = c
+        .as_user(Uuid::now_v7())
+        .send("GET", &format!("/v1/derivations/{id}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
