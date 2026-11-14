@@ -7,7 +7,9 @@
 //! it; acceptance re-checks those revisions and applies the operation
 //! atomically, or marks the proposal stale.
 
-use cs_core::{ActorRef, BeliefId, Error, MemoryId, MemoryRevisionId, ProposalId, Result, Scope};
+use cs_core::{
+    ActorRef, BeliefId, EntityId, Error, MemoryId, MemoryRevisionId, ProposalId, Result, Scope,
+};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -17,6 +19,8 @@ pub enum ResolutionKind {
     Duplicate,
     Supersession,
     Contradiction,
+    /// Two entities in one partition name the same thing.
+    EntityMerge,
 }
 
 impl ResolutionKind {
@@ -25,6 +29,7 @@ impl ResolutionKind {
             Self::Duplicate => "duplicate",
             Self::Supersession => "supersession",
             Self::Contradiction => "contradiction",
+            Self::EntityMerge => "entity_merge",
         }
     }
 
@@ -33,6 +38,7 @@ impl ResolutionKind {
             "duplicate" => Self::Duplicate,
             "supersession" => Self::Supersession,
             "contradiction" => Self::Contradiction,
+            "entity_merge" => Self::EntityMerge,
             _ => return None,
         })
     }
@@ -79,6 +85,8 @@ pub enum RecordVersion {
         lineage_id: BeliefId,
         revision_id: BeliefId,
     },
+    /// Entities: identity changes bump `version`.
+    Entity { id: EntityId, version: u32 },
 }
 
 /// What acceptance will do. Explicit by design.
@@ -97,6 +105,9 @@ pub enum ResolutionOperation {
     Quarantine { memories: Vec<MemoryId> },
     /// Mark every belief `disputed`. Never picks a winner.
     Dispute { beliefs: Vec<BeliefId> },
+    /// Redirect `merged` into `survivor`: aliases, mentions and edges move;
+    /// `merged` remains as a tombstone that resolves to `survivor`.
+    MergeEntities { survivor: EntityId, merged: EntityId },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -188,6 +199,7 @@ pub fn fingerprint(kind: ResolutionKind, versions: &[RecordVersion]) -> String {
             } => {
                 format!("b:{lineage_id}@{revision_id}")
             }
+            RecordVersion::Entity { id, version } => format!("e:{id}@v{version}"),
         })
         .collect();
     ids.sort();
