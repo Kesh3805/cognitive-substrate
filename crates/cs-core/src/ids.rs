@@ -77,4 +77,10 @@ id_type!(
     ObservationId,
     /// A proposed change awaiting an explicit decision.
     ProposalId,
+    /// A canonical entity (identity, governed).
+    EntityId,
+    /// One occurrence of a name in one memory revision (projection).
+    EntityMentionId,
+    /// One typed edge between entities, derived from a memory revision.
+    EdgeId,
 );
