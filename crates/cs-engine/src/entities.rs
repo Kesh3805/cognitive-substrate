@@ -43,7 +43,15 @@ pub const ENTITY_MERGE_DETECTOR_VERSION: &str = "entity-stem/1";
 /// Corporate and service suffixes ignored when comparing names for merge
 /// candidates (`auth-service` ~ `auth`, `Acme Inc` ~ `Acme`).
 const STEM_SUFFIXES: [&str; 9] = [
-    "service", "svc", "inc", "corp", "corporation", "ltd", "llc", "app", "co",
+    "service",
+    "svc",
+    "inc",
+    "corp",
+    "corporation",
+    "ltd",
+    "llc",
+    "app",
+    "co",
 ];
 
 /// Traversal limits: requests are clamped to these.

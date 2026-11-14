@@ -12,9 +12,8 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, EdgeId, EntityId, EntityMentionId, Error, EventDraft,
-    EventQuery, EvidenceId, JobId,
-    MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
-    temporal::truncate_micros,
+    EventQuery, EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
+    RecallTraceId, Result, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -29,8 +28,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    BeliefQuery, BeliefSupersede, CognitiveStore, EmbeddingCoverage, IdempotencyKey, JobClaim,
-    EdgeDirection, EdgeQuery, EntityMerge, JobCount, JobEffects, MemoryQuery, MemorySupersede,
+    BeliefQuery, BeliefSupersede, CognitiveStore, EdgeDirection, EdgeQuery, EmbeddingCoverage,
+    EntityMerge, IdempotencyKey, JobClaim, JobCount, JobEffects, MemoryQuery, MemorySupersede,
     ProposalMutations, PurgeKind, StoredBelief, StoredMemory,
 };
 
@@ -88,7 +87,13 @@ impl State {
 
     /// Resolve a name in a partition to its entity, creating it (with a
     /// deterministic id) if the name is new. Follows merge redirects.
-    fn resolve_entity(&mut self, p: &Projection, surface: &str, key: &str, now: OffsetDateTime) -> EntityId {
+    fn resolve_entity(
+        &mut self,
+        p: &Projection,
+        surface: &str,
+        key: &str,
+        now: OffsetDateTime,
+    ) -> EntityId {
         let slot = (p.partition.clone(), key.to_owned());
         let id = match self.aliases.get(&slot) {
             Some(a) => a.entity_id,
@@ -141,7 +146,11 @@ impl State {
         }
         for m in &p.mentions {
             let entity_id = self.resolve_entity(p, &m.surface, &m.key, now);
-            if !self.mentions.iter().any(|x| x.revision_id == p.revision_id && x.key == m.key && x.role == m.role) {
+            if !self
+                .mentions
+                .iter()
+                .any(|x| x.revision_id == p.revision_id && x.key == m.key && x.role == m.role)
+            {
                 self.mentions.push(EntityMention {
                     id: EntityMentionId::new_v7(),
                     entity_id,
@@ -157,7 +166,10 @@ impl State {
             let from = self.resolve_entity(p, &e.from.surface, &e.from.key, now);
             let to = self.resolve_entity(p, &e.to.surface, &e.to.key, now);
             let dup = self.edges.iter().any(|x| {
-                x.revision_id == p.revision_id && x.from == from && x.to == to && x.relation == e.relation
+                x.revision_id == p.revision_id
+                    && x.from == from
+                    && x.to == to
+                    && x.relation == e.relation
             });
             if from != to && !dup {
                 self.edges.push(KnowledgeEdge {
@@ -193,7 +205,11 @@ impl State {
             e.version += 1;
             e.updated_at = m.at;
         }
-        for a in self.aliases.values_mut().filter(|a| a.entity_id == m.merged) {
+        for a in self
+            .aliases
+            .values_mut()
+            .filter(|a| a.entity_id == m.merged)
+        {
             a.entity_id = m.survivor;
             a.source = AliasSource::Merge;
         }
@@ -1070,14 +1086,24 @@ impl CognitiveStore for InMemoryStore {
 
     async fn entity_aliases(&self, id: EntityId) -> Result<Vec<EntityAlias>> {
         let s = self.lock();
-        let mut v: Vec<EntityAlias> = s.aliases.values().filter(|a| a.entity_id == id).cloned().collect();
+        let mut v: Vec<EntityAlias> = s
+            .aliases
+            .values()
+            .filter(|a| a.entity_id == id)
+            .cloned()
+            .collect();
         v.sort_by(|a, b| a.key.cmp(&b.key));
         Ok(v)
     }
 
     async fn entity_mentions(&self, id: EntityId, limit: u32) -> Result<Vec<EntityMention>> {
         let s = self.lock();
-        let mut v: Vec<EntityMention> = s.mentions.iter().filter(|m| m.entity_id == id).cloned().collect();
+        let mut v: Vec<EntityMention> = s
+            .mentions
+            .iter()
+            .filter(|m| m.entity_id == id)
+            .cloned()
+            .collect();
         v.sort_by_key(|m| m.id);
         v.truncate(limit as usize);
         Ok(v)
@@ -1091,7 +1117,11 @@ impl CognitiveStore for InMemoryStore {
         event: EventDraft,
     ) -> Result<Entity> {
         let mut s = self.lock();
-        let e = s.entities.get(&id).cloned().ok_or_else(|| Error::not_found("entity", id))?;
+        let e = s
+            .entities
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| Error::not_found("entity", id))?;
         if e.version != expected_version || e.status != EntityStatus::Active {
             return Err(Error::conflict("entity changed; reload it"));
         }
@@ -1100,11 +1130,22 @@ impl CognitiveStore for InMemoryStore {
             if s.canonical_entity(existing.entity_id) == id {
                 return Ok(e); // idempotent
             }
-            return Err(Error::conflict("that name already identifies another entity in this partition"));
+            return Err(Error::conflict(
+                "that name already identifies another entity in this partition",
+            ));
         }
-        s.aliases.insert(slot, EntityAlias { entity_id: id, ..alias.clone() });
+        s.aliases.insert(
+            slot,
+            EntityAlias {
+                entity_id: id,
+                ..alias.clone()
+            },
+        );
         let at = alias.created_at;
-        let entity = s.entities.get_mut(&id).ok_or_else(|| Error::not_found("entity", id))?;
+        let entity = s
+            .entities
+            .get_mut(&id)
+            .ok_or_else(|| Error::not_found("entity", id))?;
         entity.version += 1;
         entity.updated_at = at;
         let out = entity.clone();
@@ -1121,7 +1162,10 @@ impl CognitiveStore for InMemoryStore {
         event: EventDraft,
     ) -> Result<Entity> {
         let mut s = self.lock();
-        let entity = s.entities.get_mut(&id).ok_or_else(|| Error::not_found("entity", id))?;
+        let entity = s
+            .entities
+            .get_mut(&id)
+            .ok_or_else(|| Error::not_found("entity", id))?;
         if entity.version != expected_version || entity.status != EntityStatus::Active {
             return Err(Error::conflict("entity changed; reload it"));
         }
@@ -1163,7 +1207,9 @@ impl CognitiveStore for InMemoryStore {
                     && e.valid_time.contains(q.as_of_valid_time)
                     && s.memories.iter().any(|m| {
                         m.revision_id == e.revision_id
-                            && m.temporal.transaction_time.contains(q.as_of_transaction_time)
+                            && m.temporal
+                                .transaction_time
+                                .contains(q.as_of_transaction_time)
                             && (m.status == MemoryStatus::Active
                                 || (q.include_candidates && m.status == MemoryStatus::Candidate))
                     });
@@ -1280,13 +1326,19 @@ fn precondition_failure(s: &State, effects: &JobEffects) -> Option<&'static str>
 }
 
 fn check_entity_merge(s: &State, m: &EntityMerge) -> Result<()> {
-    let get = |id: EntityId| s.entities.get(&id).ok_or_else(|| Error::not_found("entity", id));
+    let get = |id: EntityId| {
+        s.entities
+            .get(&id)
+            .ok_or_else(|| Error::not_found("entity", id))
+    };
     let (a, b) = (get(m.survivor)?, get(m.merged)?);
     if m.survivor == m.merged {
         return Err(Error::validation("an entity cannot be merged into itself"));
     }
     if a.partition != b.partition {
-        return Err(Error::validation("entities in different partitions cannot be merged"));
+        return Err(Error::validation(
+            "entities in different partitions cannot be merged",
+        ));
     }
     if a.version != m.survivor_version
         || b.version != m.merged_version

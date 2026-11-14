@@ -20,8 +20,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    PgStore, Tx, access_sql, append_event, db_err, from_range, parse, project_ids,
-    scope_from_row, to_range,
+    PgStore, Tx, access_sql, append_event, db_err, from_range, parse, project_ids, scope_from_row,
+    to_range,
 };
 
 const ENTITY_COLS: &str = "id, tenant_id, owner_user_id, agent_id, project_id, conversation_id, \

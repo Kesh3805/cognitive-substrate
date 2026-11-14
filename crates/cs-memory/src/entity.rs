@@ -58,7 +58,9 @@ use crate::{MemoryContent, MemoryRecord};
 
 /// Typed entity kinds. Extraction never guesses: projected entities start
 /// as `Unknown`; a kind is set by an explicit decision.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
     #[default]
@@ -116,7 +118,9 @@ impl EntityKind {
 pub enum EntityStatus {
     Active,
     /// Identity merged into another entity; lookups and traversal redirect.
-    Merged { into: EntityId },
+    Merged {
+        into: EntityId,
+    },
 }
 
 /// The identity partition: entities, aliases and edges are only shared by
@@ -137,7 +141,10 @@ pub fn partition_key(scope: &Scope) -> String {
 
 /// The scope an entity carries: its partition, without a conversation.
 pub fn partition_scope(scope: &Scope) -> Scope {
-    Scope { conversation_id: None, ..scope.clone() }
+    Scope {
+        conversation_id: None,
+        ..scope.clone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,10 +302,14 @@ pub struct Projection {
 /// Namespace for deterministic entity ids: an entity created from a name in
 /// a partition always gets `uuid5(ns, partition + key)`, so concurrent
 /// projections of the same name converge on one entity.
-pub const ENTITY_NAMESPACE: uuid::Uuid = uuid::Uuid::from_u128(0x6a1c_6f3e_2d4b_4c8a_9e57_3b0f_c5d2_e811);
+pub const ENTITY_NAMESPACE: uuid::Uuid =
+    uuid::Uuid::from_u128(0x6a1c_6f3e_2d4b_4c8a_9e57_3b0f_c5d2_e811);
 
 pub fn entity_id_for(partition: &str, key: &str) -> EntityId {
-    EntityId(uuid::Uuid::new_v5(&ENTITY_NAMESPACE, format!("{partition}\u{1f}{key}").as_bytes()))
+    EntityId(uuid::Uuid::new_v5(
+        &ENTITY_NAMESPACE,
+        format!("{partition}\u{1f}{key}").as_bytes(),
+    ))
 }
 
 /// Version of [`project_memory`]: which fields become mentions and edges.
@@ -307,7 +318,11 @@ pub const PROJECTION_VERSION: u32 = 1;
 fn mention(surface: &str, role: MentionRole) -> Option<ProjectedMention> {
     let key = normalize_entity_name(surface)?;
     let surface = surface.trim();
-    (surface.chars().count() <= 256).then(|| ProjectedMention { surface: surface.to_owned(), key, role })
+    (surface.chars().count() <= 256).then(|| ProjectedMention {
+        surface: surface.to_owned(),
+        key,
+        role,
+    })
 }
 
 /// Deterministically project a memory revision into mentions and edges.
@@ -316,9 +331,11 @@ pub fn project_memory(m: &MemoryRecord) -> Projection {
     let mut mentions = Vec::new();
     let mut edges = Vec::new();
     let mut triple = |s: &str, p: &str, o: &str| {
-        if let (Some(from), Some(relation), Some(to)) =
-            (mention(s, MentionRole::Subject), normalize_relation(p), mention(o, MentionRole::Object))
-        {
+        if let (Some(from), Some(relation), Some(to)) = (
+            mention(s, MentionRole::Subject),
+            normalize_relation(p),
+            mention(o, MentionRole::Object),
+        ) {
             if from.key != to.key {
                 mentions.push(from.clone());
                 mentions.push(to.clone());
@@ -335,11 +352,17 @@ pub fn project_memory(m: &MemoryRecord) -> Projection {
         }
         MemoryContent::Temporal(t) => triple(&t.subject, &t.predicate, &t.value),
         MemoryContent::Episodic(e) => {
-            mentions.extend(e.participants.iter().filter_map(|p| mention(p, MentionRole::Participant)));
+            mentions.extend(
+                e.participants
+                    .iter()
+                    .filter_map(|p| mention(p, MentionRole::Participant)),
+            );
         }
         MemoryContent::Procedural(_) | MemoryContent::Working(_) => {}
     }
-    mentions.sort_by(|a, b| (&a.key, a.role.as_str(), &a.surface).cmp(&(&b.key, b.role.as_str(), &b.surface)));
+    mentions.sort_by(|a, b| {
+        (&a.key, a.role.as_str(), &a.surface).cmp(&(&b.key, b.role.as_str(), &b.surface))
+    });
     mentions.dedup();
     Projection {
         memory_id: m.id,
@@ -361,7 +384,14 @@ mod tests {
 
     #[test]
     fn separators_and_case_fold_together() {
-        for s in ["auth-service", "auth_service", "AuthService", "The Auth Service", "  auth   service. ", "authservice"] {
+        for s in [
+            "auth-service",
+            "auth_service",
+            "AuthService",
+            "The Auth Service",
+            "  auth   service. ",
+            "authservice",
+        ] {
             assert_eq!(n(s), "authservice", "{s}");
         }
     }
@@ -371,7 +401,11 @@ mod tests {
         assert_eq!(n("HTTPServer"), "httpserver");
         assert_eq!(n("cs_core::Scope"), "cscorescope");
         assert_eq!(n("PostgreSQL"), n("postgresql"));
-        assert_eq!(n("TheTradeDesk"), "tradedesk", "camelCase reveals the article");
+        assert_eq!(
+            n("TheTradeDesk"),
+            "tradedesk",
+            "camelCase reveals the article"
+        );
     }
 
     #[test]
@@ -384,8 +418,14 @@ mod tests {
 
     #[test]
     fn relations_normalize() {
-        assert_eq!(normalize_relation("Depends On").as_deref(), Some("depends_on"));
-        assert_eq!(normalize_relation("is-part-of").as_deref(), Some("is_part_of"));
+        assert_eq!(
+            normalize_relation("Depends On").as_deref(),
+            Some("depends_on")
+        );
+        assert_eq!(
+            normalize_relation("is-part-of").as_deref(),
+            Some("is_part_of")
+        );
         assert!(normalize_relation(" ... ").is_none());
     }
 }

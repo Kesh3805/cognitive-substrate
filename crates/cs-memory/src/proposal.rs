@@ -107,7 +107,10 @@ pub enum ResolutionOperation {
     Dispute { beliefs: Vec<BeliefId> },
     /// Redirect `merged` into `survivor`: aliases, mentions and edges move;
     /// `merged` remains as a tombstone that resolves to `survivor`.
-    MergeEntities { survivor: EntityId, merged: EntityId },
+    MergeEntities {
+        survivor: EntityId,
+        merged: EntityId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

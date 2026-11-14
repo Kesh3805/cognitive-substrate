@@ -7,8 +7,9 @@
 
 use async_trait::async_trait;
 use cs_core::{
-    AccessContext, BeliefId, CognitiveEvent, EntityId, EventDraft, EventQuery, EvidenceId, JobId, MemoryId,
-    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
+    AccessContext, BeliefId, CognitiveEvent, EntityId, EventDraft, EventQuery, EvidenceId, JobId,
+    MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter,
+    TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
