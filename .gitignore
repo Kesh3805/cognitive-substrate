@@ -10,3 +10,6 @@
 
 # Model caches downloaded by local embedders
 .fastembed_cache/
+
+# Development benchmark runs (never reported)
+.bench-dev/
