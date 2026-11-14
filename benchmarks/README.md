@@ -20,6 +20,6 @@ benchmarks/
 | 002 | Belief evolution under changing and contradictory input | Preregistration drafting |
 | 003 | Long-horizon knowledge accumulation | Planned |
 | 004 | Cognitive Debt Index validity | Planned |
-| 005 | [Candidate generation: channels vs. recency](005-candidate-generation/PREREGISTRATION.md) | Preregistered |
+| 005 | [Candidate generation: channels vs. recency](005-candidate-generation/PREREGISTRATION.md) | **Done: not adopted** (latency gate failed; [results](005-candidate-generation/RESULTS.md)) |
 
 See [the research program](../docs/research/research-program.md).
