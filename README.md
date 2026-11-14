@@ -88,6 +88,14 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Suites and a failure ratchet** | Positive, negative, boundary and regression cases gate promotion. A production run that fails verification becomes a locked regression case that every later version must pass. |
 | **Drift quarantine** | A run of failures, or a recent window that is confidently failing, quarantines a capability automatically. Quarantine can be reinstated; deprecation is final. |
 
+### Retrieval experiments (M5, in progress)
+
+| Capability | What it means |
+|---|---|
+| **Frozen baseline** | v1 recall (the newest 200 candidates) stays the default and an unchangeable control. Nothing replaces it without a preregistered experiment. |
+| **Candidate channels (opt-in)** | Lexical and exact-dense channels can pull in old but relevant memories at the same candidate budget, and each candidate records the channel that proposed it. Experiment 005 measured a large relevance gain, but the channels missed the latency gate, so they are not the default. |
+| **Benchmark harness** | `cs-bench` regenerates a seeded corpus bit for bit, runs every strategy and reports paired bootstrap confidence intervals and pass/fail on each preregistered gate. |
+
 ## Quick start
 
 ### Run the service
@@ -238,6 +246,7 @@ docker compose -f deploy/compose.yaml up -d postgres
 CS_TEST_DATABASE_URL=postgres://cs:cs@localhost:5432/cs cargo test -p cs-conformance
 cargo clippy --all-targets -- -D warnings
 cargo test -p cs-embedder-fastembed          # optional ONNX embedder (CS_TEST_FASTEMBED=1 runs a real model)
+cargo run --release -p cs-bench -- 005 --store memory --dev   # development seeds only; see benchmarks/
 ```
 
 ## Documentation
