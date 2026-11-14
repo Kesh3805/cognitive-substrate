@@ -37,10 +37,15 @@ pub enum CognitiveEventType {
     ProposalRejected,
     ProposalStale,
     JobDeadLettered,
+    EntityCreated,
+    EntityAliasAdded,
+    EntityKindChanged,
+    EntitiesMerged,
+    ProjectionUpdated,
 }
 
 impl CognitiveEventType {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 28] = [
         Self::MemoryCreated,
         Self::MemoryRevised,
         Self::MemoryPromoted,
@@ -64,6 +69,11 @@ impl CognitiveEventType {
         Self::ProposalRejected,
         Self::ProposalStale,
         Self::JobDeadLettered,
+        Self::EntityCreated,
+        Self::EntityAliasAdded,
+        Self::EntityKindChanged,
+        Self::EntitiesMerged,
+        Self::ProjectionUpdated,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -91,6 +101,11 @@ impl CognitiveEventType {
             Self::ProposalRejected => "proposal_rejected",
             Self::ProposalStale => "proposal_stale",
             Self::JobDeadLettered => "job_dead_lettered",
+            Self::EntityCreated => "entity_created",
+            Self::EntityAliasAdded => "entity_alias_added",
+            Self::EntityKindChanged => "entity_kind_changed",
+            Self::EntitiesMerged => "entities_merged",
+            Self::ProjectionUpdated => "projection_updated",
         }
     }
 
