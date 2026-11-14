@@ -35,13 +35,16 @@ CREATE TABLE entities (
     canonical_name   TEXT NOT NULL CHECK (length(canonical_name) BETWEEN 1 AND 512),
     key              TEXT NOT NULL CHECK (length(key) BETWEEN 1 AND 512),
     merged_into      UUID REFERENCES entities (id),
+    merged_at        TIMESTAMPTZ,
     version          INTEGER NOT NULL CHECK (version >= 1),
     created_at       TIMESTAMPTZ NOT NULL,
     updated_at       TIMESTAMPTZ NOT NULL,
-    CHECK (merged_into IS NULL OR merged_into <> id)
+    CHECK (merged_into IS NULL OR merged_into <> id),
+    CHECK ((merged_into IS NULL) = (merged_at IS NULL))
 );
 
 CREATE INDEX idx_entities_partition ON entities (partition_key, id);
+CREATE INDEX idx_entities_merged_into ON entities (merged_into) WHERE merged_into IS NOT NULL;
 
 -- One name (normalized key) identifies at most one entity per partition.
 CREATE TABLE entity_aliases (

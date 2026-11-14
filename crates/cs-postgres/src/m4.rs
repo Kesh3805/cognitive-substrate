@@ -25,8 +25,8 @@ use super::{
 };
 
 const ENTITY_COLS: &str = "id, tenant_id, owner_user_id, agent_id, project_id, conversation_id, \
-    visibility::text AS visibility, partition_key, kind, canonical_name, key, merged_into, version, \
-    created_at, updated_at";
+    visibility::text AS visibility, partition_key, kind, canonical_name, key, merged_into, merged_at, \
+    version, created_at, updated_at";
 
 const ALIAS_COLS: &str =
     "partition_key, key, entity_id, surface, normalization_version, source, created_at";
@@ -36,6 +36,15 @@ const MENTION_COLS: &str = "id, entity_id, surface, key, role, memory_id, revisi
 fn entity_from_row(r: &PgRow) -> Result<Entity> {
     let kind: String = r.try_get("kind").map_err(db_err)?;
     let merged: Option<Uuid> = r.try_get("merged_into").map_err(db_err)?;
+    let merged_at: Option<OffsetDateTime> = r.try_get("merged_at").map_err(db_err)?;
+    let status = match (merged, merged_at) {
+        (Some(into), Some(at)) => EntityStatus::Merged {
+            into: EntityId(into),
+            at,
+        },
+        (None, None) => EntityStatus::Active,
+        _ => return Err(Error::storage("entity merge columns are inconsistent")),
+    };
     Ok(Entity {
         id: EntityId(r.try_get("id").map_err(db_err)?),
         scope: scope_from_row(r)?,
@@ -43,9 +52,7 @@ fn entity_from_row(r: &PgRow) -> Result<Entity> {
         kind: parse(&kind, EntityKind::parse, "entity kind")?,
         canonical_name: r.try_get("canonical_name").map_err(db_err)?,
         key: r.try_get("key").map_err(db_err)?,
-        status: merged.map_or(EntityStatus::Active, |into| EntityStatus::Merged {
-            into: EntityId(into),
-        }),
+        status,
         version: u32::try_from(r.try_get::<i32, _>("version").map_err(db_err)?)
             .map_err(Error::storage)?,
         created_at: r.try_get("created_at").map_err(db_err)?,
@@ -302,29 +309,56 @@ pub(crate) async fn merge_entities(tx: &mut Tx<'_>, m: &EntityMerge) -> Result<(
     {
         return Err(Error::conflict("entity changed since the proposal"));
     }
-    let (s, x) = (m.survivor.0, m.merged.0);
+    // Only the redirect is recorded: mentions, aliases and edges stay put
+    // so reads as of an earlier time see the graph as it was.
     sqlx::query(
-        "UPDATE entities SET merged_into = $2, version = version + 1, updated_at = $3 WHERE id = $1",
+        "UPDATE entities SET merged_into = $2, merged_at = $3, version = version + 1, \
+         updated_at = $3 WHERE id = $1",
     )
-    .bind(x)
-    .bind(s)
+    .bind(m.merged.0)
+    .bind(m.survivor.0)
     .bind(m.at)
     .execute(&mut **tx)
     .await
     .map_err(db_err)?;
-    bump(tx, m.survivor, m.at).await?;
+    bump(tx, m.survivor, m.at).await
+}
+
+/// Entities mentioned by these memories (collect before deleting them).
+pub(crate) async fn entities_mentioned_by(tx: &mut Tx<'_>, memories: &[Uuid]) -> Result<Vec<Uuid>> {
+    sqlx::query_scalar(
+        "SELECT DISTINCT entity_id FROM entity_mentions WHERE memory_id = ANY($1) ORDER BY entity_id",
+    )
+    .bind(memories)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db_err)
+}
+
+/// Delete entities among `ids` left with no mentions or edges that were
+/// never curated (version 1), with their aliases, so a purged name does
+/// not survive in identity rows.
+pub(crate) async fn drop_orphan_entities(tx: &mut Tx<'_>, ids: &[Uuid]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let orphans: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT e.id FROM entities e WHERE e.id = ANY($1) AND e.version = 1 \
+           AND NOT EXISTS (SELECT 1 FROM entity_mentions m WHERE m.entity_id = e.id) \
+           AND NOT EXISTS (SELECT 1 FROM knowledge_edges k \
+                           WHERE k.from_entity_id = e.id OR k.to_entity_id = e.id) \
+         ORDER BY e.id FOR UPDATE",
+    )
+    .bind(ids)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db_err)?;
     for sql in [
-        "UPDATE entity_aliases SET entity_id = $2, source = 'merge' WHERE entity_id = $1",
-        "UPDATE entity_mentions SET entity_id = $2 WHERE entity_id = $1",
-        // Edges between the two would become self-loops: drop them.
-        "DELETE FROM knowledge_edges WHERE (from_entity_id = $1 AND to_entity_id = $2) \
-             OR (from_entity_id = $2 AND to_entity_id = $1)",
-        "UPDATE knowledge_edges SET from_entity_id = $2 WHERE from_entity_id = $1",
-        "UPDATE knowledge_edges SET to_entity_id = $2 WHERE to_entity_id = $1",
+        "DELETE FROM entity_aliases WHERE entity_id = ANY($1)",
+        "DELETE FROM entities WHERE id = ANY($1)",
     ] {
         sqlx::query(sql)
-            .bind(x)
-            .bind(s)
+            .bind(&orphans)
             .execute(&mut **tx)
             .await
             .map_err(db_err)?;
@@ -499,6 +533,19 @@ impl PgStore {
         ))
         .bind(partition)
         .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?
+        .iter()
+        .map(entity_from_row)
+        .collect()
+    }
+
+    pub(crate) async fn m4_merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>> {
+        sqlx::query(&format!(
+            "SELECT {ENTITY_COLS} FROM entities WHERE merged_into = ANY($1) ORDER BY id"
+        ))
+        .bind(ids.iter().map(|e| e.0).collect::<Vec<_>>())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?
