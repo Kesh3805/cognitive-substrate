@@ -104,3 +104,13 @@ If every criterion holds, `LD` may become the default for **new** recall policie
 - a manifest with the commit, toolchain, store and embedder versions, and seeds.
 
 Results are reported overall, by family and by age stratum. Results that miss criteria are reported, not reframed.
+
+## Amendment 1 — 2026-11-14, before any held-out run
+
+These changes come from development seeds (1–3) only. No held-out seed had been run when they were committed.
+
+1. **Balanced age strata.** The generator took up to 25 recent and 25 old targets per family, but recent targets are scarce for some families: only facts with fewer than 200 newer revisions qualify. In the lexical-trap, scope and temporal families this produced about 22–27 recent targets against 75 old ones per three seeds, tilting results toward old targets and so toward the channels. The generator now takes the **same number from each stratum** (the smaller pool, capped at 25). Some families therefore have fewer than 50 queries per seed, and the held-out total is reported as observed.
+2. **An extra protective gate.** On development seeds every gain came from the old stratum, as designed. To make sure the channels do not trade recent accuracy for old recall, adoption also requires that **recent-stratum mean nDCG@10 does not regress by more than 0.02**. This gate only makes adoption harder.
+3. **Where latency comes from.** The latency gate is evaluated on PostgreSQL, as preregistered. In-memory latency, which on development seeds re-tokenizes every record per query, is reported but not gated.
+
+No quota, threshold, metric or other criterion was changed.
