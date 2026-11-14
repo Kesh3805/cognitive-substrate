@@ -44,10 +44,15 @@ pub enum CognitiveEventType {
     ProjectionUpdated,
     DerivationRecorded,
     DerivationUpdated,
+    ExecutionStarted,
+    ExecutionFinished,
+    ExecutionVerified,
+    EvaluationCaseAdded,
+    CapabilityStageChanged,
 }
 
 impl CognitiveEventType {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 35] = [
         Self::MemoryCreated,
         Self::MemoryRevised,
         Self::MemoryPromoted,
@@ -78,6 +83,11 @@ impl CognitiveEventType {
         Self::ProjectionUpdated,
         Self::DerivationRecorded,
         Self::DerivationUpdated,
+        Self::ExecutionStarted,
+        Self::ExecutionFinished,
+        Self::ExecutionVerified,
+        Self::EvaluationCaseAdded,
+        Self::CapabilityStageChanged,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -112,6 +122,11 @@ impl CognitiveEventType {
             Self::ProjectionUpdated => "projection_updated",
             Self::DerivationRecorded => "derivation_recorded",
             Self::DerivationUpdated => "derivation_updated",
+            Self::ExecutionStarted => "execution_started",
+            Self::ExecutionFinished => "execution_finished",
+            Self::ExecutionVerified => "execution_verified",
+            Self::EvaluationCaseAdded => "evaluation_case_added",
+            Self::CapabilityStageChanged => "capability_stage_changed",
         }
     }
 

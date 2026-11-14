@@ -85,4 +85,10 @@ id_type!(
     EdgeId,
     /// A record of how a compiled memory was derived and from what.
     DerivationId,
+    /// One invocation of a capability, recorded at intent.
+    ExecutionId,
+    /// One check of an execution's outcome by a verifier.
+    VerificationId,
+    /// One test case in a capability's evaluation suite.
+    EvaluationCaseId,
 );
