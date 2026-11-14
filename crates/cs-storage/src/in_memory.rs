@@ -12,8 +12,9 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
-    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId,
-    ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
+    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, JobId, MemoryId,
+    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
+    temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -237,7 +238,8 @@ impl State {
     /// Executions, verifications and cases are records about a capability:
     /// they go when it is purged.
     fn drop_capability_records(&mut self, ids: &[MemoryId]) {
-        self.executions.retain(|_, e| !ids.contains(&e.capability_id));
+        self.executions
+            .retain(|_, e| !ids.contains(&e.capability_id));
         self.cases.retain(|_, c| !ids.contains(&c.capability_id));
     }
 
@@ -1253,7 +1255,11 @@ impl CognitiveStore for InMemoryStore {
         Ok(out)
     }
 
-    async fn insert_execution(&self, execution: &Execution, event: EventDraft) -> Result<Execution> {
+    async fn insert_execution(
+        &self,
+        execution: &Execution,
+        event: EventDraft,
+    ) -> Result<Execution> {
         let mut s = self.lock();
         if s.executions.contains_key(&execution.id) {
             return Err(Error::conflict("execution already exists"));
@@ -1327,7 +1333,11 @@ impl CognitiveStore for InMemoryStore {
         Ok(v)
     }
 
-    async fn insert_case(&self, case: &EvaluationCase, event: EventDraft) -> Result<EvaluationCase> {
+    async fn insert_case(
+        &self,
+        case: &EvaluationCase,
+        event: EventDraft,
+    ) -> Result<EvaluationCase> {
         let mut s = self.lock();
         if s.has_case(case) {
             return Err(Error::conflict(

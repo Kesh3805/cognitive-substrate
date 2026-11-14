@@ -8,8 +8,8 @@
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
-    EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId,
-    Result, ScopeFilter, TenantId,
+    EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
+    RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -356,7 +356,8 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     // ---- capabilities (M4.4) ------------------------------------------------
 
     /// Record an execution at intent (status `started`).
-    async fn insert_execution(&self, execution: &Execution, event: EventDraft) -> Result<Execution>;
+    async fn insert_execution(&self, execution: &Execution, event: EventDraft)
+    -> Result<Execution>;
 
     /// Finish a started execution. `Conflict` if it already finished.
     async fn finish_execution(
@@ -385,7 +386,8 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
 
     /// `Conflict` if the capability already has a case of that kind for
     /// that input class.
-    async fn insert_case(&self, case: &EvaluationCase, event: EventDraft) -> Result<EvaluationCase>;
+    async fn insert_case(&self, case: &EvaluationCase, event: EventDraft)
+    -> Result<EvaluationCase>;
 
     /// Cases of a capability ordered by (created_at, id).
     async fn cases_for(&self, capability: MemoryId) -> Result<Vec<EvaluationCase>>;

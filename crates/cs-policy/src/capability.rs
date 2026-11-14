@@ -220,9 +220,7 @@ pub fn evaluate(
         .map(|(_, hi)| hi),
     };
     let quarantine = if consecutive_failures >= policy.consecutive_failures {
-        Some(format!(
-            "{consecutive_failures} consecutive failed runs"
-        ))
+        Some(format!("{consecutive_failures} consecutive failed runs"))
     } else if window.runs >= policy.window_min
         && window
             .wilson_upper
@@ -348,7 +346,12 @@ mod tests {
 
     const T0: OffsetDateTime = datetime!(2026-01-01 0:00 UTC);
 
-    fn run(class: &str, ok: Option<bool>, minute: i64, case: Option<EvaluationCaseId>) -> Execution {
+    fn run(
+        class: &str,
+        ok: Option<bool>,
+        minute: i64,
+        case: Option<EvaluationCaseId>,
+    ) -> Execution {
         let id = ExecutionId::new_v7();
         let actor = ActorRef::User {
             user_id: UserId::from_uuid(uuid::Uuid::nil()),
@@ -429,19 +432,32 @@ mod tests {
 
     #[test]
     fn suites_and_independent_classes_make_a_capability_eligible() {
-        let cases: Vec<EvaluationCase> = [CaseKind::Positive, CaseKind::Negative, CaseKind::Boundary]
-            .into_iter()
-            .map(case)
-            .collect();
+        let cases: Vec<EvaluationCase> =
+            [CaseKind::Positive, CaseKind::Negative, CaseKind::Boundary]
+                .into_iter()
+                .map(case)
+                .collect();
         let mut runs: Vec<Execution> = (0..12)
             .map(|i| run(&format!("c{i}"), Some(true), i, None))
             .collect();
         let without_suite = eval(&runs, &cases);
         assert_eq!(without_suite.eligible, None, "cases not run yet");
-        runs.extend(cases.iter().map(|c| run(&c.input_class, Some(true), 0, Some(c.id))));
+        runs.extend(
+            cases
+                .iter()
+                .map(|c| run(&c.input_class, Some(true), 0, Some(c.id))),
+        );
         let e = eval(&runs, &cases);
-        assert_eq!(e.eligible, Some(CapabilityStage::Evaluated), "{:?}", e.blockers);
-        assert!(!e.blockers.is_empty(), "trusted still blocked by class count");
+        assert_eq!(
+            e.eligible,
+            Some(CapabilityStage::Evaluated),
+            "{:?}",
+            e.blockers
+        );
+        assert!(
+            !e.blockers.is_empty(),
+            "trusted still blocked by class count"
+        );
     }
 
     #[test]
@@ -461,10 +477,11 @@ mod tests {
 
     #[test]
     fn a_failing_locked_case_blocks_promotion() {
-        let mut cases: Vec<EvaluationCase> = [CaseKind::Positive, CaseKind::Negative, CaseKind::Boundary]
-            .into_iter()
-            .map(case)
-            .collect();
+        let mut cases: Vec<EvaluationCase> =
+            [CaseKind::Positive, CaseKind::Negative, CaseKind::Boundary]
+                .into_iter()
+                .map(case)
+                .collect();
         cases.push(case(CaseKind::Regression));
         let mut runs: Vec<Execution> = (0..12)
             .map(|i| run(&format!("c{i}"), Some(true), i, None))

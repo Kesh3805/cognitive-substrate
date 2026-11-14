@@ -2,7 +2,7 @@
 //! cases.
 
 use cs_core::{
-    EvaluationCaseId, Error, EventDraft, ExecutionId, MemoryId, MemoryRevisionId, Result, Scope,
+    Error, EvaluationCaseId, EventDraft, ExecutionId, MemoryId, MemoryRevisionId, Result, Scope,
     VerificationId,
 };
 use cs_memory::capability::{
@@ -19,8 +19,7 @@ const EXECUTION_COLS: &str = "id, capability_id, capability_revision, procedure_
     tenant_id, owner_user_id, agent_id, project_id, conversation_id, visibility::text AS visibility, \
     case_id, input_class, actor, status, abort_reason, started_at, finished_at";
 
-const VERIFICATION_COLS: &str =
-    "id, execution_id, tier, verdict, verifier, detail, recorded_at";
+const VERIFICATION_COLS: &str = "id, execution_id, tier, verdict, verifier, detail, recorded_at";
 
 const CASE_COLS: &str = "id, capability_id, tenant_id, owner_user_id, agent_id, project_id, \
     conversation_id, visibility::text AS visibility, kind, input_class, description, locked, origin, \
@@ -83,7 +82,17 @@ fn case_from_row(r: &PgRow) -> Result<EvaluationCase> {
     })
 }
 
-fn scope_binds(s: &Scope) -> (Uuid, Option<Uuid>, Option<Uuid>, Option<Uuid>, Option<Uuid>, &'static str) {
+/// Tenant, owner, agent, project, conversation and visibility binds.
+type ScopeBinds = (
+    Uuid,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<Uuid>,
+    &'static str,
+);
+
+fn scope_binds(s: &Scope) -> ScopeBinds {
     (
         s.tenant_id.0,
         s.owner_user_id.map(|u| u.0),
@@ -224,13 +233,12 @@ impl PgStore {
         event: EventDraft,
     ) -> Result<Execution> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
-        let current: Option<String> = sqlx::query_scalar(
-            "SELECT status FROM capability_executions WHERE id = $1 FOR UPDATE",
-        )
-        .bind(id.0)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db_err)?;
+        let current: Option<String> =
+            sqlx::query_scalar("SELECT status FROM capability_executions WHERE id = $1 FOR UPDATE")
+                .bind(id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db_err)?;
         match current.as_deref() {
             None => return Err(Error::not_found("execution", id)),
             Some("started") => {}
@@ -261,13 +269,12 @@ impl PgStore {
         event: EventDraft,
     ) -> Result<Execution> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
-        let exists: Option<i32> = sqlx::query_scalar(
-            "SELECT 1 FROM capability_executions WHERE id = $1 FOR SHARE",
-        )
-        .bind(v.execution_id.0)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db_err)?;
+        let exists: Option<i32> =
+            sqlx::query_scalar("SELECT 1 FROM capability_executions WHERE id = $1 FOR SHARE")
+                .bind(v.execution_id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db_err)?;
         if exists.is_none() {
             return Err(Error::not_found("execution", v.execution_id));
         }
