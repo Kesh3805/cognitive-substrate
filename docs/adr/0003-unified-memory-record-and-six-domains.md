@@ -14,7 +14,7 @@ One `MemoryRecord` envelope (identity, revision, scope, provenance, bitemporal i
 - Domains are logical. They are stored in one table, with the payload as JSONB.
 - A revision cannot change a memory's domain.
 - Working memory must have `expires_at`. Persisting it does not make it permanent.
-- Procedural memory carries a capability lifecycle stage: `observed → candidate → evaluated → trusted → deprecated`. Only `evaluated` and `trusted` count as verified.
+- Procedural memory carries a capability lifecycle stage: `observed → candidate → evaluated → trusted`, plus `quarantined` (suspended by evidence, reinstatable) and `deprecated` (terminal). Only `evaluated` and `trusted` count as verified. See ADR-0021.
 - Each payload defines a deterministic `index_text()` used for lexical scoring and embedding.
 
 ## Alternatives
