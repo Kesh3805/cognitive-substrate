@@ -8,6 +8,7 @@
 
 pub mod belief;
 pub mod embedding;
+pub mod entity;
 pub mod job;
 pub mod observation;
 pub mod proposal;
