@@ -64,6 +64,9 @@ fn epi(p: &str) -> MemoryContent {
         description: p.into(),
         event_id: None,
         participants: vec![],
+        subject: None,
+        predicate: None,
+        object: None,
     })
 }
 

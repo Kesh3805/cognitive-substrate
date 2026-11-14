@@ -173,6 +173,22 @@ impl MemoryContent {
         match self {
             Self::Episodic(m) => {
                 non_empty("episodic.description", &m.description, MAX_TEXT)?;
+                let parts = [
+                    ("episodic.subject", &m.subject),
+                    ("episodic.predicate", &m.predicate),
+                    ("episodic.object", &m.object),
+                ];
+                let present = parts.iter().filter(|(_, v)| v.is_some()).count();
+                if present != 0 && present != 3 {
+                    return Err(Error::validation(
+                        "episodic subject, predicate and object go together",
+                    ));
+                }
+                for (field, value) in parts {
+                    if let Some(v) = value {
+                        non_empty(field, v, MAX_LABEL)?;
+                    }
+                }
                 bounded_list("episodic.participants", &m.participants)
             }
             Self::Semantic(m) => {
@@ -223,15 +239,14 @@ impl MemoryContent {
     pub fn index_text(&self) -> String {
         match self {
             Self::Episodic(m) => {
-                if m.participants.is_empty() {
-                    m.description.clone()
-                } else {
-                    format!(
-                        "{} (participants: {})",
-                        m.description,
-                        m.participants.join(", ")
-                    )
+                let mut s = m.description.clone();
+                if !m.participants.is_empty() {
+                    s.push_str(&format!(" (participants: {})", m.participants.join(", ")));
                 }
+                if let Some((sub, pred, obj)) = m.triple() {
+                    s.push_str(&format!(" [{sub} {pred} {obj}]"));
+                }
+                s
             }
             Self::Semantic(m) => {
                 let mut s = m.proposition.clone();
@@ -284,6 +299,25 @@ pub struct EpisodicMemory {
     pub event_id: Option<EventId>,
     #[serde(default)]
     pub participants: Vec<String>,
+    /// Optional structured reading of what happened (`API` `called`
+    /// `auth`). All three or none. Recurring episode triples from
+    /// independent sources can be compiled into semantic knowledge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predicate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object: Option<String>,
+}
+
+impl EpisodicMemory {
+    /// The structured triple, when all three parts are present.
+    pub fn triple(&self) -> Option<(&str, &str, &str)> {
+        match (&self.subject, &self.predicate, &self.object) {
+            (Some(s), Some(p), Some(o)) => Some((s, p, o)),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
