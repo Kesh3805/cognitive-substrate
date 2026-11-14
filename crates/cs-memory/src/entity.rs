@@ -378,6 +378,9 @@ pub fn project_memory(m: &MemoryRecord) -> Projection {
         }
         MemoryContent::Temporal(t) => triple(&t.subject, &t.predicate, &t.value),
         MemoryContent::Episodic(e) => {
+            if let Some((s, p, o)) = e.triple() {
+                triple(s, p, o);
+            }
             mentions.extend(
                 e.participants
                     .iter()
