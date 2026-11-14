@@ -26,3 +26,5 @@ These rules are enforced in code review and, where noted, by tests.
 17. **Identity is never linked silently.** Names share an entity only by exact normalized key within one identity partition. Aliases and merges are explicit, version-checked decisions (ADR-0018).
 18. **Merges are not retroactive.** A merge records a timestamped redirect; reads resolve identity as of their own transaction time, so earlier reads replay unchanged.
 19. **A derived edge is exactly as visible as its source revision**, by scope, transaction time, status and valid time, and it is purged with it (ADR-0019).
+20. **Compilation never launders evidence.** Support is counted in independent units (actor, origin, valid-time bucket) over validated, non-derived roots, with temporal dispersion and a counterexample veto. Compiled memories start as `candidate` (ADR-0020).
+21. **Derived knowledge follows its support.** A purge flags citing derivations in the same transaction; losing support invalidates the derivation and demotes its memory to `candidate`.
