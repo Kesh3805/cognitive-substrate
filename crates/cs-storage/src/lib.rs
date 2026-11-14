@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
-    EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId,
+    EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId,
     Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
@@ -16,6 +16,7 @@ use cs_memory::{
     ExtractionRun, Job, JobKind, JobOutcome, JobStatus, Lease, MemoryDomain, MemoryRecord,
     MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion,
     ResolutionProposal,
+    capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
 };
@@ -351,6 +352,43 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// Entities merged directly into any of `ids` (at any time), ordered
     /// by id. Readers filter by merge time to resolve as of a point.
     async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>>;
+
+    // ---- capabilities (M4.4) ------------------------------------------------
+
+    /// Record an execution at intent (status `started`).
+    async fn insert_execution(&self, execution: &Execution, event: EventDraft) -> Result<Execution>;
+
+    /// Finish a started execution. `Conflict` if it already finished.
+    async fn finish_execution(
+        &self,
+        id: ExecutionId,
+        status: ExecutionStatus,
+        abort_reason: Option<AbortReason>,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<Execution>;
+
+    /// Add a verification, and atomically a ratchet case if given (skipped,
+    /// with its event, when an equal case already exists).
+    async fn add_verification(
+        &self,
+        verification: &Verification,
+        ratchet: Option<(&EvaluationCase, EventDraft)>,
+        event: EventDraft,
+    ) -> Result<Execution>;
+
+    async fn get_execution(&self, id: ExecutionId) -> Result<Option<Execution>>;
+
+    /// Executions of a capability with their verifications, ordered by
+    /// (started_at, id).
+    async fn executions_for(&self, capability: MemoryId, limit: u32) -> Result<Vec<Execution>>;
+
+    /// `Conflict` if the capability already has a case of that kind for
+    /// that input class.
+    async fn insert_case(&self, case: &EvaluationCase, event: EventDraft) -> Result<EvaluationCase>;
+
+    /// Cases of a capability ordered by (created_at, id).
+    async fn cases_for(&self, capability: MemoryId) -> Result<Vec<EvaluationCase>>;
 
     // ---- derivations (M4.3) --------------------------------------------------
 
