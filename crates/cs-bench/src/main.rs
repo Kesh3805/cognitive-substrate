@@ -5,7 +5,9 @@
 //! ```
 //!
 //! `--dev` runs the development seeds (never reported as results).
-//! Postgres reads `CS_BENCH_DATABASE_URL`.
+//! Postgres reads `CS_BENCH_DATABASE_URL`, which must point to a dedicated
+//! database: runs leave their tenants, traces and queued background jobs
+//! behind, which would disturb tests sharing the database.
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
