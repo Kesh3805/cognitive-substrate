@@ -10,6 +10,7 @@
 
 pub mod m3;
 pub mod m3x;
+pub mod m4;
 
 use std::sync::Arc;
 
@@ -876,5 +877,13 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         fallback_recalls_replay_as_fallback,
         shadow_space_migration,
         purged_revisions_are_never_re_embedded,
+    );
+    use m4::*;
+    scenario!(
+        relations_project_into_entities_and_edges,
+        edges_follow_their_source_revisions,
+        aliases_and_kinds_are_version_checked,
+        entity_merges_are_governed,
+        traversal_is_bounded_and_deterministic,
     );
 }
