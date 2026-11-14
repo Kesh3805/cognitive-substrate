@@ -24,10 +24,19 @@ pub enum JobKind {
     Embed,
     /// Project one memory revision into entity mentions and edges.
     Project,
+    /// Compile recurring episodes into semantic knowledge, and revalidate
+    /// derivations whose support may have changed.
+    Compile,
 }
 
 impl JobKind {
-    pub const ALL: [Self; 4] = [Self::Perceive, Self::Resolve, Self::Embed, Self::Project];
+    pub const ALL: [Self; 5] = [
+        Self::Perceive,
+        Self::Resolve,
+        Self::Embed,
+        Self::Project,
+        Self::Compile,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -35,6 +44,7 @@ impl JobKind {
             Self::Resolve => "resolve",
             Self::Embed => "embed",
             Self::Project => "project",
+            Self::Compile => "compile",
         }
     }
 
