@@ -57,7 +57,35 @@ impl PgStore {
     }
 
     pub async fn migrate(&self) -> Result<()> {
-        MIGRATOR.run(&self.pool).await.map_err(Error::storage)
+        MIGRATOR.run(&self.pool).await.map_err(Error::storage)?;
+        self.backfill_index_terms().await
+    }
+
+    /// Compute `index_terms` for rows written before the column existed.
+    /// Idempotent; runs in batches.
+    async fn backfill_index_terms(&self) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                "SELECT revision_id, content FROM memory_records WHERE index_terms IS NULL \
+                 ORDER BY revision_id LIMIT 500",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+            for r in &rows {
+                let Json(content): Json<MemoryContent> = r.try_get("content").map_err(db_err)?;
+                let id: Uuid = r.try_get("revision_id").map_err(db_err)?;
+                sqlx::query("UPDATE memory_records SET index_terms = $2 WHERE revision_id = $1")
+                    .bind(id)
+                    .bind(content.index_terms())
+                    .execute(&self.pool)
+                    .await
+                    .map_err(db_err)?;
+            }
+        }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -359,9 +387,9 @@ async fn insert_memory_row(
         "INSERT INTO memory_records (revision_id, memory_id, revision_number, tenant_id, \
          owner_user_id, agent_id, project_id, conversation_id, visibility, domain, content, \
          provenance, valid_time, transaction_time, status, status_reason, supersedes_revision_id, \
-         superseded_by_revision_id, created_at, expires_at) \
+         superseded_by_revision_id, created_at, expires_at, index_terms) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::visibility, $10::memory_domain, $11, $12, \
-         $13, $14, $15::memory_status, $16, $17, $18, $19, $20)",
+         $13, $14, $15::memory_status, $16, $17, $18, $19, $20, $21)",
     )
     .bind(r.revision_id.0)
     .bind(r.id.0)
@@ -383,6 +411,7 @@ async fn insert_memory_row(
     .bind(r.superseded_by.map(|s| s.0))
     .bind(r.created_at)
     .bind(r.expires_at)
+    .bind(r.content.index_terms())
     .execute(&mut **tx)
     .await
     .map_err(db_err)?;
@@ -659,6 +688,25 @@ impl CognitiveStore for PgStore {
             ],
             [1, 2, 3, 4],
         );
+        // The candidate orders of the shared contract. `$17` is the order's
+        // own parameter (terms or query vector), bound only when used.
+        let recent = "lower(m.transaction_time) DESC, m.revision_id ASC";
+        let (order_filter, order) = match &q.order {
+            cs_storage::CandidateOrder::Recent => (String::new(), format!("ORDER BY {recent}")),
+            cs_storage::CandidateOrder::Lexical(_) => (
+                "AND m.index_terms && $17::text[]".to_owned(),
+                format!(
+                    "ORDER BY cardinality(ARRAY(SELECT unnest(m.index_terms) \
+                     INTERSECT SELECT unnest($17::text[]))) DESC, {recent}"
+                ),
+            ),
+            cs_storage::CandidateOrder::Nearest(_) => (
+                "AND e.embedding IS NOT NULL \
+                 AND vector_dims(e.embedding) = vector_dims($17::vector)"
+                    .to_owned(),
+                "ORDER BY (e.embedding <=> $17::vector) ASC, m.revision_id ASC".to_owned(),
+            ),
+        };
         let sql = format!(
             "SELECT {MEMORY_COLS}, e.embedding FROM memory_records m \
              LEFT JOIN memory_embeddings e ON e.revision_id = m.revision_id \
@@ -674,14 +722,15 @@ impl CognitiveStore for PgStore {
                AND ($12::uuid IS NULL OR m.project_id = $12) \
                AND ($13::uuid IS NULL OR m.conversation_id = $13) \
                AND ($14::uuid IS NULL OR m.agent_id = $14) \
-             ORDER BY lower(m.transaction_time) DESC, m.revision_id ASC \
+               {order_filter} \
+             {order} \
              LIMIT $15"
         );
         let filter = q.scope_filter.clone().unwrap_or_default();
         let (model, version) = q.embedding_model.clone().unwrap_or_default();
         let domains: Vec<&str> = q.domains.iter().map(|d| d.as_str()).collect();
         let statuses: Vec<&str> = q.statuses.iter().map(|s| s.as_str()).collect();
-        let rows = sqlx::query(&sql)
+        let query = sqlx::query(&sql)
             .bind(q.access.tenant_id.0)
             .bind(q.access.user_id.map(|u| u.0))
             .bind(q.access.agent_id.map(|a| a.0))
@@ -697,10 +746,13 @@ impl CognitiveStore for PgStore {
             .bind(filter.conversation_id.map(|c| c.0))
             .bind(filter.agent_id.map(|a| a.0))
             .bind(i64::from(q.limit))
-            .bind(q.ignore_valid_time)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?;
+            .bind(q.ignore_valid_time);
+        let query = match &q.order {
+            cs_storage::CandidateOrder::Recent => query,
+            cs_storage::CandidateOrder::Lexical(terms) => query.bind(terms.clone()),
+            cs_storage::CandidateOrder::Nearest(v) => query.bind(pgvector::Vector::from(v.clone())),
+        };
+        let rows = query.fetch_all(&self.pool).await.map_err(db_err)?;
         rows.iter()
             .map(|row| {
                 let embedding: Option<pgvector::Vector> =
@@ -1064,9 +1116,9 @@ impl CognitiveStore for PgStore {
         let c = &t.candidates;
         sqlx::query(
             "INSERT INTO recall_trace_candidates (trace_id, rank, memory_id, revision_id, score, \
-             dense_score, lexical_score, recency_score, selected, reason) \
+             dense_score, lexical_score, recency_score, selected, reason, channels) \
              SELECT $1, * FROM UNNEST($2::int[], $3::uuid[], $4::uuid[], $5::float8[], \
-                 $6::float8[], $7::float8[], $8::float8[], $9::bool[], $10::text[])",
+                 $6::float8[], $7::float8[], $8::float8[], $9::bool[], $10::text[], $11::text[])",
         )
         .bind(t.id.0)
         .bind(
@@ -1082,6 +1134,17 @@ impl CognitiveStore for PgStore {
         .bind(c.iter().map(|x| x.recency_score).collect::<Vec<_>>())
         .bind(c.iter().map(|x| x.selected).collect::<Vec<_>>())
         .bind(c.iter().map(|x| x.reason.clone()).collect::<Vec<_>>())
+        .bind(
+            c.iter()
+                .map(|x| {
+                    x.channels
+                        .iter()
+                        .map(|ch| ch.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .collect::<Vec<_>>(),
+        )
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1119,6 +1182,12 @@ impl CognitiveStore for PgStore {
                         recency_score: r.try_get("recency_score").map_err(db_err)?,
                         selected: r.try_get("selected").map_err(db_err)?,
                         reason: r.try_get("reason").map_err(db_err)?,
+                        channels: r
+                            .try_get::<String, _>("channels")
+                            .map_err(db_err)?
+                            .split(',')
+                            .filter_map(cs_memory::CandidateChannel::parse)
+                            .collect(),
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
