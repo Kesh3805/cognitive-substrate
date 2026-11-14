@@ -13,12 +13,13 @@ use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, EdgeId, EntityId, EntityMentionId, Error, EventDraft,
     EventQuery, EvidenceId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
-    RecallTraceId, Result, TenantId, temporal::truncate_micros,
+    RecallTraceId, Result, TenantId, DerivationId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
-    ExtractionRun, Job, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation,
+    ExtractionRun, Job, JobError, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus, Observation,
     ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
+    derivation::{Derivation, DerivationStatus},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
         EntityStatus, KnowledgeEdge, Projection, entity_id_for, partition_scope,
@@ -58,6 +59,7 @@ struct State {
     mentions: Vec<EntityMention>,
     edges: Vec<KnowledgeEdge>,
     projected: HashSet<MemoryRevisionId>,
+    derivations: BTreeMap<DerivationId, Derivation>,
 }
 
 impl State {
@@ -209,6 +211,22 @@ impl State {
             if orphan {
                 self.entities.remove(&id);
                 self.aliases.retain(|_, a| a.entity_id != id);
+            }
+        }
+    }
+
+    /// A purge reaches derivations atomically: a derivation of a purged
+    /// memory goes with it, and one citing a purged root is flagged for
+    /// revalidation so it cannot silently keep support it lost.
+    fn flag_derivations(&mut self, ids: &[MemoryId], at: OffsetDateTime) {
+        self.derivations
+            .retain(|_, d| !ids.contains(&d.derived_memory_id));
+        for d in self.derivations.values_mut() {
+            if d.roots.iter().any(|r| ids.contains(r)) {
+                d.status = DerivationStatus::RevalidationRequired;
+                d.status_reason = Some("a supporting root was purged".into());
+                d.version += 1;
+                d.updated_at = at;
             }
         }
     }
@@ -403,6 +421,7 @@ impl CognitiveStore for InMemoryStore {
         }
         s.memories.retain(|m| m.id != id);
         s.drop_projections_of_memories(&[id]);
+        s.flag_derivations(&[id], event.occurred_at);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -791,6 +810,24 @@ impl CognitiveStore for InMemoryStore {
             );
             return Ok(job.clone());
         }
+        // Contention: another job got there first. Retry rather than fail.
+        if let Some(reason) = contention(&s, &effects) {
+            let job = fenced(&mut s, lease)?;
+            let attempt = job.attempts;
+            apply_outcome(
+                job,
+                now,
+                JobOutcome::Retry {
+                    at: now + time::Duration::seconds(1),
+                    error: JobError {
+                        permanent: false,
+                        message: reason.to_owned(),
+                        attempt,
+                    },
+                },
+            );
+            return Ok(job.clone());
+        }
         // Validate effects before touching anything (atomicity).
         for (m, _) in &effects.memories {
             if s.memories.iter().any(|x| x.id == m.id) {
@@ -840,6 +877,22 @@ impl CognitiveStore for InMemoryStore {
         }
         if let Some(p) = effects.projection {
             s.apply_projection(&p, now);
+        }
+        for m in effects.supersedes {
+            if let Some(old) = s.memories.iter_mut().find(|x| x.revision_id == m.current) {
+                old.temporal.transaction_time.end = Some(m.closed_at);
+                old.superseded_by = Some(m.next.revision_id);
+            }
+            if let Some(e) = m.embedding {
+                s.put_embedding(m.next.revision_id, e);
+            }
+            for j in &m.follow_up {
+                enqueue(&mut s, j);
+            }
+            s.memories.push(m.next);
+        }
+        for w in effects.derivations {
+            s.derivations.insert(w.derivation.id, w.derivation);
         }
         let job = fenced(&mut s, lease)?;
         apply_outcome(job, now, outcome);
@@ -949,6 +1002,7 @@ impl CognitiveStore for InMemoryStore {
             .collect();
         s.memories.retain(|m| !derived.contains(&m.id));
         s.drop_projections_of_memories(derived);
+        s.flag_derivations(derived, now);
         for r in revisions {
             s.drop_embeddings(r);
         }
@@ -1181,6 +1235,52 @@ impl CognitiveStore for InMemoryStore {
         Ok(out)
     }
 
+    async fn get_derivation(&self, id: DerivationId) -> Result<Option<Derivation>> {
+        Ok(self.lock().derivations.get(&id).cloned())
+    }
+
+    async fn derivation_for(
+        &self,
+        partition: &str,
+        operator: &str,
+        signature: &str,
+    ) -> Result<Option<Derivation>> {
+        Ok(self
+            .lock()
+            .derivations
+            .values()
+            .find(|d| d.partition == partition && d.operator == operator && d.signature == signature)
+            .cloned())
+    }
+
+    async fn derivations_citing(&self, memory: MemoryId) -> Result<Vec<Derivation>> {
+        Ok(self
+            .lock()
+            .derivations
+            .values()
+            .filter(|d| d.roots.contains(&memory))
+            .cloned()
+            .collect())
+    }
+
+    async fn list_derivations(
+        &self,
+        access: &AccessContext,
+        status: Option<DerivationStatus>,
+        limit: u32,
+    ) -> Result<Vec<Derivation>> {
+        let s = self.lock();
+        let mut v: Vec<Derivation> = s
+            .derivations
+            .values()
+            .filter(|d| access.can_read(&d.scope) && status.is_none_or(|x| d.status == x))
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
     async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>> {
         Ok(self
             .lock()
@@ -1220,7 +1320,7 @@ impl CognitiveStore for InMemoryStore {
                 };
                 let visible = q.access.can_read(&e.scope)
                     && q.relations.as_ref().is_none_or(|r| r.contains(&e.relation))
-                    && e.valid_time.contains(q.as_of_valid_time)
+                    && q.as_of_valid_time.is_none_or(|t| e.valid_time.contains(t))
                     && s.memories.iter().any(|m| {
                         m.revision_id == e.revision_id
                             && m.temporal
@@ -1307,6 +1407,28 @@ fn apply_outcome(job: &mut Job, now: OffsetDateTime, outcome: JobOutcome) {
             job.last_error = Some(error);
         }
     }
+}
+
+fn contention(s: &State, effects: &JobEffects) -> Option<&'static str> {
+    for w in &effects.derivations {
+        let current = s.derivations.get(&w.derivation.id).map(|d| d.version);
+        let taken = w.expected_version.is_none()
+            && s.derivations.values().any(|d| {
+                d.id != w.derivation.id
+                    && d.partition == w.derivation.partition
+                    && d.operator == w.derivation.operator
+                    && d.signature == w.derivation.signature
+            });
+        if current != w.expected_version || taken {
+            return Some("derivation changed concurrently");
+        }
+    }
+    for m in &effects.supersedes {
+        if check_memory_supersede(s, m).is_err() {
+            return Some("revision changed concurrently");
+        }
+    }
+    None
 }
 
 fn precondition_failure(s: &State, effects: &JobEffects) -> Option<&'static str> {
