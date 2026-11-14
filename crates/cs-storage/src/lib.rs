@@ -347,6 +347,10 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// Entities in one partition (for merge detection), ordered by id.
     async fn partition_entities(&self, partition: &str, limit: u32) -> Result<Vec<Entity>>;
 
+    /// Entities merged directly into any of `ids` (at any time), ordered
+    /// by id. Readers filter by merge time to resolve as of a point.
+    async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>>;
+
     /// Edges touching `entity_ids`, visible to the query: the caller can
     /// read the edge's scope, its source revision is current at the as-of
     /// transaction time with an allowed status, and its valid time holds.

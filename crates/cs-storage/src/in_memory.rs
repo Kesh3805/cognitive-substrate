@@ -131,7 +131,7 @@ impl State {
     fn canonical_entity(&self, mut id: EntityId) -> EntityId {
         for _ in 0..64 {
             match self.entities.get(&id).map(|e| e.status) {
-                Some(EntityStatus::Merged { into }) => id = into,
+                Some(EntityStatus::Merged { into, .. }) => id = into,
                 _ => break,
             }
         }
@@ -187,17 +187,41 @@ impl State {
         self.projected.insert(p.revision_id);
     }
 
-    /// Projections are derived data: they go with their revisions.
+    /// Projections are derived data: they go with their revisions. An
+    /// entity left with no mentions or edges that was never curated
+    /// (version 1: no alias, kind or merge decision) goes too, so a purged
+    /// name does not survive in identity rows.
     fn drop_projections_of_memories(&mut self, ids: &[MemoryId]) {
+        let touched: BTreeSet<EntityId> = self
+            .mentions
+            .iter()
+            .filter(|m| ids.contains(&m.memory_id))
+            .map(|m| m.entity_id)
+            .collect();
         self.mentions.retain(|m| !ids.contains(&m.memory_id));
         self.edges.retain(|e| !ids.contains(&e.memory_id));
         let live: HashSet<MemoryRevisionId> = self.memories.iter().map(|m| m.revision_id).collect();
         self.projected.retain(|r| live.contains(r));
+        for id in touched {
+            let orphan = self.entities.get(&id).is_some_and(|e| e.version == 1)
+                && !self.mentions.iter().any(|m| m.entity_id == id)
+                && !self.edges.iter().any(|e| e.from == id || e.to == id);
+            if orphan {
+                self.entities.remove(&id);
+                self.aliases.retain(|_, a| a.entity_id != id);
+            }
+        }
     }
 
+    /// Record the redirect. Mentions, aliases and edges are left where
+    /// they are: reads resolve through the redirect as of their
+    /// transaction time, so history before the merge is unchanged.
     fn merge_entities(&mut self, m: &EntityMerge) {
         if let Some(e) = self.entities.get_mut(&m.merged) {
-            e.status = EntityStatus::Merged { into: m.survivor };
+            e.status = EntityStatus::Merged {
+                into: m.survivor,
+                at: m.at,
+            };
             e.version += 1;
             e.updated_at = m.at;
         }
@@ -205,26 +229,6 @@ impl State {
             e.version += 1;
             e.updated_at = m.at;
         }
-        for a in self
-            .aliases
-            .values_mut()
-            .filter(|a| a.entity_id == m.merged)
-        {
-            a.entity_id = m.survivor;
-            a.source = AliasSource::Merge;
-        }
-        for x in self.mentions.iter_mut().filter(|x| x.entity_id == m.merged) {
-            x.entity_id = m.survivor;
-        }
-        for x in &mut self.edges {
-            if x.from == m.merged {
-                x.from = m.survivor;
-            }
-            if x.to == m.merged {
-                x.to = m.survivor;
-            }
-        }
-        self.edges.retain(|x| x.from != x.to);
     }
 
     fn register(&mut self, key: Option<IdempotencyKey<'_>>, id: Uuid) -> Result<()> {
@@ -1175,6 +1179,18 @@ impl CognitiveStore for InMemoryStore {
         let out = entity.clone();
         s.append(event);
         Ok(out)
+    }
+
+    async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>> {
+        Ok(self
+            .lock()
+            .entities
+            .values()
+            .filter(
+                |e| matches!(e.status, EntityStatus::Merged { into, .. } if ids.contains(&into)),
+            )
+            .cloned()
+            .collect())
     }
 
     async fn partition_entities(&self, partition: &str, limit: u32) -> Result<Vec<Entity>> {
