@@ -617,3 +617,93 @@ async fn compilation_over_http() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn capabilities_over_http() {
+    let c = Client::new(None);
+    let (status, m) = c
+        .send(
+            "POST",
+            "/v1/memories",
+            Some(json!({
+                "scope": c.private_scope(),
+                "content": { "domain": "procedural", "data": {
+                    "name": "rotate credentials",
+                    "steps": ["issue new key", "deploy", "revoke old key"]
+                }},
+                "provenance": { "source": { "type": "user_input" } }
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let id = m["id"].as_str().unwrap().to_owned();
+
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/capabilities/{id}/stage"),
+            Some(json!({ "stage": "evaluated", "reason": "too early" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let (status, case) = c
+        .send(
+            "POST",
+            &format!("/v1/capabilities/{id}/cases"),
+            Some(json!({ "kind": "regression", "input_class": "edge" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(case["locked"], true);
+
+    let (status, exec) = c
+        .send(
+            "POST",
+            &format!("/v1/capabilities/{id}/executions"),
+            Some(json!({ "input_class": "a" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let exec = exec["id"].as_str().unwrap().to_owned();
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/executions/{exec}/verifications"),
+            Some(json!({ "tier": "deterministic", "verdict": "passed" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "not finished yet");
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/executions/{exec}/finish"),
+            Some(json!({ "status": "completed" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, e) = c
+        .send(
+            "POST",
+            &format!("/v1/executions/{exec}/verifications"),
+            Some(json!({ "tier": "deterministic", "verdict": "failed" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(e["verifications"].as_array().unwrap().len(), 1);
+
+    let (status, view) = c.send("GET", &format!("/v1/capabilities/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        view["cases"].as_array().unwrap().len(),
+        2,
+        "authored + ratchet"
+    );
+    assert_eq!(view["evaluation"]["field"]["failures"], 1);
+
+    let (status, _) = c
+        .as_user(Uuid::now_v7())
+        .send("GET", &format!("/v1/executions/{exec}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
