@@ -710,6 +710,7 @@ impl CognitiveEngine {
         // Re-check every revision the proposal was computed against.
         let mut memories = std::collections::BTreeMap::new();
         let mut beliefs = std::collections::BTreeMap::new();
+        let mut entities = std::collections::BTreeMap::new();
         let mut stale = false;
         for v in &p.based_on {
             match *v {
@@ -729,6 +730,16 @@ impl CognitiveEngine {
                     Some(b) if b.id == revision_id => {
                         ctx.ensure_write(&b.scope)?;
                         beliefs.insert(lineage_id, b);
+                    }
+                    _ => stale = true,
+                },
+                RecordVersion::Entity { id, version } => match self.store.get_entity(id).await? {
+                    Some(e)
+                        if e.version == version
+                            && e.status == cs_memory::entity::EntityStatus::Active =>
+                    {
+                        ctx.ensure_write(&e.scope)?;
+                        entities.insert(id, e);
                     }
                     _ => stale = true,
                 },
@@ -923,6 +934,34 @@ impl CognitiveEngine {
                         follow_up: Vec::new(),
                     });
                 }
+            }
+            ResolutionOperation::MergeEntities { survivor, merged } => {
+                let get = |e| {
+                    entities.get(e).ok_or_else(|| {
+                        Error::validation("operation names an entity outside based_on")
+                    })
+                };
+                let (s, m) = (get(survivor)?, get(merged)?);
+                mutations.entity_merges.push(cs_storage::EntityMerge {
+                    survivor: s.id,
+                    survivor_version: s.version,
+                    merged: m.id,
+                    merged_version: m.version,
+                    at,
+                });
+                events.push(self.draft(
+                    ctx,
+                    s.id.0,
+                    &s.scope,
+                    CognitiveEventType::EntitiesMerged,
+                    json!({
+                        "survivor": s.id,
+                        "merged": m.id,
+                        "merged_name": m.canonical_name,
+                        "proposal_id": id,
+                    }),
+                    at,
+                ));
             }
         }
         events.push(self.draft(
