@@ -79,9 +79,28 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 
 ## M5 — Retrieval economics & active acquisition
 
-- Hybrid retrieval and reranking, accepted only if they beat the v1 baseline in preregistered experiments.
-- ANN preselection benchmarked against exact scoring.
-- Adaptive retrieval budgets; knowledge-gap detection and information-gain estimates.
+### ✅ M5.1 — Evaluation harness and frozen baseline
+
+- `cs-bench`: a seeded, offline corpus and query generator (direct, lexical-trap, semantic, temporal and scope families; balanced recent/old targets; graded gold from generator knowledge), IR metrics and paired bootstrap CIs, and a runner that writes raw results, aggregates, preregistered gate verdicts and an environment manifest.
+- `recency_v1` frozen as the selectable control (ADR-0022).
+
+### M5.2 — Candidate generation (experiment 005: not adopted)
+
+- `channels` strategy: lexical (shared tokenizer, stored index terms) and exact-dense channels, recency fill, equal budget, channels recorded in traces.
+- Held-out result: nDCG +0.35, candidate recall +52 pp, no regressions, but p95 latency 1.70× (gate 1.25×). **Not adopted**; `v1` stays the default ([results](benchmarks/005-candidate-generation/RESULTS.md)).
+- Next: a cheaper channel implementation under a new preregistration.
+
+### M5.3 — ANN economics
+
+- HNSW vs exact kNN under per-scope filtering; execution replay pinned to recorded candidate sets; activation gates.
+
+### M5.4 — Knowledge gaps
+
+- Unresolved information needs vs. retrieval failures; validated gaps; an acquisition-priority heuristic (not called information gain until priors are calibrated).
+
+### M5.5 — Adaptive budgets
+
+- Deferred until fixed-budget retrieval is understood; score margins are diagnostics, not confidence, until calibrated.
 
 ## M6 — Reasoning
 
