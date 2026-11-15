@@ -91,4 +91,6 @@ id_type!(
     VerificationId,
     /// One test case in a capability's evaluation suite.
     EvaluationCaseId,
+    /// Something a caller needed to know that recall could not supply.
+    InformationNeedId,
 );
