@@ -73,5 +73,7 @@ The lexical channel was re-implemented so that a store answers the lexical candi
 
 ## Verification
 
-- **Conformance** (`channels_reach_beyond_the_recency_window`, both stores): equal budgets, the old fact found through each channel, channels recorded in the trace, identical replay, no out-of-scope candidates, and rejection of quotas over budget.
+- **Conformance, both stores:**
+  - `channels_reach_beyond_the_recency_window`: equal budgets, the old fact found through each channel, channels recorded in the trace, identical replay, no out-of-scope candidates, quotas clamped to the budget, and the adopted default.
+  - `lexical_channel_matches_its_reference`: each store's single-operation answer equals the reference semantics (set and labels), including empty-quota, no-term and over-budget cases.
 - **Benchmark crate:** unit tests for generator determinism and stratum balance, metric reference values, and the bootstrap.
