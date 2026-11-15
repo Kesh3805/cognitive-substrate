@@ -845,6 +845,59 @@ impl CognitiveStore for PgStore {
             .collect()
     }
 
+    async fn adaptive_lexical_then_recent(
+        &self,
+        q: &MemoryQuery,
+        terms: &[String],
+        lexical: u32,
+        initial: u32,
+        initial_lexical: u32,
+    ) -> Result<cs_storage::AdaptiveCandidates> {
+        let filters = memory_filters();
+        let recent = "lower(m.transaction_time) DESC, m.revision_id ASC";
+        // $17 terms, $18 lexical quota, $19 initial, $20 initial lexical.
+        // The first pass is the prefix of the full lexical order; the
+        // decision is taken from it, and the chosen budget is returned.
+        let sql = format!(
+            "WITH ranked AS (                  SELECT m.revision_id, lower(m.transaction_time) AS tx,                      cardinality(ARRAY(SELECT unnest(m.index_terms)                          INTERSECT SELECT unnest($17::text[]))) AS ov                  FROM memory_records m                  WHERE {filters} AND m.index_terms && $17::text[]                  ORDER BY ov DESC, {recent}                  LIMIT LEAST($18, $15)),              lexn AS (                  SELECT revision_id, tx, ov,                      row_number() OVER (ORDER BY ov DESC, tx DESC, revision_id ASC) AS rn                  FROM ranked),              first AS (SELECT ov, rn FROM lexn WHERE rn <= LEAST($20, $19)),              d AS (                  SELECT count(*) AS found,                      COALESCE((SELECT ov FROM first ORDER BY rn ASC LIMIT 1), 0) AS best,                      COALESCE((SELECT ov FROM first ORDER BY rn DESC LIMIT 1), 0) AS cut                  FROM first),              s AS (                  SELECT found, best, cut, (found >= $20 AND cut = best) AS sat,                      CASE WHEN found >= $20 AND cut = best THEN $15 ELSE $19 END AS lim,                      CASE WHEN found >= $20 AND cut = best THEN LEAST($18, $15)                           ELSE LEAST($20, $19) END AS lexlim                  FROM d),              lex AS (SELECT l.revision_id FROM lexn l, s WHERE l.rn <= s.lexlim),              win AS (                  SELECT w.revision_id, w.tx FROM (                      SELECT m.revision_id, lower(m.transaction_time) AS tx,                          row_number() OVER (ORDER BY {recent}) AS rn                      FROM memory_records m WHERE {filters} ORDER BY {recent} LIMIT $15) w, s                  WHERE w.rn <= s.lim),              fill AS (                  SELECT w.revision_id FROM win w                  WHERE NOT EXISTS (SELECT 1 FROM lex l WHERE l.revision_id = w.revision_id)                  ORDER BY w.tx DESC, w.revision_id ASC                  LIMIT GREATEST((SELECT lim FROM s) - (SELECT count(*) FROM lex), 0))              SELECT {MEMORY_COLS}, e.embedding,                  EXISTS (SELECT 1 FROM lex l WHERE l.revision_id = m.revision_id) AS from_lexical,                  EXISTS (SELECT 1 FROM win w WHERE w.revision_id = m.revision_id) AS from_recent,                  s.found, s.best, s.cut, s.sat              FROM memory_records m {EMBEDDING_JOIN} CROSS JOIN s              WHERE m.revision_id IN (SELECT revision_id FROM lex                                      UNION ALL SELECT revision_id FROM fill)"
+        );
+        let terms: Vec<String> = if lexical > 0 {
+            terms.to_vec()
+        } else {
+            Vec::new()
+        };
+        let rows = bind_memory_query(sqlx::query(&sql), q)
+            .bind(terms)
+            .bind(i64::from(lexical))
+            .bind(i64::from(initial))
+            .bind(i64::from(initial_lexical))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        // No rows means no lexical match: nothing found, not saturated.
+        let (mut found, mut best, mut cut, mut sat) = (0i64, 0i32, 0i32, false);
+        let mut candidates = Vec::with_capacity(rows.len());
+        for row in &rows {
+            found = row.try_get("found").map_err(db_err)?;
+            best = row.try_get("best").map_err(db_err)?;
+            cut = row.try_get("cut").map_err(db_err)?;
+            sat = row.try_get("sat").map_err(db_err)?;
+            candidates.push(cs_storage::ChanneledMemory {
+                lexical: row.try_get("from_lexical").map_err(db_err)?,
+                recent: row.try_get("from_recent").map_err(db_err)?,
+                memory: stored_from_row(row)?,
+            });
+        }
+        let u = |x: i64| u32::try_from(x).unwrap_or(u32::MAX);
+        Ok(cs_storage::AdaptiveCandidates {
+            candidates,
+            lexical_found: u(found),
+            best_overlap: u(i64::from(best)),
+            cut_overlap: u(i64::from(cut)),
+            saturated: sat,
+        })
+    }
+
     async fn purge_memory(&self, id: MemoryId, event: EventDraft) -> Result<CognitiveEvent> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         let touched = m4::entities_mentioned_by(&mut tx, &[id.0]).await?;
