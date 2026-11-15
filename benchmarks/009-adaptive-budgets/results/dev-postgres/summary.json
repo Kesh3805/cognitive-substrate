@@ -1,0 +1,436 @@
+{
+  "overall": {
+    "A": {
+      "queries": 489,
+      "ndcg": 0.779211820435631,
+      "mrr": 0.7248604213328137,
+      "recall": 0.9631901840490797,
+      "candidate_recall": 0.9856850715746421,
+      "candidates": 87.11656441717791,
+      "round_trips": 1.0,
+      "latency_p50_ms": 35.331066,
+      "latency_p95_ms": 48.981038999999996,
+      "latency_p99_ms": 55.415218,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": 0.2474437627811861
+    },
+    "F200": {
+      "queries": 489,
+      "ndcg": 0.7740146406782912,
+      "mrr": 0.7183854318823643,
+      "recall": 0.9621676891615542,
+      "candidate_recall": 0.9856850715746421,
+      "candidates": 200.0,
+      "round_trips": 1.0,
+      "latency_p50_ms": 39.942114000000004,
+      "latency_p95_ms": 53.917801000000004,
+      "latency_p99_ms": 65.033952,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": null
+    },
+    "F50": {
+      "queries": 489,
+      "ndcg": 0.6644979315411457,
+      "mrr": 0.6231059499464406,
+      "recall": 0.8057259713701431,
+      "candidate_recall": 0.8139059304703476,
+      "candidates": 50.0,
+      "round_trips": 1.0,
+      "latency_p50_ms": 32.894846,
+      "latency_p95_ms": 44.922347,
+      "latency_p99_ms": 52.927588,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": null
+    }
+  },
+  "by_family": {
+    "crowded": {
+      "A": {
+        "queries": 45,
+        "ndcg": 0.4502502871389279,
+        "mrr": 0.3515961199294533,
+        "recall": 0.7777777777777778,
+        "candidate_recall": 0.8666666666666667,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 34.255721,
+        "latency_p95_ms": 49.83702,
+        "latency_p99_ms": 55.262955000000005,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 1.0
+      },
+      "F200": {
+        "queries": 45,
+        "ndcg": 0.4502502871389279,
+        "mrr": 0.3515961199294533,
+        "recall": 0.7777777777777778,
+        "candidate_recall": 0.8666666666666667,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 33.630689,
+        "latency_p95_ms": 52.957488,
+        "latency_p99_ms": 60.324687000000004,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 45,
+        "ndcg": 0.0,
+        "mrr": 0.0,
+        "recall": 0.0,
+        "candidate_recall": 0.0,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 24.754672,
+        "latency_p95_ms": 39.712407999999996,
+        "latency_p99_ms": 52.157148,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "direct": {
+      "A": {
+        "queries": 150,
+        "ndcg": 0.902279375448915,
+        "mrr": 0.8844444444444446,
+        "recall": 0.9933333333333333,
+        "candidate_recall": 0.9933333333333333,
+        "candidates": 64.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 36.791740000000004,
+        "latency_p95_ms": 47.964931,
+        "latency_p99_ms": 50.874434,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.09333333333333334
+      },
+      "F200": {
+        "queries": 150,
+        "ndcg": 0.8952550691608611,
+        "mrr": 0.8766666666666667,
+        "recall": 0.99,
+        "candidate_recall": 0.9933333333333333,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 40.909551,
+        "latency_p95_ms": 58.025307999999995,
+        "latency_p99_ms": 67.62588099999999,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 150,
+        "ndcg": 0.8465713275348615,
+        "mrr": 0.83,
+        "recall": 0.9333333333333333,
+        "candidate_recall": 0.9333333333333333,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 34.255014,
+        "latency_p95_ms": 43.742084,
+        "latency_p99_ms": 50.75554,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "lexicaltrap": {
+      "A": {
+        "queries": 44,
+        "ndcg": 0.9337865572066529,
+        "mrr": 0.9116161616161617,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 63.63636363636363,
+        "round_trips": 1.0,
+        "latency_p50_ms": 34.22466,
+        "latency_p95_ms": 50.617861,
+        "latency_p99_ms": 61.983471,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.09090909090909091
+      },
+      "F200": {
+        "queries": 44,
+        "ndcg": 0.9086226767683432,
+        "mrr": 0.8775252525252526,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 41.315221,
+        "latency_p95_ms": 52.563693,
+        "latency_p99_ms": 71.68577900000001,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 44,
+        "ndcg": 0.8814904209415624,
+        "mrr": 0.8636363636363636,
+        "recall": 0.9318181818181818,
+        "candidate_recall": 0.9318181818181818,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 33.001094,
+        "latency_p95_ms": 45.13313,
+        "latency_p99_ms": 60.456794,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "scope": {
+      "A": {
+        "queries": 46,
+        "ndcg": 0.9329675711956567,
+        "mrr": 0.9094202898550725,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 63.04347826086956,
+        "round_trips": 1.0,
+        "latency_p50_ms": 25.100862000000003,
+        "latency_p95_ms": 42.44108,
+        "latency_p99_ms": 47.676597,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.08695652173913043
+      },
+      "F200": {
+        "queries": 46,
+        "ndcg": 0.940990837422364,
+        "mrr": 0.9202898550724639,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 30.612070000000003,
+        "latency_p95_ms": 45.933403999999996,
+        "latency_p99_ms": 48.097012,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 46,
+        "ndcg": 0.8894893103260914,
+        "mrr": 0.8659420289855073,
+        "recall": 0.9565217391304348,
+        "candidate_recall": 0.9565217391304348,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 23.571679000000003,
+        "latency_p95_ms": 36.236138000000004,
+        "latency_p99_ms": 40.152997000000006,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "semantic": {
+      "A": {
+        "queries": 150,
+        "ndcg": 0.5993638343203684,
+        "mrr": 0.4890476190476193,
+        "recall": 0.9533333333333334,
+        "candidate_recall": 1.0,
+        "candidates": 67.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 35.833749,
+        "latency_p95_ms": 50.497082,
+        "latency_p99_ms": 57.391415,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.11333333333333333
+      },
+      "F200": {
+        "queries": 150,
+        "ndcg": 0.5968267395280656,
+        "mrr": 0.4857169312169315,
+        "recall": 0.9533333333333334,
+        "candidate_recall": 1.0,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 41.709965000000004,
+        "latency_p95_ms": 53.220979,
+        "latency_p99_ms": 59.356158,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 150,
+        "ndcg": 0.5732656205987929,
+        "mrr": 0.46910317460317486,
+        "recall": 0.9066666666666666,
+        "candidate_recall": 0.9333333333333333,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 34.333431,
+        "latency_p95_ms": 45.640967999999994,
+        "latency_p99_ms": 54.214583,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "temporal": {
+      "A": {
+        "queries": 54,
+        "ndcg": 0.9541429447089969,
+        "mrr": 0.9382716049382717,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 152.77777777777777,
+        "round_trips": 1.0,
+        "latency_p50_ms": 29.369177999999998,
+        "latency_p95_ms": 48.823375,
+        "latency_p99_ms": 51.285077,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.6851851851851852
+      },
+      "F200": {
+        "queries": 54,
+        "ndcg": 0.9473083105158757,
+        "mrr": 0.9290123456790125,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 34.925489,
+        "latency_p95_ms": 51.579226,
+        "latency_p99_ms": 68.866393,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 54,
+        "ndcg": 0.5974418427248688,
+        "mrr": 0.5925925925925926,
+        "recall": 0.6111111111111112,
+        "candidate_recall": 0.6111111111111112,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 25.889287,
+        "latency_p95_ms": 49.118536999999996,
+        "latency_p99_ms": 56.127388,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    }
+  },
+  "deltas": {
+    "A-F200 candidate_recall": {
+      "mean": 0.0,
+      "lower": 0.0,
+      "upper": 0.0
+    },
+    "A-F200 mrr": {
+      "mean": 0.006474989450449573,
+      "lower": -0.0003781608076086602,
+      "upper": 0.013633265167007498
+    },
+    "A-F200 ndcg": {
+      "mean": 0.005197179757339776,
+      "lower": 0.00009168729507228429,
+      "upper": 0.010571623452849505
+    },
+    "A-F50 candidate_recall": {
+      "mean": 0.17177914110429449,
+      "lower": 0.1390593047034765,
+      "upper": 0.20449897750511248
+    },
+    "A-F50 mrr": {
+      "mean": 0.10175447138637322,
+      "lower": 0.07765280618041355,
+      "upper": 0.12719836400817996
+    },
+    "A-F50 ndcg": {
+      "mean": 0.11471388889448461,
+      "lower": 0.08980996718066911,
+      "upper": 0.14066495045182115
+    }
+  },
+  "expansions": {
+    "expanded": 121,
+    "recovered_relevant": 84,
+    "missed_by_signal": 0,
+    "replays": 489,
+    "replays_identical": 489
+  },
+  "latency_by_expansion": {
+    "A expanded": {
+      "queries": 121,
+      "p50_ms": 35.850186,
+      "p95_ms": 53.037254,
+      "p99_ms": 56.09626
+    },
+    "A not_expanded": {
+      "queries": 368,
+      "p50_ms": 35.329042,
+      "p95_ms": 46.404167,
+      "p99_ms": 53.046473
+    },
+    "F200 expanded": {
+      "queries": 121,
+      "p50_ms": 34.925489,
+      "p95_ms": 52.957488,
+      "p99_ms": 58.025307999999995
+    },
+    "F200 not_expanded": {
+      "queries": 368,
+      "p50_ms": 40.909551,
+      "p95_ms": 53.917801000000004,
+      "p99_ms": 67.62588099999999
+    }
+  },
+  "gates": [
+    {
+      "criterion": "nDCG@10 non-inferior: 95% CI lower bound of A - F200 >= -0.01",
+      "value": "+0.0052, CI [+0.0001, +0.0106]",
+      "passed": true
+    },
+    {
+      "criterion": "candidate recall non-inferior: mean A - F200 >= -0.01",
+      "value": "+0.0000",
+      "passed": true
+    },
+    {
+      "criterion": "mean candidates scored <= 0.6x F200",
+      "value": "0.436x (87.1 vs 200.0)",
+      "passed": true
+    },
+    {
+      "criterion": "p95 latency <= 0.9x F200",
+      "value": "0.908x (48.98 ms vs 53.92 ms)",
+      "passed": false
+    },
+    {
+      "criterion": "p99 latency <= 1.0x F200",
+      "value": "0.852x (55.42 ms vs 65.03 ms)",
+      "passed": true
+    },
+    {
+      "criterion": "exact replay reproduces every adaptive selection and budget decision",
+      "value": "489/489",
+      "passed": true
+    },
+    {
+      "criterion": "zero scope and temporal violations (all strategies)",
+      "value": "0",
+      "passed": true
+    }
+  ],
+  "adopt": false
+}

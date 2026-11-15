@@ -1,0 +1,18 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 7
+  },
+  "commit": "041c1e25615d08bc0dc2c236577e2e2c980378c0",
+  "crowded_services": 15,
+  "experiment": "009-adaptive-budgets",
+  "held_out": false,
+  "notes_per_service": 30,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "store": "postgres"
+}
