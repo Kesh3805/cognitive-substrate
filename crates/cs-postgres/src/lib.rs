@@ -1173,8 +1173,8 @@ impl CognitiveStore for PgStore {
         sqlx::query(
             "INSERT INTO recall_traces (id, tenant_id, policy, scoring_version, query_hash, \
              query_text, embedding_model, embedding_version, data_snapshot, executed_at, \
-             belief_candidates, dense, query_embedding) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+             belief_candidates, dense, query_embedding, budget) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         )
         .bind(t.id.0)
         .bind(t.tenant_id.0)
@@ -1189,6 +1189,7 @@ impl CognitiveStore for PgStore {
         .bind(Json(&t.belief_candidates))
         .bind(Json(&t.dense))
         .bind(t.query_embedding.clone().map(pgvector::Vector::from))
+        .bind(t.budget.map(Json))
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1295,6 +1296,10 @@ impl CognitiveStore for PgStore {
             query_embedding: query_embedding.map(|v| v.to_vec()),
             data_snapshot: row.try_get("data_snapshot").map_err(db_err)?,
             executed_at: row.try_get("executed_at").map_err(db_err)?,
+            budget: row
+                .try_get::<Option<Json<cs_memory::BudgetDecision>>, _>("budget")
+                .map_err(db_err)?
+                .map(|Json(b)| b),
         }))
     }
     // ---- M3 (implemented in m3.rs) -------------------------------------------
