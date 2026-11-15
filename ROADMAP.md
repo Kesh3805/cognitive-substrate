@@ -90,9 +90,9 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 - Held-out result: nDCG +0.35, candidate recall +52 pp, no regressions, but p95 latency 1.70× (gate 1.25×). **Not adopted**; `v1` stays the default ([results](benchmarks/005-candidate-generation/RESULTS.md)).
 - Experiment 006: the lexical channel answered in **one** store round trip (tested against its reference on both stores), with the strategy order rotated per query, on new held-out seeds. Every gate passed (nDCG@10 +0.35, p95 latency 1.08×). **`channels { lexical: 100, dense: 0 }` is the default**; v1 stays selectable as the frozen control ([results](benchmarks/006-single-round-trip-lexical/RESULTS.md)).
 
-### M5.3 — ANN economics
+### ✅ M5.3 — ANN economics (experiment 007: not adopted)
 
-- HNSW vs exact kNN under per-scope filtering; execution replay pinned to recorded candidate sets; activation gates.
+- Per-space HNSW with iterative scans against exact filtered kNN on the same eligibility filters, with 100k vectors, skewed tenants and per-query plan verification. **No selectivity stratum passed.** HNSW was slower everywhere (p95 0.57× at the 40% tenant, down to 0.003× for tiny scopes) and lost recall in selective scopes (0.55 and 0.19, with underfill). Dense search stays exact (ADR-0023, [results](benchmarks/007-ann-under-filtering/RESULTS.md)).
 
 ### M5.4 — Knowledge gaps
 
