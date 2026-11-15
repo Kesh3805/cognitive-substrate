@@ -30,3 +30,5 @@ These rules are enforced in code review and, where noted, by tests.
 21. **Derived knowledge follows its support.** A purge flags citing derivations in the same transaction; losing support invalidates the derivation and demotes its memory to `candidate`.
 22. **Execution status is not outcome, and self-judgment never promotes.** Success needs a deterministic or independent verification; aborts and silent runs count as failures (ADR-0021).
 23. **Capability evidence cannot be inflated by repetition.** Success rates and Wilson bounds are computed over input classes, not runs; failing production runs ratchet into locked regression cases.
+24. **A weak recall is not a knowledge gap.** Misses become needs only when a recall opts in, at the present time; demand and evidence availability are separate; asking establishes demand, not absence (ADR-0024).
+25. **Absence is declared by people, on complete evidence.** Validation reports complete or incomplete searches; the detector does not propose gaps (experiment 008), and a gap can be confirmed only after a complete search found nothing.
