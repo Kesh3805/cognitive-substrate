@@ -8,8 +8,8 @@
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
-    EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
-    RecallTraceId, Result, ScopeFilter, TenantId,
+    EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId, MemoryRevisionId, ObservationId,
+    ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -18,8 +18,8 @@ use cs_memory::{
     ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
-    need::{InformationNeed, NeedStatus, TermStats},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
+    need::{InformationNeed, NeedStatus, TermStats},
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -460,8 +460,7 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
 
     async fn get_need(&self, id: InformationNeedId) -> Result<Option<InformationNeed>>;
 
-    async fn find_need(&self, partition: &str, signature: &str)
-    -> Result<Option<InformationNeed>>;
+    async fn find_need(&self, partition: &str, signature: &str) -> Result<Option<InformationNeed>>;
 
     /// Needs the caller can read, by acquisition order of recency
     /// (`last_seen` DESC, then id).

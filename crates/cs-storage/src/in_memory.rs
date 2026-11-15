@@ -12,8 +12,8 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
-    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId,
-    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
+    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, InformationNeedId,
+    JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
     temporal::truncate_micros,
 };
 use cs_memory::{
@@ -22,11 +22,11 @@ use cs_memory::{
     Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
-    need::{InformationNeed, NeedStatus, TermStats},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
         EntityStatus, KnowledgeEdge, Projection, entity_id_for, partition_scope,
     },
+    need::{InformationNeed, NeedStatus, TermStats},
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -1417,11 +1417,7 @@ impl CognitiveStore for InMemoryStore {
         Ok(self.lock().needs.get(&id).cloned())
     }
 
-    async fn find_need(
-        &self,
-        partition: &str,
-        signature: &str,
-    ) -> Result<Option<InformationNeed>> {
+    async fn find_need(&self, partition: &str, signature: &str) -> Result<Option<InformationNeed>> {
         Ok(self
             .lock()
             .needs
@@ -1498,9 +1494,9 @@ impl CognitiveStore for InMemoryStore {
             return Err(Error::conflict("information need changed; reload it"));
         }
         if expected_version.is_none()
-            && s.needs.values().any(|n| {
-                n.partition == need.partition && n.signature.key() == need.signature.key()
-            })
+            && s.needs
+                .values()
+                .any(|n| n.partition == need.partition && n.signature.key() == need.signature.key())
         {
             return Err(Error::conflict("this need is already recorded"));
         }

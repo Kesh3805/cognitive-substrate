@@ -90,7 +90,10 @@ impl PgStore {
         })
     }
 
-    pub(crate) async fn m54_get_need(&self, id: InformationNeedId) -> Result<Option<InformationNeed>> {
+    pub(crate) async fn m54_get_need(
+        &self,
+        id: InformationNeedId,
+    ) -> Result<Option<InformationNeed>> {
         let row: Option<Json<InformationNeed>> =
             sqlx::query_scalar("SELECT body FROM information_needs WHERE id = $1")
                 .bind(id.0)
@@ -229,7 +232,11 @@ impl PgStore {
         Ok(need.clone())
     }
 
-    pub(crate) async fn m54_purge_need(&self, id: InformationNeedId, event: EventDraft) -> Result<()> {
+    pub(crate) async fn m54_purge_need(
+        &self,
+        id: InformationNeedId,
+        event: EventDraft,
+    ) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         let r = sqlx::query("DELETE FROM information_needs WHERE id = $1")
             .bind(id.0)
