@@ -34,6 +34,7 @@ mod m3;
 mod m4;
 mod m43;
 mod m44;
+mod m54;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -1486,6 +1487,63 @@ impl CognitiveStore for PgStore {
         limit: u32,
     ) -> Result<Vec<cs_memory::entity::Entity>> {
         self.m4_partition_entities(partition, limit).await
+    }
+
+    async fn term_stats(
+        &self,
+        query: &MemoryQuery,
+        terms: &[String],
+    ) -> Result<cs_memory::need::TermStats> {
+        self.m54_term_stats(query, terms).await
+    }
+
+    async fn get_need(
+        &self,
+        id: cs_core::InformationNeedId,
+    ) -> Result<Option<cs_memory::need::InformationNeed>> {
+        self.m54_get_need(id).await
+    }
+
+    async fn find_need(
+        &self,
+        partition: &str,
+        signature: &str,
+    ) -> Result<Option<cs_memory::need::InformationNeed>> {
+        self.m54_find_need(partition, signature).await
+    }
+
+    async fn list_needs(
+        &self,
+        access: &AccessContext,
+        status: Option<cs_memory::need::NeedStatus>,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::need::InformationNeed>> {
+        self.m54_list_needs(access, status, limit).await
+    }
+
+    async fn observe_need(
+        &self,
+        template: &cs_memory::need::InformationNeed,
+        session_key: &str,
+        trace: RecallTraceId,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<cs_memory::need::InformationNeed> {
+        self.m54_observe_need(template, session_key, trace, at, event)
+            .await
+    }
+
+    async fn write_need(
+        &self,
+        need: &cs_memory::need::InformationNeed,
+        expected_version: Option<u32>,
+        event: EventDraft,
+    ) -> Result<cs_memory::need::InformationNeed> {
+        self.m54_write_need(need, expected_version, event).await
+    }
+
+    async fn purge_need(&self, id: cs_core::InformationNeedId, event: EventDraft) -> Result<()> {
+        self.m54_purge_need(id, event).await
     }
 
     async fn insert_execution(
