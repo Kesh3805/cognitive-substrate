@@ -194,6 +194,78 @@ fn project_ids(access: &AccessContext) -> Vec<Uuid> {
     access.project_ids.iter().map(|p| p.0).collect()
 }
 
+/// Joins the embedding of the queried space that was available at the
+/// as-of time (`$5` model, `$6` version, `$9` as-of transaction time).
+const EMBEDDING_JOIN: &str = "LEFT JOIN memory_embeddings e ON e.revision_id = m.revision_id \
+     AND e.model_name = $5 AND e.model_version = $6 \
+     AND (e.embedded_at IS NULL OR e.embedded_at <= $9)";
+
+/// The eligibility filters of a [`MemoryQuery`] over alias `m`, using the
+/// parameters bound by [`bind_memory_query`] (`$1`–`$16`). Every memory
+/// candidate query uses exactly these, so authorization and bitemporal
+/// rules cannot drift between query shapes.
+fn memory_filters() -> String {
+    let access = access_sql(
+        [
+            "m.tenant_id",
+            "m.owner_user_id",
+            "m.agent_id",
+            "m.project_id",
+            "m.visibility::text",
+        ],
+        [1, 2, 3, 4],
+    );
+    format!(
+        "{access} \
+         AND m.domain::text = ANY($7) \
+         AND m.status::text = ANY($8) \
+         AND lower(m.transaction_time) <= $9 \
+         AND ($10 OR m.transaction_time @> $9) \
+         AND ($16 OR m.valid_time @> $11) \
+         AND (m.expires_at IS NULL OR m.expires_at > $9) \
+         AND ($12::uuid IS NULL OR m.project_id = $12) \
+         AND ($13::uuid IS NULL OR m.conversation_id = $13) \
+         AND ($14::uuid IS NULL OR m.agent_id = $14)"
+    )
+}
+
+/// Bind `$1`–`$16` for [`memory_filters`] and [`EMBEDDING_JOIN`]
+/// (`$15` is the query's limit).
+fn bind_memory_query<'q>(
+    query: sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>,
+    q: &'q MemoryQuery,
+) -> sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments> {
+    let filter = q.scope_filter.clone().unwrap_or_default();
+    let (model, version) = q.embedding_model.clone().unwrap_or_default();
+    let domains: Vec<&str> = q.domains.iter().map(|d| d.as_str()).collect();
+    let statuses: Vec<&str> = q.statuses.iter().map(|s| s.as_str()).collect();
+    query
+        .bind(q.access.tenant_id.0)
+        .bind(q.access.user_id.map(|u| u.0))
+        .bind(q.access.agent_id.map(|a| a.0))
+        .bind(project_ids(&q.access))
+        .bind(model)
+        .bind(version)
+        .bind(domains)
+        .bind(statuses)
+        .bind(q.as_of_transaction_time)
+        .bind(q.include_superseded)
+        .bind(q.as_of_valid_time)
+        .bind(filter.project_id.map(|p| p.0))
+        .bind(filter.conversation_id.map(|c| c.0))
+        .bind(filter.agent_id.map(|a| a.0))
+        .bind(i64::from(q.limit))
+        .bind(q.ignore_valid_time)
+}
+
+fn stored_from_row(row: &PgRow) -> Result<StoredMemory> {
+    let embedding: Option<pgvector::Vector> = row.try_get("embedding").map_err(db_err)?;
+    Ok(StoredMemory {
+        record: memory_from_row(row)?,
+        embedding: embedding.map(|v| v.to_vec()),
+    })
+}
+
 const MEMORY_COLS: &str = "m.revision_id, m.memory_id, m.revision_number, m.tenant_id, \
     m.owner_user_id, m.agent_id, m.project_id, m.conversation_id, m.visibility::text AS visibility, \
     m.content, m.provenance, m.valid_time, m.transaction_time, m.status::text AS status, \
@@ -678,16 +750,6 @@ impl CognitiveStore for PgStore {
     }
 
     async fn query_memories(&self, q: &MemoryQuery) -> Result<Vec<StoredMemory>> {
-        let access = access_sql(
-            [
-                "m.tenant_id",
-                "m.owner_user_id",
-                "m.agent_id",
-                "m.project_id",
-                "m.visibility::text",
-            ],
-            [1, 2, 3, 4],
-        );
         // The candidate orders of the shared contract. `$17` is the order's
         // own parameter (terms or query vector), bound only when used.
         let recent = "lower(m.transaction_time) DESC, m.revision_id ASC";
@@ -707,59 +769,75 @@ impl CognitiveStore for PgStore {
                 "ORDER BY (e.embedding <=> $17::vector) ASC, m.revision_id ASC".to_owned(),
             ),
         };
+        let filters = memory_filters();
         let sql = format!(
             "SELECT {MEMORY_COLS}, e.embedding FROM memory_records m \
-             LEFT JOIN memory_embeddings e ON e.revision_id = m.revision_id \
-                 AND e.model_name = $5 AND e.model_version = $6 \
-                 AND (e.embedded_at IS NULL OR e.embedded_at <= $9) \
-             WHERE {access} \
-               AND m.domain::text = ANY($7) \
-               AND m.status::text = ANY($8) \
-               AND lower(m.transaction_time) <= $9 \
-               AND ($10 OR m.transaction_time @> $9) \
-               AND ($16 OR m.valid_time @> $11) \
-               AND (m.expires_at IS NULL OR m.expires_at > $9) \
-               AND ($12::uuid IS NULL OR m.project_id = $12) \
-               AND ($13::uuid IS NULL OR m.conversation_id = $13) \
-               AND ($14::uuid IS NULL OR m.agent_id = $14) \
+             {EMBEDDING_JOIN} \
+             WHERE {filters} \
                {order_filter} \
              {order} \
              LIMIT $15"
         );
-        let filter = q.scope_filter.clone().unwrap_or_default();
-        let (model, version) = q.embedding_model.clone().unwrap_or_default();
-        let domains: Vec<&str> = q.domains.iter().map(|d| d.as_str()).collect();
-        let statuses: Vec<&str> = q.statuses.iter().map(|s| s.as_str()).collect();
-        let query = sqlx::query(&sql)
-            .bind(q.access.tenant_id.0)
-            .bind(q.access.user_id.map(|u| u.0))
-            .bind(q.access.agent_id.map(|a| a.0))
-            .bind(project_ids(&q.access))
-            .bind(model)
-            .bind(version)
-            .bind(domains)
-            .bind(statuses)
-            .bind(q.as_of_transaction_time)
-            .bind(q.include_superseded)
-            .bind(q.as_of_valid_time)
-            .bind(filter.project_id.map(|p| p.0))
-            .bind(filter.conversation_id.map(|c| c.0))
-            .bind(filter.agent_id.map(|a| a.0))
-            .bind(i64::from(q.limit))
-            .bind(q.ignore_valid_time);
+        let query = bind_memory_query(sqlx::query(&sql), q);
         let query = match &q.order {
             cs_storage::CandidateOrder::Recent => query,
             cs_storage::CandidateOrder::Lexical(terms) => query.bind(terms.clone()),
             cs_storage::CandidateOrder::Nearest(v) => query.bind(pgvector::Vector::from(v.clone())),
         };
         let rows = query.fetch_all(&self.pool).await.map_err(db_err)?;
+        rows.iter().map(stored_from_row).collect()
+    }
+
+    /// One round trip: the lexical candidates, the recency window and the
+    /// fill are CTEs over the same filters, and only the chosen rows are
+    /// returned (never more than `limit`).
+    async fn lexical_then_recent(
+        &self,
+        q: &MemoryQuery,
+        terms: &[String],
+        lexical: u32,
+    ) -> Result<Vec<cs_storage::ChanneledMemory>> {
+        let filters = memory_filters();
+        let recent = "lower(m.transaction_time) DESC, m.revision_id ASC";
+        let sql = format!(
+            "WITH lex AS ( \
+                 SELECT m.revision_id FROM memory_records m \
+                 WHERE {filters} AND m.index_terms && $17::text[] \
+                 ORDER BY cardinality(ARRAY(SELECT unnest(m.index_terms) \
+                          INTERSECT SELECT unnest($17::text[]))) DESC, {recent} \
+                 LIMIT LEAST($18, $15)), \
+             win AS ( \
+                 SELECT m.revision_id, lower(m.transaction_time) AS tx FROM memory_records m \
+                 WHERE {filters} ORDER BY {recent} LIMIT $15), \
+             fill AS ( \
+                 SELECT w.revision_id FROM win w \
+                 WHERE NOT EXISTS (SELECT 1 FROM lex l WHERE l.revision_id = w.revision_id) \
+                 ORDER BY w.tx DESC, w.revision_id ASC \
+                 LIMIT GREATEST($15 - (SELECT count(*) FROM lex), 0)) \
+             SELECT {MEMORY_COLS}, e.embedding, \
+                 EXISTS (SELECT 1 FROM lex l WHERE l.revision_id = m.revision_id) AS from_lexical, \
+                 EXISTS (SELECT 1 FROM win w WHERE w.revision_id = m.revision_id) AS from_recent \
+             FROM memory_records m {EMBEDDING_JOIN} \
+             WHERE m.revision_id IN (SELECT revision_id FROM lex \
+                                     UNION ALL SELECT revision_id FROM fill)"
+        );
+        let terms: Vec<String> = if lexical > 0 {
+            terms.to_vec()
+        } else {
+            Vec::new()
+        };
+        let rows = bind_memory_query(sqlx::query(&sql), q)
+            .bind(terms)
+            .bind(i64::from(lexical))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
         rows.iter()
             .map(|row| {
-                let embedding: Option<pgvector::Vector> =
-                    row.try_get("embedding").map_err(db_err)?;
-                Ok(StoredMemory {
-                    record: memory_from_row(row)?,
-                    embedding: embedding.map(|v| v.to_vec()),
+                Ok(cs_storage::ChanneledMemory {
+                    lexical: row.try_get("from_lexical").map_err(db_err)?,
+                    recent: row.try_get("from_recent").map_err(db_err)?,
+                    memory: stored_from_row(row)?,
                 })
             })
             .collect()
