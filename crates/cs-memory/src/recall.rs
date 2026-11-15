@@ -57,6 +57,37 @@ pub struct RecallPolicy {
     /// Record a miss as an information need (M5.4). Off by default, so
     /// recall never writes unless asked. Only present-time recalls record.
     pub record_information_needs: bool,
+    /// Fixed (the full budget at once) or adaptive (a small first pass,
+    /// expanded only when the lexical channel was saturated).
+    pub budget: CandidateBudget,
+}
+
+/// How much of the candidate budget a recall uses (M5.5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum CandidateBudget {
+    /// The full `max_candidates` budget at once.
+    #[default]
+    Fixed,
+    /// A first pass with `initial` candidates and `initial_lexical` lexical
+    /// slots. If the lexical channel fills every slot (more records sharing
+    /// terms may exist beyond it), the recall runs again at the full
+    /// budget. Requires lexical-only channels.
+    Adaptive { initial: u32, initial_lexical: u32 },
+}
+
+/// What an adaptive budget did, recorded in the trace so that replay
+/// re-derives the same decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BudgetDecision {
+    pub initial: u32,
+    pub initial_lexical: u32,
+    /// Lexical candidates the first pass found.
+    pub lexical_found: u32,
+    /// The lexical channel filled every first-pass slot, so more records
+    /// sharing terms may exist: the recall ran again at the full budget.
+    /// This says the first pass was truncated, not that expanding helps.
+    pub lexical_saturated: bool,
 }
 
 /// Candidate generation strategy. Every strategy fills the same budget
@@ -141,6 +172,7 @@ impl Default for RecallPolicy {
             include_retracted_beliefs: false,
             candidates: CandidateGeneration::ADOPTED,
             record_information_needs: false,
+            budget: CandidateBudget::Fixed,
         }
     }
 }
@@ -160,6 +192,30 @@ impl RecallPolicy {
                 "max_candidates must be in 1..={}",
                 Self::MAX_CANDIDATES
             )));
+        }
+        if let CandidateBudget::Adaptive {
+            initial,
+            initial_lexical,
+        } = self.budget
+        {
+            if !matches!(
+                self.candidates,
+                CandidateGeneration::Channels { lexical, dense: 0 } if lexical > 0
+            ) {
+                return Err(Error::validation(
+                    "an adaptive budget needs lexical-only candidate channels",
+                ));
+            }
+            if initial == 0
+                || initial > self.max_candidates
+                || initial_lexical == 0
+                || initial_lexical > initial
+                || self.max_results > initial
+            {
+                return Err(Error::validation(
+                    "adaptive budget needs 0 < initial_lexical <= initial <= max_candidates                      and max_results <= initial",
+                ));
+            }
         }
         if self.max_results == 0 || self.max_results > self.max_candidates {
             return Err(Error::validation(
@@ -274,6 +330,9 @@ pub struct RecallTrace {
     pub data_snapshot: String,
     #[serde(with = "time::serde::rfc3339")]
     pub executed_at: OffsetDateTime,
+    /// Set when the policy's budget was adaptive.
+    #[serde(default)]
+    pub budget: Option<BudgetDecision>,
 }
 
 impl RecallTrace {

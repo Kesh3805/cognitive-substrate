@@ -31,8 +31,8 @@ pub use proposal::{
     ResolutionOperation, ResolutionProposal, ResolutionRationale, ResolutionSignal,
 };
 pub use recall::{
-    CandidateChannel, CandidateGeneration, DenseStatus, RecallBeliefCandidate, RecallCandidate,
-    RecallPolicy, RecallTrace,
+    BudgetDecision, CandidateBudget, CandidateChannel, CandidateGeneration, DenseStatus,
+    RecallBeliefCandidate, RecallCandidate, RecallPolicy, RecallTrace,
 };
 pub use record::{
     CapabilityStage, EpisodicMemory, MemoryContent, MemoryDomain, MemoryRecord, MemoryStatus,
