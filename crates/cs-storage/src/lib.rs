@@ -66,6 +66,68 @@ pub enum CandidateOrder {
     Nearest(Vec<f32>),
 }
 
+/// The reference semantics of [`CognitiveStore::lexical_then_recent`]:
+/// the lexical and recency orders issued separately and merged. Stores
+/// that answer in one round trip are tested against this.
+pub async fn lexical_then_recent_reference<S: CognitiveStore + ?Sized>(
+    store: &S,
+    query: &MemoryQuery,
+    terms: &[String],
+    lexical: u32,
+) -> Result<Vec<ChanneledMemory>> {
+    let lex = if lexical > 0 && !terms.is_empty() {
+        store
+            .query_memories(&MemoryQuery {
+                limit: lexical.min(query.limit),
+                order: CandidateOrder::Lexical(terms.to_vec()),
+                ..query.clone()
+            })
+            .await?
+    } else {
+        Vec::new()
+    };
+    let recent = store
+        .query_memories(&MemoryQuery {
+            order: CandidateOrder::Recent,
+            ..query.clone()
+        })
+        .await?;
+    let window: std::collections::HashSet<MemoryRevisionId> =
+        recent.iter().map(|m| m.record.revision_id).collect();
+    let picked: std::collections::HashSet<MemoryRevisionId> =
+        lex.iter().map(|m| m.record.revision_id).collect();
+    let mut out: Vec<ChanneledMemory> = lex
+        .into_iter()
+        .map(|m| ChanneledMemory {
+            lexical: true,
+            recent: window.contains(&m.record.revision_id),
+            memory: m,
+        })
+        .collect();
+    for m in recent {
+        if out.len() >= query.limit as usize {
+            break;
+        }
+        if !picked.contains(&m.record.revision_id) {
+            out.push(ChanneledMemory {
+                lexical: false,
+                recent: true,
+                memory: m,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// A candidate from [`CognitiveStore::lexical_then_recent`], with the
+/// channels that proposed it.
+#[derive(Debug, Clone)]
+pub struct ChanneledMemory {
+    pub memory: StoredMemory,
+    pub lexical: bool,
+    pub recent: bool,
+}
+
 /// Deterministic order: transaction start DESC, then revision id ASC.
 #[derive(Debug, Clone)]
 pub struct StoredMemory {
@@ -125,6 +187,23 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     async fn memory_history(&self, id: MemoryId) -> Result<Vec<MemoryRecord>>;
 
     async fn query_memories(&self, query: &MemoryQuery) -> Result<Vec<StoredMemory>>;
+
+    /// Lexical candidates, then the recency fill, as one operation: up to
+    /// `lexical` revisions in [`CandidateOrder::Lexical`] order, then the
+    /// newest revisions not among them, `query.limit` in total. A result is
+    /// labelled `recent` when it is among the `query.limit` newest.
+    ///
+    /// This default is the reference semantics (two orders, merged). A
+    /// store may answer in one round trip but must return the same set
+    /// and labels; the conformance suite compares them.
+    async fn lexical_then_recent(
+        &self,
+        query: &MemoryQuery,
+        terms: &[String],
+        lexical: u32,
+    ) -> Result<Vec<ChanneledMemory>> {
+        lexical_then_recent_reference(self, query, terms, lexical).await
+    }
 
     /// Governance hard delete of every revision and derived embedding.
     async fn purge_memory(&self, id: MemoryId, event: EventDraft) -> Result<CognitiveEvent>;
