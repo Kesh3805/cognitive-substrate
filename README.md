@@ -94,6 +94,7 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 |---|---|
 | **Measured adoption** | A retrieval change becomes a default only through a preregistered experiment on held-out seeds. v1 recall (the newest 200 candidates) stays selectable as a frozen control. |
 | **Lexical candidate channel (default)** | Old but relevant memories are found at the same candidate budget, in one store round trip, and each candidate records the channel that proposed it. Experiment 005 found the gain but missed its latency gate. Experiment 006, run on new seeds, passed every gate: nDCG@10 +0.35, p95 latency 1.08×. |
+| **Exact dense search, by evidence** | Experiment 007 found per-space HNSW slower than exact search at every scope selectivity, and unable to find enough results in narrow scopes. Dense candidates stay exact and replayable (ADR-0023). |
 | **Benchmark harness** | `cs-bench` regenerates a seeded corpus bit for bit, runs every strategy and reports paired bootstrap confidence intervals and pass/fail on each preregistered gate. |
 
 ## Quick start
