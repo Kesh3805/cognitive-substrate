@@ -115,3 +115,87 @@ pub async fn channels_reach_beyond_the_recency_window(h: &Harness) {
             .is_err()
     );
 }
+
+/// A store's single-operation lexical channel returns exactly the set and
+/// labels of the reference semantics (two orders, merged).
+pub async fn lexical_channel_matches_its_reference(h: &Harness) {
+    let texts = [
+        "Billing stores invoices in Cassandra",
+        "Billing owns the invoice pipeline",
+        "Search indexes products nightly",
+        "Invoices are archived after a year",
+        "Billing runs in eu-west-1",
+        "Deploys happen on Fridays",
+        "Cassandra backs the ledger",
+        "Payments depend on billing",
+        "Standup moved to ten",
+        "The ledger stores invoices too",
+        "Lunch is at noon",
+        "Billing invoices are emailed monthly",
+    ];
+    for t in texts {
+        h.tick(1);
+        h.engine
+            .create_memory(&h.alice, h.fact(h.alice_scope(), t))
+            .await
+            .unwrap();
+    }
+    // Out of scope: must never appear.
+    h.engine
+        .create_memory(
+            &h.bob,
+            cs_engine::NewMemory {
+                scope: cs_core::Scope::private(h.tenant, h.bob.user_id.unwrap()),
+                ..h.fact(h.alice_scope(), "Billing stores invoices in Cassandra")
+            },
+        )
+        .await
+        .unwrap();
+    h.tick(1);
+    let store = h.engine.store();
+    let now = cs_core::Clock::now(h.clock.as_ref());
+    let base = |limit: u32| cs_storage::MemoryQuery {
+        access: h.alice.clone(),
+        domains: cs_memory::MemoryDomain::ALL.to_vec(),
+        statuses: vec![cs_memory::MemoryStatus::Active],
+        scope_filter: None,
+        as_of_valid_time: now,
+        as_of_transaction_time: now,
+        include_superseded: false,
+        ignore_valid_time: false,
+        embedding_model: None,
+        limit,
+        order: cs_storage::CandidateOrder::Recent,
+    };
+    let terms = cs_memory::lexical::terms("billing invoices cassandra");
+    for (limit, lexical, terms) in [
+        (5, 3, terms.clone()),
+        (5, 0, terms.clone()),
+        (5, 9, terms.clone()),
+        (4, 2, Vec::new()),
+        (20, 4, terms.clone()),
+    ] {
+        let q = base(limit);
+        let got = store
+            .lexical_then_recent(&q, &terms, lexical)
+            .await
+            .unwrap();
+        let want = cs_storage::lexical_then_recent_reference(store.as_ref(), &q, &terms, lexical)
+            .await
+            .unwrap();
+        let key = |v: &[cs_storage::ChanneledMemory]| {
+            let mut k: Vec<_> = v
+                .iter()
+                .map(|c| (c.memory.record.revision_id, c.lexical, c.recent))
+                .collect();
+            k.sort();
+            k
+        };
+        assert_eq!(key(&got), key(&want), "limit {limit}, lexical {lexical}");
+        assert!(got.len() <= limit as usize);
+        assert!(
+            got.iter().all(|c| h.alice.can_read(&c.memory.record.scope)),
+            "never out of scope"
+        );
+    }
+}

@@ -904,5 +904,8 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         drift_quarantines_and_aborts_count,
     );
     use m5::*;
-    scenario!(channels_reach_beyond_the_recency_window);
+    scenario!(
+        channels_reach_beyond_the_recency_window,
+        lexical_channel_matches_its_reference,
+    );
 }
