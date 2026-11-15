@@ -779,6 +779,27 @@ impl CognitiveEngine {
         use cs_storage::CandidateOrder;
         let mut picked: Vec<cs_storage::StoredMemory> = Vec::new();
         let mut channels: BTreeMap<MemoryRevisionId, BTreeSet<Ch>> = BTreeMap::new();
+        // Lexical-only channels: one store operation (one round trip where
+        // the store supports it), same set and labels as the general path.
+        if let CandidateGeneration::Channels { lexical, dense: 0 } = policy.candidates {
+            let terms = cs_memory::lexical::terms(query);
+            let found = self
+                .store
+                .lexical_then_recent(&base, &terms, lexical)
+                .await?;
+            for c in found {
+                let mut set = BTreeSet::new();
+                if c.lexical {
+                    set.insert(Ch::Lexical);
+                }
+                if c.recent {
+                    set.insert(Ch::Recent);
+                }
+                channels.insert(c.memory.record.revision_id, set);
+                picked.push(c.memory);
+            }
+            return Ok((picked, channels));
+        }
         let mut add = |found: Vec<cs_storage::StoredMemory>, ch: Ch, room: usize| {
             for m in found {
                 let rev = m.record.revision_id;
