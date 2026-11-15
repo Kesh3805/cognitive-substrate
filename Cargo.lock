@@ -555,6 +555,7 @@ dependencies = [
  "cs-storage",
  "serde",
  "serde_json",
+ "sqlx",
  "time",
  "tokio",
  "uuid",
