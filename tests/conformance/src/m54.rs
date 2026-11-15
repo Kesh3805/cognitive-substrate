@@ -161,14 +161,32 @@ pub async fn validation_is_complete_or_says_so(h: &Harness) {
     assert_eq!(gap.need.origin, NeedOrigin::Explicit);
 
     // Framing words alone ("current deployment status") are not evidence:
-    // helios appears nowhere, so validation proposes a candidate gap.
+    // helios appears nowhere, so the complete search finds nothing. The
+    // detector does not propose a gap (experiment 008); status is kept.
     let v = h.engine.validate_need(&h.alice, gap.need.id).await.unwrap();
-    assert_eq!(v.need.status, NeedStatus::CandidateGap);
+    assert_eq!(v.need.status, NeedStatus::Unresolved);
     assert_eq!(
         v.need.validation.as_ref().unwrap().outcome,
         GapValidationOutcome::CompleteNoEvidence
     );
-    // Only a person turns it into a validated gap.
+    // A person may confirm a gap only after such a search.
+    let unsearched = h
+        .engine
+        .ask(&h.alice, ask("Who audits the kiln registry?"))
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.engine
+            .confirm_gap(
+                &h.alice,
+                unsearched.need.id,
+                NeedChange {
+                    reason: "sure".into()
+                }
+            )
+            .await,
+        Err(Error::Conflict(_))
+    ));
     let c = h
         .engine
         .confirm_gap(
@@ -217,7 +235,7 @@ pub async fn validation_is_complete_or_says_so(h: &Harness) {
 
     // Priority ranks open needs above closed ones.
     let list = h.engine.list_needs(&h.alice, None, None).await.unwrap();
-    assert_eq!(list.len(), 3);
+    assert_eq!(list.len(), 4);
     assert_eq!(
         list[0].need.id, gap.need.id,
         "the validated gap ranks first"
