@@ -1,0 +1,161 @@
+{
+  "strata": [
+    [
+      "present_direct",
+      {
+        "questions": 400,
+        "statuses": {
+          "candidate_gap": 216,
+          "satisfied": 184
+        },
+        "incomplete": 0,
+        "error_rate": 0.54,
+        "error_upper_95": 0.5882310640841653,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ],
+    [
+      "present_paraphrased",
+      {
+        "questions": 400,
+        "statuses": {
+          "candidate_gap": 375,
+          "satisfied": 25
+        },
+        "incomplete": 0,
+        "error_rate": 0.9375,
+        "error_upper_95": 0.9573111565641887,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ],
+    [
+      "present_unvalidated",
+      {
+        "questions": 363,
+        "statuses": {
+          "pending_promotion": 363
+        },
+        "incomplete": 0,
+        "error_rate": 0.0,
+        "error_upper_95": 0.010472094767878016,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ],
+    [
+      "absent_standard",
+      {
+        "questions": 397,
+        "statuses": {
+          "candidate_gap": 397
+        },
+        "incomplete": 0,
+        "error_rate": 0.0,
+        "error_upper_95": 0.009583835609876816,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ],
+    [
+      "absent_boilerplate",
+      {
+        "questions": 369,
+        "statuses": {
+          "candidate_gap": 369
+        },
+        "incomplete": 0,
+        "error_rate": 0.0,
+        "error_upper_95": 0.010303571275308334,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ],
+    [
+      "absent_other_scope",
+      {
+        "questions": 359,
+        "statuses": {
+          "candidate_gap": 359
+        },
+        "incomplete": 0,
+        "error_rate": 0.0,
+        "error_upper_95": 0.010587540127703108,
+        "silently_satisfied": 0,
+        "leaked": 0
+      }
+    ]
+  ],
+  "auto_validate_gates": [
+    {
+      "criterion": "false-gap rate, present direct ≤ 0.01 (95% upper ≤ 0.02)",
+      "value": "0.5400 (upper 0.5882, n = 400)",
+      "passed": false
+    },
+    {
+      "criterion": "false-gap rate, present paraphrased ≤ 0.1 (95% upper ≤ 0.15)",
+      "value": "0.9375 (upper 0.9573, n = 400)",
+      "passed": false
+    },
+    {
+      "criterion": "false-gap rate, present unvalidated ≤ 0.01 (95% upper ≤ 0.02)",
+      "value": "0.0000 (upper 0.0105, n = 363)",
+      "passed": true
+    },
+    {
+      "criterion": "missed-gap rate, absent standard ≤ 0.03 (95% upper ≤ 0.05)",
+      "value": "0.0000 (upper 0.0096, n = 397)",
+      "passed": true
+    },
+    {
+      "criterion": "missed-gap rate, absent boilerplate ≤ 0.05 (95% upper ≤ 0.08)",
+      "value": "0.0000 (upper 0.0103, n = 369)",
+      "passed": true
+    },
+    {
+      "criterion": "missed-gap rate, absent (other scope) ≤ 0",
+      "value": "0.0000 (upper 0.0106, n = 359)",
+      "passed": true
+    },
+    {
+      "criterion": "zero evidence leaked from other scopes",
+      "value": "0",
+      "passed": true
+    },
+    {
+      "criterion": "zero unvalidated-only evidence reported as satisfied",
+      "value": "0",
+      "passed": true
+    }
+  ],
+  "propose_only_gates": [
+    {
+      "criterion": "false-gap rate, present direct ≤ 0.05",
+      "value": "0.5400 (upper 0.5882, n = 400)",
+      "passed": false
+    },
+    {
+      "criterion": "missed-gap rate, absent standard ≤ 0.08",
+      "value": "0.0000 (upper 0.0096, n = 397)",
+      "passed": true
+    },
+    {
+      "criterion": "missed-gap rate, absent boilerplate ≤ 0.1",
+      "value": "0.0000 (upper 0.0103, n = 369)",
+      "passed": true
+    },
+    {
+      "criterion": "zero evidence leaked from other scopes",
+      "value": "0",
+      "passed": true
+    },
+    {
+      "criterion": "zero unvalidated-only evidence reported as satisfied",
+      "value": "0",
+      "passed": true
+    }
+  ],
+  "automatic_validation_permitted": false,
+  "gap_proposals_permitted": false
+}

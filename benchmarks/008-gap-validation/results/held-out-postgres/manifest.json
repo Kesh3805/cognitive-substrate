@@ -1,0 +1,17 @@
+{
+  "commit": "f867e49ddfcde9ddbd735f82ed398b767994fc1c",
+  "detector": "idf-coverage/1",
+  "experiment": "008-gap-validation",
+  "held_out": true,
+  "per_stratum": 80,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    401,
+    402,
+    403,
+    404,
+    405
+  ],
+  "signature_version": 1,
+  "store": "postgres"
+}
