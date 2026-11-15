@@ -24,6 +24,6 @@ benchmarks/
 | 006 | [Lexical channel in one store round trip](006-single-round-trip-lexical/PREREGISTRATION.md) | **Done: adopted** ([results](006-single-round-trip-lexical/RESULTS.md)) |
 | 007 | [HNSW vs exact search under per-scope filtering](007-ann-under-filtering/PREREGISTRATION.md) | **Done: not adopted** (no stratum passed; [results](007-ann-under-filtering/RESULTS.md)) |
 | 008 | [How far gap validation can be trusted](008-gap-validation/PREREGISTRATION.md) | **Done: gap proposals withdrawn** (both tiers failed; [results](008-gap-validation/RESULTS.md)) |
-| 009 | [Adaptive candidate budgets](009-adaptive-budgets/PREREGISTRATION.md) | Preregistered |
+| 009 | [Adaptive candidate budgets](009-adaptive-budgets/PREREGISTRATION.md) | **Done: not adopted** (p95 gate failed, 0.96×; [results](009-adaptive-budgets/RESULTS.md)) |
 
 See [the research program](../docs/research/research-program.md).

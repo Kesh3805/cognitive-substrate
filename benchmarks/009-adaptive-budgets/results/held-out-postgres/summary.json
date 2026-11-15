@@ -1,0 +1,436 @@
+{
+  "overall": {
+    "A": {
+      "queries": 785,
+      "ndcg": 0.7717156186227191,
+      "mrr": 0.717019512688302,
+      "recall": 0.9643312101910828,
+      "candidate_recall": 0.9808917197452229,
+      "candidates": 96.81528662420382,
+      "round_trips": 1.0,
+      "latency_p50_ms": 18.992829999999998,
+      "latency_p95_ms": 30.624052,
+      "latency_p99_ms": 37.811766,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": 0.31210191082802546
+    },
+    "F200": {
+      "queries": 785,
+      "ndcg": 0.77013289780516,
+      "mrr": 0.7150677383479929,
+      "recall": 0.9630573248407643,
+      "candidate_recall": 0.9808917197452229,
+      "candidates": 200.0,
+      "round_trips": 1.0,
+      "latency_p50_ms": 26.412672,
+      "latency_p95_ms": 31.945394,
+      "latency_p99_ms": 38.54614,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": null
+    },
+    "F50": {
+      "queries": 785,
+      "ndcg": 0.6479145109173194,
+      "mrr": 0.6127590739055706,
+      "recall": 0.7777070063694268,
+      "candidate_recall": 0.789171974522293,
+      "candidates": 50.0,
+      "round_trips": 1.0,
+      "latency_p50_ms": 19.131638,
+      "latency_p95_ms": 24.60715,
+      "latency_p99_ms": 30.602596,
+      "scope_violations": 0,
+      "temporal_violations": 0,
+      "expansion_rate": null
+    }
+  },
+  "by_family": {
+    "crowded": {
+      "A": {
+        "queries": 75,
+        "ndcg": 0.4384842816457915,
+        "mrr": 0.30544973544973536,
+        "recall": 0.88,
+        "candidate_recall": 0.88,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 29.083398,
+        "latency_p95_ms": 37.811766,
+        "latency_p99_ms": 50.643168,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 1.0
+      },
+      "F200": {
+        "queries": 75,
+        "ndcg": 0.4384842816457915,
+        "mrr": 0.30544973544973536,
+        "recall": 0.88,
+        "candidate_recall": 0.88,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 29.267018,
+        "latency_p95_ms": 39.321512000000006,
+        "latency_p99_ms": 87.41198299999999,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 75,
+        "ndcg": 0.013333333333333334,
+        "mrr": 0.013333333333333334,
+        "recall": 0.013333333333333334,
+        "candidate_recall": 0.013333333333333334,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 20.815823,
+        "latency_p95_ms": 29.515269,
+        "latency_p99_ms": 59.03575,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "direct": {
+      "A": {
+        "queries": 250,
+        "ndcg": 0.8922478529584347,
+        "mrr": 0.8789,
+        "recall": 0.988,
+        "candidate_recall": 0.992,
+        "candidates": 72.8,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.645498,
+        "latency_p95_ms": 28.632728999999998,
+        "latency_p99_ms": 36.188883,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.152
+      },
+      "F200": {
+        "queries": 250,
+        "ndcg": 0.8890091965651722,
+        "mrr": 0.8739,
+        "recall": 0.988,
+        "candidate_recall": 0.992,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 26.17475,
+        "latency_p95_ms": 31.502557,
+        "latency_p99_ms": 36.953779,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 250,
+        "ndcg": 0.8370112064626075,
+        "mrr": 0.8282333333333334,
+        "recall": 0.922,
+        "candidate_recall": 0.922,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.502034000000002,
+        "latency_p95_ms": 23.688869,
+        "latency_p99_ms": 27.648626,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "lexicaltrap": {
+      "A": {
+        "queries": 66,
+        "ndcg": 0.9157610195346368,
+        "mrr": 0.8914141414141413,
+        "recall": 0.9848484848484849,
+        "candidate_recall": 0.9848484848484849,
+        "candidates": 81.81818181818181,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.690683,
+        "latency_p95_ms": 28.245375,
+        "latency_p99_ms": 29.398382,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.21212121212121213
+      },
+      "F200": {
+        "queries": 66,
+        "ndcg": 0.9137772353896149,
+        "mrr": 0.8888888888888888,
+        "recall": 0.9848484848484849,
+        "candidate_recall": 0.9848484848484849,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 26.240755,
+        "latency_p95_ms": 29.919520000000002,
+        "latency_p99_ms": 30.994432999999997,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 66,
+        "ndcg": 0.7941895193181849,
+        "mrr": 0.7803030303030303,
+        "recall": 0.8333333333333334,
+        "candidate_recall": 0.8333333333333334,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 19.423496,
+        "latency_p95_ms": 23.162136,
+        "latency_p99_ms": 26.530324,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "scope": {
+      "A": {
+        "queries": 50,
+        "ndcg": 0.98,
+        "mrr": 0.98,
+        "recall": 0.98,
+        "candidate_recall": 0.98,
+        "candidates": 68.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.319886,
+        "latency_p95_ms": 29.863071,
+        "latency_p99_ms": 33.463904,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.12
+      },
+      "F200": {
+        "queries": 50,
+        "ndcg": 0.9726185950714291,
+        "mrr": 0.97,
+        "recall": 0.98,
+        "candidate_recall": 0.98,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 26.391725,
+        "latency_p95_ms": 29.288525999999997,
+        "latency_p99_ms": 31.466400999999998,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 50,
+        "ndcg": 0.94,
+        "mrr": 0.94,
+        "recall": 0.94,
+        "candidate_recall": 0.94,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 19.453812,
+        "latency_p95_ms": 22.888454,
+        "latency_p99_ms": 23.386423,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "semantic": {
+      "A": {
+        "queries": 250,
+        "ndcg": 0.6054432437517339,
+        "mrr": 0.4975730158730159,
+        "recall": 0.952,
+        "candidate_recall": 1.0,
+        "candidates": 71.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.343608,
+        "latency_p95_ms": 26.963647,
+        "latency_p99_ms": 29.942494,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.14
+      },
+      "F200": {
+        "queries": 250,
+        "ndcg": 0.6071884377635751,
+        "mrr": 0.5011111111111112,
+        "recall": 0.948,
+        "candidate_recall": 1.0,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 25.613413,
+        "latency_p95_ms": 31.664327999999998,
+        "latency_p99_ms": 37.904548000000005,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 250,
+        "ndcg": 0.5656794486606286,
+        "mrr": 0.4698301587301587,
+        "recall": 0.872,
+        "candidate_recall": 0.908,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 18.023602999999998,
+        "latency_p95_ms": 23.668242,
+        "latency_p99_ms": 30.014635000000002,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    },
+    "temporal": {
+      "A": {
+        "queries": 94,
+        "ndcg": 0.9473131705167195,
+        "mrr": 0.9361702127659575,
+        "recall": 0.9787234042553191,
+        "candidate_recall": 0.9787234042553191,
+        "candidates": 172.87234042553192,
+        "round_trips": 1.0,
+        "latency_p50_ms": 27.562364,
+        "latency_p95_ms": 36.392362999999996,
+        "latency_p99_ms": 45.033188,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": 0.8191489361702128
+      },
+      "F200": {
+        "queries": 94,
+        "ndcg": 0.9433868912993945,
+        "mrr": 0.9308510638297872,
+        "recall": 0.9787234042553191,
+        "candidate_recall": 0.9787234042553191,
+        "candidates": 200.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 27.467978000000002,
+        "latency_p95_ms": 32.569072,
+        "latency_p99_ms": 56.433861,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      },
+      "F50": {
+        "queries": 94,
+        "ndcg": 0.6119544575987854,
+        "mrr": 0.6063829787234043,
+        "recall": 0.6276595744680851,
+        "candidate_recall": 0.6276595744680851,
+        "candidates": 50.0,
+        "round_trips": 1.0,
+        "latency_p50_ms": 20.716585,
+        "latency_p95_ms": 25.042082999999998,
+        "latency_p99_ms": 39.147033,
+        "scope_violations": 0,
+        "temporal_violations": 0,
+        "expansion_rate": null
+      }
+    }
+  },
+  "deltas": {
+    "A-F200 candidate_recall": {
+      "mean": 0.0,
+      "lower": 0.0,
+      "upper": 0.0
+    },
+    "A-F200 mrr": {
+      "mean": 0.0019517743403093726,
+      "lower": -0.0020503488019411585,
+      "upper": 0.005944798301486199
+    },
+    "A-F200 ndcg": {
+      "mean": 0.0015827208175591635,
+      "lower": -0.0013656064479731188,
+      "upper": 0.004504078347079289
+    },
+    "A-F50 candidate_recall": {
+      "mean": 0.19171974522292995,
+      "lower": 0.1643312101910828,
+      "upper": 0.21910828025477708
+    },
+    "A-F50 mrr": {
+      "mean": 0.10426043878273179,
+      "lower": 0.08503336366393695,
+      "upper": 0.12379536952785371
+    },
+    "A-F50 ndcg": {
+      "mean": 0.12380110770540007,
+      "lower": 0.10338187064761782,
+      "upper": 0.1443738086698069
+    }
+  },
+  "expansions": {
+    "expanded": 245,
+    "recovered_relevant": 153,
+    "missed_by_signal": 0,
+    "replays": 785,
+    "replays_identical": 785
+  },
+  "latency_by_expansion": {
+    "A expanded": {
+      "queries": 245,
+      "p50_ms": 28.196041,
+      "p95_ms": 36.200017,
+      "p99_ms": 41.688927
+    },
+    "A not_expanded": {
+      "queries": 540,
+      "p50_ms": 18.330672,
+      "p95_ms": 21.135859,
+      "p99_ms": 23.770982
+    },
+    "F200 expanded": {
+      "queries": 245,
+      "p50_ms": 27.851569,
+      "p95_ms": 35.365066,
+      "p99_ms": 56.433861
+    },
+    "F200 not_expanded": {
+      "queries": 540,
+      "p50_ms": 25.790263,
+      "p95_ms": 29.995893,
+      "p99_ms": 36.558225
+    }
+  },
+  "gates": [
+    {
+      "criterion": "nDCG@10 non-inferior: 95% CI lower bound of A - F200 >= -0.01",
+      "value": "+0.0016, CI [-0.0014, +0.0045]",
+      "passed": true
+    },
+    {
+      "criterion": "candidate recall non-inferior: mean A - F200 >= -0.01",
+      "value": "+0.0000",
+      "passed": true
+    },
+    {
+      "criterion": "mean candidates scored <= 0.6x F200",
+      "value": "0.484x (96.8 vs 200.0)",
+      "passed": true
+    },
+    {
+      "criterion": "p95 latency <= 0.9x F200",
+      "value": "0.959x (30.62 ms vs 31.95 ms)",
+      "passed": false
+    },
+    {
+      "criterion": "p99 latency <= 1.0x F200",
+      "value": "0.981x (37.81 ms vs 38.55 ms)",
+      "passed": true
+    },
+    {
+      "criterion": "exact replay reproduces every adaptive selection and budget decision",
+      "value": "785/785",
+      "passed": true
+    },
+    {
+      "criterion": "zero scope and temporal violations (all strategies)",
+      "value": "0",
+      "passed": true
+    }
+  ],
+  "adopt": false
+}
