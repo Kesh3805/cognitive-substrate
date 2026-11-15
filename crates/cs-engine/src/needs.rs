@@ -119,13 +119,15 @@ impl CognitiveEngine {
         }
     }
 
+    /// Term statistics over exactly the population being searched.
     async fn stats(
         &self,
         ctx: &AccessContext,
         sig: &Signature,
         at: OffsetDateTime,
+        statuses: Vec<MemoryStatus>,
     ) -> Result<TermStats> {
-        let q = self.need_query(ctx, at, vec![MemoryStatus::Active]);
+        let q = self.need_query(ctx, at, statuses);
         self.store.term_stats(&q, &sig.terms).await
     }
 
@@ -156,7 +158,11 @@ impl CognitiveEngine {
             return Ok(None);
         }
         let at = trace.executed_at;
-        let stats = self.stats(ctx, &sig, at).await?;
+        let mut statuses = vec![MemoryStatus::Active];
+        if trace.policy.include_candidates {
+            statuses.push(MemoryStatus::Candidate);
+        }
+        let stats = self.stats(ctx, &sig, at, statuses).await?;
         let qualifying: Vec<&MemoryRecord> = trace
             .candidates
             .iter()
@@ -369,7 +375,10 @@ impl CognitiveEngine {
             return Err(Error::conflict(format!("need is {}", need.status.as_str())));
         }
         let now = self.now();
-        let stats = self.stats(ctx, &need.signature, now).await?;
+        let searched = vec![MemoryStatus::Active, MemoryStatus::Candidate];
+        let stats = self
+            .stats(ctx, &need.signature, now, searched.clone())
+            .await?;
         // Every revision that could qualify shares a term with the need,
         // so the lexical order over all of them is a complete search.
         let found = self
@@ -377,11 +386,7 @@ impl CognitiveEngine {
             .query_memories(&MemoryQuery {
                 limit: VALIDATION_BUDGET + 1,
                 order: CandidateOrder::Lexical(need.signature.terms.clone()),
-                ..self.need_query(
-                    ctx,
-                    now,
-                    vec![MemoryStatus::Active, MemoryStatus::Candidate],
-                )
+                ..self.need_query(ctx, now, searched)
             })
             .await?;
         let examined = u32::try_from(found.len()).unwrap_or(u32::MAX);
