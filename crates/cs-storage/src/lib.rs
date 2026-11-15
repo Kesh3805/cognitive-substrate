@@ -93,6 +93,16 @@ pub async fn lexical_then_recent_reference<S: CognitiveStore + ?Sized>(
             ..query.clone()
         })
         .await?;
+    Ok(merge_channels(lex, recent, query.limit))
+}
+
+/// Lexical candidates first, then the newest of `recent` not among them,
+/// `limit` in total. `recent` is the recency window, newest first.
+fn merge_channels(
+    lex: Vec<StoredMemory>,
+    recent: Vec<StoredMemory>,
+    limit: u32,
+) -> Vec<ChanneledMemory> {
     let window: std::collections::HashSet<MemoryRevisionId> =
         recent.iter().map(|m| m.record.revision_id).collect();
     let picked: std::collections::HashSet<MemoryRevisionId> =
@@ -106,7 +116,7 @@ pub async fn lexical_then_recent_reference<S: CognitiveStore + ?Sized>(
         })
         .collect();
     for m in recent {
-        if out.len() >= query.limit as usize {
+        if out.len() >= limit as usize {
             break;
         }
         if !picked.contains(&m.record.revision_id) {
@@ -117,7 +127,78 @@ pub async fn lexical_then_recent_reference<S: CognitiveStore + ?Sized>(
             });
         }
     }
-    Ok(out)
+    out
+}
+
+/// The result of [`CognitiveStore::adaptive_lexical_then_recent`]: the
+/// candidates, and the first-pass facts the expansion was decided from.
+#[derive(Debug, Clone)]
+pub struct AdaptiveCandidates {
+    pub candidates: Vec<ChanneledMemory>,
+    /// Lexical candidates within the first pass's `initial_lexical` slots.
+    pub lexical_found: u32,
+    /// Shared query terms of the first and of the last of them.
+    pub best_overlap: u32,
+    pub cut_overlap: u32,
+    /// Every first-pass lexical slot was filled and the cut fell inside the
+    /// best tier, so the full budget was used.
+    pub saturated: bool,
+}
+
+/// The reference semantics of
+/// [`CognitiveStore::adaptive_lexical_then_recent`]: the lexical order up
+/// to the full quota, decided from its first `initial_lexical` entries,
+/// then merged with the recency window of the chosen size.
+pub async fn adaptive_lexical_then_recent_reference<S: CognitiveStore + ?Sized>(
+    store: &S,
+    query: &MemoryQuery,
+    terms: &[String],
+    lexical: u32,
+    initial: u32,
+    initial_lexical: u32,
+) -> Result<AdaptiveCandidates> {
+    let mut lex = if lexical > 0 && !terms.is_empty() {
+        store
+            .query_memories(&MemoryQuery {
+                limit: lexical.min(query.limit),
+                order: CandidateOrder::Lexical(terms.to_vec()),
+                ..query.clone()
+            })
+            .await?
+    } else {
+        Vec::new()
+    };
+    let first = initial_lexical.min(initial) as usize;
+    let overlaps: Vec<u32> = lex
+        .iter()
+        .take(first)
+        .map(|m| {
+            let t = m.record.content.index_terms();
+            u32::try_from(cs_memory::lexical::overlap(terms, &t)).unwrap_or(u32::MAX)
+        })
+        .collect();
+    let lexical_found = u32::try_from(overlaps.len()).unwrap_or(u32::MAX);
+    let best_overlap = overlaps.first().copied().unwrap_or(0);
+    let cut_overlap = overlaps.last().copied().unwrap_or(0);
+    let saturated = lexical_found >= initial_lexical && cut_overlap == best_overlap;
+    let limit = if saturated { query.limit } else { initial };
+    if !saturated {
+        lex.truncate(first);
+    }
+    let recent = store
+        .query_memories(&MemoryQuery {
+            limit,
+            order: CandidateOrder::Recent,
+            ..query.clone()
+        })
+        .await?;
+    Ok(AdaptiveCandidates {
+        candidates: merge_channels(lex, recent, limit),
+        lexical_found,
+        best_overlap,
+        cut_overlap,
+        saturated,
+    })
 }
 
 /// A candidate from [`CognitiveStore::lexical_then_recent`], with the
@@ -204,6 +285,35 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         lexical: u32,
     ) -> Result<Vec<ChanneledMemory>> {
         lexical_then_recent_reference(self, query, terms, lexical).await
+    }
+
+    /// An adaptive [`Self::lexical_then_recent`] in one operation. A first
+    /// pass would admit `initial_lexical` lexical candidates within
+    /// `initial` in total. If it fills every lexical slot and the last
+    /// shares as many query terms as the first (the cut falls inside the
+    /// best tier), the result is the full `lexical_then_recent(query,
+    /// terms, lexical)`; otherwise it is the first pass. Requires
+    /// `initial_lexical <= initial <= query.limit`.
+    ///
+    /// This default is the reference semantics. A store may answer in one
+    /// round trip but must return the same set, labels and decision.
+    async fn adaptive_lexical_then_recent(
+        &self,
+        query: &MemoryQuery,
+        terms: &[String],
+        lexical: u32,
+        initial: u32,
+        initial_lexical: u32,
+    ) -> Result<AdaptiveCandidates> {
+        adaptive_lexical_then_recent_reference(
+            self,
+            query,
+            terms,
+            lexical,
+            initial,
+            initial_lexical,
+        )
+        .await
     }
 
     /// Governance hard delete of every revision and derived embedding.
