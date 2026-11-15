@@ -50,6 +50,7 @@ pub async fn channels_reach_beyond_the_recency_window(h: &Harness) {
     let recall = |c| RecallRequest {
         query: query.into(),
         policy: policy(c),
+        session: None,
     };
 
     // v1 (frozen control): the old fact is outside the newest five.

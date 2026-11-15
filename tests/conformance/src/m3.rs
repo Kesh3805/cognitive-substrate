@@ -329,6 +329,7 @@ pub async fn purge_during_extraction_discards_effects(h: &Harness) {
                     include_candidates: true,
                     ..RecallPolicy::default()
                 },
+                session: None,
             },
         )
         .await
@@ -602,6 +603,7 @@ pub async fn contradiction_quarantines_memories(h: &Harness) {
             RecallRequest {
                 query: "port".into(),
                 policy: RecallPolicy::default(),
+                session: None,
             },
         )
         .await
@@ -676,6 +678,7 @@ pub async fn beliefs_are_recalled_with_evidence(h: &Harness) {
             RecallRequest {
                 query: "postgres write throughput".into(),
                 policy: RecallPolicy::default(),
+                session: None,
             },
         )
         .await
@@ -712,6 +715,7 @@ pub async fn beliefs_are_recalled_with_evidence(h: &Harness) {
             RecallRequest {
                 query: "postgres write throughput".into(),
                 policy: RecallPolicy::default(),
+                session: None,
             },
         )
         .await
@@ -728,6 +732,7 @@ pub async fn beliefs_are_recalled_with_evidence(h: &Harness) {
                     include_beliefs: false,
                     ..RecallPolicy::default()
                 },
+                session: None,
             },
         )
         .await

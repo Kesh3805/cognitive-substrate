@@ -93,6 +93,7 @@ fn recall(q: &str) -> RecallRequest {
     RecallRequest {
         query: q.into(),
         policy: RecallPolicy::default(),
+        session: None,
     }
 }
 

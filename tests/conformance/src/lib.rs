@@ -14,6 +14,7 @@ pub mod m4;
 pub mod m43;
 pub mod m44;
 pub mod m5;
+pub mod m54;
 
 use std::sync::Arc;
 
@@ -136,6 +137,7 @@ fn recall(query: &str) -> RecallRequest {
             min_score: 0.05,
             ..RecallPolicy::default()
         },
+        session: None,
     }
 }
 
@@ -907,5 +909,10 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
     scenario!(
         channels_reach_beyond_the_recency_window,
         lexical_channel_matches_its_reference,
+    );
+    use m54::*;
+    scenario!(
+        misses_become_needs_and_evidence_satisfies_them,
+        validation_is_complete_or_says_so,
     );
 }

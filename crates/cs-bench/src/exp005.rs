@@ -181,6 +181,7 @@ pub async fn run_seed_with(
                     RecallRequest {
                         query: q.text.clone(),
                         policy: policy(strategy),
+                        session: None,
                     },
                 )
                 .await
