@@ -207,6 +207,61 @@ pub async fn lexical_channel_matches_its_reference(h: &Harness) {
             "never out of scope"
         );
     }
+
+    // The adaptive operation: same set, labels and decision as its
+    // reference, whether or not the budget expands.
+    let one = |t: &str| cs_memory::lexical::terms(t);
+    for (limit, lexical, initial, initial_lexical, terms, saturated) in [
+        (20, 8, 5, 1, terms.clone(), true),
+        (20, 8, 5, 3, terms.clone(), false),
+        (20, 8, 6, 4, terms.clone(), false),
+        (20, 8, 4, 3, one("billing"), true),
+        (6, 8, 4, 3, one("billing"), true),
+        (20, 8, 4, 2, one("lunch"), false),
+        (20, 8, 4, 2, Vec::new(), false),
+    ] {
+        let q = base(limit);
+        let got = store
+            .adaptive_lexical_then_recent(&q, &terms, lexical, initial, initial_lexical)
+            .await
+            .unwrap();
+        let want = cs_storage::adaptive_lexical_then_recent_reference(
+            store.as_ref(),
+            &q,
+            &terms,
+            lexical,
+            initial,
+            initial_lexical,
+        )
+        .await
+        .unwrap();
+        let key = |v: &cs_storage::AdaptiveCandidates| {
+            let mut k: Vec<_> = v
+                .candidates
+                .iter()
+                .map(|c| (c.memory.record.revision_id, c.lexical, c.recent))
+                .collect();
+            k.sort();
+            (
+                k,
+                v.lexical_found,
+                v.best_overlap,
+                v.cut_overlap,
+                v.saturated,
+            )
+        };
+        let case = format!("{limit}/{lexical}/{initial}/{initial_lexical} {terms:?}");
+        assert_eq!(key(&got), key(&want), "{case}");
+        assert_eq!(got.saturated, saturated, "{case}");
+        let cap = if saturated { limit } else { initial };
+        assert!(got.candidates.len() <= cap as usize, "{case}");
+        assert!(
+            got.candidates
+                .iter()
+                .all(|c| h.alice.can_read(&c.memory.record.scope)),
+            "never out of scope"
+        );
+    }
 }
 
 /// An adaptive budget expands only when the lexical channel saturates,
@@ -319,7 +374,7 @@ pub async fn adaptive_budgets_expand_only_when_saturated(h: &Harness) {
             .budget
             .is_none()
     );
-    for (initial, initial_lexical) in [(30, 4), (4, 5), (2, 1)] {
+    for (initial, initial_lexical) in [(30, 4), (4, 5), (2, 1), (12, 11)] {
         assert!(
             h.engine
                 .recall(&h.alice, adaptive(initial, initial_lexical))
