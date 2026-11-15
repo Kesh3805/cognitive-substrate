@@ -54,6 +54,9 @@ pub struct RecallPolicy {
     /// How the candidate set is generated. The default is the frozen v1
     /// control (the newest `max_candidates` revisions).
     pub candidates: CandidateGeneration,
+    /// Record a miss as an information need (M5.4). Off by default, so
+    /// recall never writes unless asked. Only present-time recalls record.
+    pub record_information_needs: bool,
 }
 
 /// Candidate generation strategy. Every strategy fills the same budget
@@ -137,6 +140,7 @@ impl Default for RecallPolicy {
             include_disputed_beliefs: true,
             include_retracted_beliefs: false,
             candidates: CandidateGeneration::ADOPTED,
+            record_information_needs: false,
         }
     }
 }
