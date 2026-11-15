@@ -94,9 +94,11 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 
 - Per-space HNSW with iterative scans against exact filtered kNN on the same eligibility filters, with 100k vectors, skewed tenants and per-query plan verification. **No selectivity stratum passed.** HNSW was slower everywhere (p95 0.57× at the 40% tenant, down to 0.003× for tiny scopes) and lost recall in selective scopes (0.55 and 0.19, with underfill). Dense search stays exact (ADR-0023, [results](benchmarks/007-ann-under-filtering/RESULTS.md)).
 
-### M5.4 — Knowledge gaps
+### ✅ M5.4 — Information needs and knowledge gaps (experiment 008: gap proposals withdrawn)
 
-- Unresolved information needs vs. retrieval failures; validated gaps; an acquisition-priority heuristic (not called information gain until priors are calibrated).
+- Retrieval failures, unresolved needs and gaps kept apart; demand (sessions, occurrences) separate from availability (status, evidence); opt-in, present-time, private recording; versioned lexical signatures, purgeable (ADR-0024).
+- Detector `idf-coverage/1` (smoothed IDF over the searched population); complete-or-incomplete validation; `pending_promotion` when evidence is only unvalidated; acquisition priority v1 as an inspectable heuristic.
+- Experiment 008 (held-out, about 2,300 questions): never wrong about absence (0 missed gaps), but 54% false gaps on direct questions about present facts (every verbose one) and 94% on paraphrases. **The detector does not propose gaps**; a person confirms one after a complete, empty search ([results](benchmarks/008-gap-validation/RESULTS.md)).
 
 ### M5.5 — Adaptive budgets
 
