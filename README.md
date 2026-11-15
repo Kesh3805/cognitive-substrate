@@ -88,12 +88,12 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Suites and a failure ratchet** | Positive, negative, boundary and regression cases gate promotion. A production run that fails verification becomes a locked regression case that every later version must pass. |
 | **Drift quarantine** | A run of failures, or a recent window that is confidently failing, quarantines a capability automatically. Quarantine can be reinstated; deprecation is final. |
 
-### Retrieval experiments (M5, in progress)
+### Retrieval experiments (M5)
 
 | Capability | What it means |
 |---|---|
-| **Frozen baseline** | v1 recall (the newest 200 candidates) stays the default and an unchangeable control. Nothing replaces it without a preregistered experiment. |
-| **Candidate channels (opt-in)** | Lexical and exact-dense channels can pull in old but relevant memories at the same candidate budget, and each candidate records the channel that proposed it. Experiment 005 measured a large relevance gain, but the channels missed the latency gate, so they are not the default. |
+| **Measured adoption** | A retrieval change becomes a default only through a preregistered experiment on held-out seeds. v1 recall (the newest 200 candidates) stays selectable as a frozen control. |
+| **Lexical candidate channel (default)** | Old but relevant memories are found at the same candidate budget, in one store round trip, and each candidate records the channel that proposed it. Experiment 005 found the gain but missed its latency gate. Experiment 006, run on new seeds, passed every gate: nDCG@10 +0.35, p95 latency 1.08×. |
 | **Benchmark harness** | `cs-bench` regenerates a seeded corpus bit for bit, runs every strategy and reports paired bootstrap confidence intervals and pass/fail on each preregistered gate. |
 
 ## Quick start
