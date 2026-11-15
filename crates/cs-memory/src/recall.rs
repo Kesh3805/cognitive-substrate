@@ -72,8 +72,10 @@ pub enum CandidateBudget {
     /// A first pass with `initial` candidates and `initial_lexical` lexical
     /// slots. If the lexical channel is saturated (it filled every slot and
     /// the last admitted record shares as many query terms as the best, so
-    /// equally good matches may lie beyond the cut), the recall runs again
-    /// at the full budget. Requires lexical-only channels.
+    /// equally good matches may lie beyond the cut), the recall uses the
+    /// full budget instead, decided within the same store operation.
+    /// Requires lexical-only channels and `initial_lexical` within the
+    /// lexical quota.
     Adaptive { initial: u32, initial_lexical: u32 },
 }
 
@@ -91,9 +93,8 @@ pub struct BudgetDecision {
     pub cut_overlap: u32,
     /// Every lexical slot was filled and the cut fell inside the
     /// best-matching tier (`cut_overlap == best_overlap`): equally good
-    /// matches may lie beyond it, so the recall ran again at the full
-    /// budget. It says the first pass was truncated, not that expanding
-    /// helps.
+    /// matches may lie beyond it, so the recall used the full budget. It
+    /// says the first pass was truncated, not that expanding helps.
     pub lexical_saturated: bool,
 }
 
@@ -205,22 +206,24 @@ impl RecallPolicy {
             initial_lexical,
         } = self.budget
         {
-            if !matches!(
-                self.candidates,
-                CandidateGeneration::Channels { lexical, dense: 0 } if lexical > 0
-            ) {
-                return Err(Error::validation(
-                    "an adaptive budget needs lexical-only candidate channels",
-                ));
-            }
+            let lexical = match self.candidates {
+                CandidateGeneration::Channels { lexical, dense: 0 } if lexical > 0 => lexical,
+                _ => {
+                    return Err(Error::validation(
+                        "an adaptive budget needs lexical-only candidate channels",
+                    ));
+                }
+            };
             if initial == 0
                 || initial > self.max_candidates
                 || initial_lexical == 0
                 || initial_lexical > initial
+                || initial_lexical > lexical
                 || self.max_results > initial
             {
                 return Err(Error::validation(
-                    "adaptive budget needs 0 < initial_lexical <= initial <= max_candidates                      and max_results <= initial",
+                    "adaptive budget needs 0 < initial_lexical <= initial <= max_candidates, \
+                     initial_lexical <= the lexical quota and max_results <= initial",
                 ));
             }
         }
