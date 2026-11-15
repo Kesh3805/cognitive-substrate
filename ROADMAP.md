@@ -77,7 +77,7 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 
 **Exit gate:** 40 conformance scenarios pass on both stores, including self-assessment, repetition, ratchet, drift, timeout and purge cases.
 
-## M5 — Retrieval economics & active acquisition
+## ✅ M5 — Retrieval economics & active acquisition
 
 ### ✅ M5.1 — Evaluation harness and frozen baseline
 
@@ -100,9 +100,13 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 - Detector `idf-coverage/1` (smoothed IDF over the searched population); complete-or-incomplete validation; `pending_promotion` when evidence is only unvalidated; acquisition priority v1 as an inspectable heuristic.
 - Experiment 008 (held-out, about 2,300 questions): never wrong about absence (0 missed gaps), but 54% false gaps on direct questions about present facts (every verbose one) and 94% on paraphrases. **The detector does not propose gaps**; a person confirms one after a complete, empty search ([results](benchmarks/008-gap-validation/RESULTS.md)).
 
-### M5.5 — Adaptive budgets
+### ✅ M5.5 — Adaptive budgets (experiment 009: not adopted)
 
-- Deferred until fixed-budget retrieval is understood; score margins are diagnostics, not confidence, until calibrated.
+- `CandidateBudget::Adaptive { initial, initial_lexical }`: a small first pass, or the full fixed result when the lexical cut falls inside the best-matching tier. The store decides and executes it in one operation (PostgreSQL uses one statement, tested against its reference), and the decision is in the trace and replays exactly (ADR-0025).
+- Experiment 009 ran on held-out seeds, with a crowded family built to cut gold facts off. Results:
+  - **Quality:** non-inferior (nDCG@10 +0.002, CI [−0.001, +0.005]), with identical candidate recall at 0.48× the candidates scored.
+  - **The signal:** 0 misses. 62% of the expansions recovered a candidate the first pass alone lost.
+  - **Latency:** p95 0.96× against a 0.9× gate. **Not adopted**: `Fixed` stays the default and adaptive stays opt-in ([results](benchmarks/009-adaptive-budgets/RESULTS.md)).
 
 ## M6 — Reasoning
 
