@@ -84,11 +84,11 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 - `cs-bench`: a seeded, offline corpus and query generator (direct, lexical-trap, semantic, temporal and scope families; balanced recent/old targets; graded gold from generator knowledge), IR metrics and paired bootstrap CIs, and a runner that writes raw results, aggregates, preregistered gate verdicts and an environment manifest.
 - `recency_v1` frozen as the selectable control (ADR-0022).
 
-### M5.2 — Candidate generation (experiment 005: not adopted)
+### ✅ M5.2 — Candidate generation (005 not adopted; 006 adopted)
 
 - `channels` strategy: lexical (shared tokenizer, stored index terms) and exact-dense channels, recency fill, equal budget, channels recorded in traces.
 - Held-out result: nDCG +0.35, candidate recall +52 pp, no regressions, but p95 latency 1.70× (gate 1.25×). **Not adopted**; `v1` stays the default ([results](benchmarks/005-candidate-generation/RESULTS.md)).
-- Next: a cheaper channel implementation under a new preregistration.
+- Experiment 006: the lexical channel answered in **one** store round trip (tested against its reference on both stores), with the strategy order rotated per query, on new held-out seeds. Every gate passed (nDCG@10 +0.35, p95 latency 1.08×). **`channels { lexical: 100, dense: 0 }` is the default**; v1 stays selectable as the frozen control ([results](benchmarks/006-single-round-trip-lexical/RESULTS.md)).
 
 ### M5.3 — ANN economics
 
