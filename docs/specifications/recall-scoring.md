@@ -20,8 +20,10 @@ Defaults: `as_of_tx = now` and `as_of_valid = as_of_tx`. The resolved values are
 
 | Strategy | Candidate set |
 |---|---|
-| `recency_v1` (default, **frozen control**) | The newest eligible revisions: transaction start DESC, then revision id ASC |
-| `channels { lexical: L, dense: D }` | In this order, adding only revisions not already present: up to `L` **lexical** candidates, up to `D` **dense** candidates, then the newest revisions until the budget is full |
+| `recency_v1` (**frozen control**) | The newest eligible revisions: transaction start DESC, then revision id ASC |
+| `channels { lexical: L, dense: D }` | In this order, adding only revisions not already present: up to `L` **lexical** candidates, up to `D` **dense** candidates, then the newest revisions until the budget is full. Quotas are upper bounds: the set never exceeds `max_candidates`. |
+
+The default is `channels { lexical: 100, dense: 0 }`, adopted by the preregistered [experiment 006](../../benchmarks/006-single-round-trip-lexical/RESULTS.md). With `dense: 0`, a store answers the lexical candidates and the recency fill in **one** operation (`lexical_then_recent`). PostgreSQL does this in one round trip, and its answer is tested against the reference semantics (the two orders, merged). Traces recorded before this field existed record `recency_v1`, so their replays stay exact.
 
 - **Lexical channel.** Takes revisions sharing at least one term with the query, ordered by the number of shared distinct terms DESC, then the recency order. Terms follow the shared lexical contract, `cs_memory::lexical` (tokenizer v1): lowercased alphanumeric tokens, stopwords removed, distinct. Records store their terms (`index_terms`), so every store matches identically. Postgres full-text search is not used.
 - **Dense channel.** Takes revisions with a vector in the active space that was available at `as_of_tx`, ordered by exact cosine distance ASC, then revision id ASC. If the query cannot be embedded, the channel contributes nothing.
