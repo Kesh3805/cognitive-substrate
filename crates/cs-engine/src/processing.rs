@@ -49,9 +49,6 @@ pub struct ProcessingConfig {
     pub compilation: cs_memory::derivation::CompilationThresholds,
     /// Capability evaluation and quarantine policy (M4.4).
     pub capability: cs_policy::capability::CapabilityPolicy,
-    /// Let validation mark a gap without a person confirming it. Off until
-    /// experiment 008 shows the detector's false-gap rate allows it.
-    pub auto_validate_gaps: bool,
 }
 
 impl Default for ProcessingConfig {
@@ -65,7 +62,6 @@ impl Default for ProcessingConfig {
             auto_compile: true,
             compilation: cs_memory::derivation::CompilationThresholds::default(),
             capability: cs_policy::capability::CapabilityPolicy::default(),
-            auto_validate_gaps: false,
         }
     }
 }

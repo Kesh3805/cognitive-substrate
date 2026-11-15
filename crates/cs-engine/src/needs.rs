@@ -360,10 +360,11 @@ impl CognitiveEngine {
     }
 
     /// Search the caller's whole eligible substrate, as of now, for
-    /// evidence. Complete-and-empty proposes a candidate gap (or, if the
-    /// engine is configured to, validates it). Evidence satisfies the need,
-    /// or marks it pending promotion if all of it is unvalidated.
-    /// An incomplete search changes nothing but the recorded validation.
+    /// evidence. Evidence satisfies the need, or marks it pending promotion
+    /// if all of it is unvalidated. A complete search that finds nothing is
+    /// recorded but changes no status: experiment 008 showed the detector
+    /// cannot be trusted to propose gaps. An incomplete search changes
+    /// nothing but the recorded validation.
     pub async fn validate_need(
         &self,
         ctx: &AccessContext,
@@ -423,13 +424,11 @@ impl CognitiveEngine {
         };
         let expected = need.version;
         match &outcome {
-            GapValidationOutcome::CompleteNoEvidence => {
-                need.status = if self.processing.auto_validate_gaps {
-                    NeedStatus::ValidatedGap
-                } else {
-                    NeedStatus::CandidateGap
-                };
-            }
+            // Experiment 008: detector idf-coverage/1 declared present facts
+            // absent far too often (54% of direct questions) to propose
+            // gaps. A complete, empty search is recorded, but only a
+            // person turns it into a gap (`confirm_gap`).
+            GapValidationOutcome::CompleteNoEvidence => {}
             GapValidationOutcome::CompleteEvidenceFound {
                 evidence,
                 unvalidated_only,
@@ -495,7 +494,7 @@ impl CognitiveEngine {
         })
     }
 
-    /// A person confirms a candidate gap.
+    /// A person confirms a gap after a complete validation found nothing.
     pub async fn confirm_gap(
         &self,
         ctx: &AccessContext,
@@ -506,8 +505,16 @@ impl CognitiveEngine {
             return Err(Error::validation("reason must not be empty"));
         }
         self.change_need(ctx, id, "gap confirmed", |n| {
-            if n.status != NeedStatus::CandidateGap {
-                return Err(Error::conflict("only a candidate gap can be confirmed"));
+            // A person's judgement, informed by a complete search that found
+            // nothing; never the detector's alone.
+            let searched = matches!(
+                n.validation.as_ref().map(|v| &v.outcome),
+                Some(GapValidationOutcome::CompleteNoEvidence)
+            );
+            if !n.status.is_open() || !searched {
+                return Err(Error::conflict(
+                    "confirm a gap only on an open need whose latest validation was                      complete and found no evidence",
+                ));
             }
             n.status = NeedStatus::ValidatedGap;
             Ok(())
