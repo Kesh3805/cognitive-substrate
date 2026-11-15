@@ -173,6 +173,11 @@ pub struct RecallRequest {
     pub query: String,
     #[serde(default)]
     pub policy: RecallPolicy,
+    /// Opaque session key (1–128 characters) used only to count demand
+    /// for information needs: repeats within one session count once.
+    /// Defaults to the UTC day.
+    #[serde(default)]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +216,9 @@ pub struct RecallResponse {
     #[serde(default)]
     pub beliefs: Vec<RecalledBelief>,
     pub trace: RecallSummary,
+    /// Set when the policy asked to record information needs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub information_need: Option<crate::needs::NeedOutcome>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -15,6 +15,7 @@ pub mod embedding;
 mod embeddings;
 pub mod entities;
 pub mod extract;
+pub mod needs;
 mod processing;
 pub mod requests;
 pub mod worker;
@@ -913,6 +914,15 @@ impl CognitiveEngine {
         if query.is_empty() || query.chars().count() > MAX_QUERY_CHARS {
             return Err(Error::validation("query must be 1..=8192 characters"));
         }
+        if let Some(s) = &req.session
+            && (s.is_empty() || s.chars().count() > 128)
+        {
+            return Err(Error::validation("session must be 1..=128 characters"));
+        }
+        // Only present-time recalls may record or satisfy needs: a recall
+        // as of the past legitimately misses what was learned later.
+        let present =
+            req.policy.as_of_transaction_time.is_none() && req.policy.as_of_valid_time.is_none();
         let policy = self.resolve_policy(req.policy)?;
         let mut run = self.execute_recall(ctx, query, &policy, None).await?;
         let trace = self.build_trace(ctx, RecallTraceId::new_v7(), query, policy, &mut run);
@@ -1000,11 +1010,18 @@ impl CognitiveEngine {
             (None, None) => Scope::tenant(ctx.tenant_id),
         };
         self.store.insert_trace(&trace, event).await?;
+        let information_need = if present && trace.policy.record_information_needs {
+            self.observe_recall(ctx, query, req.session.as_deref(), &trace, &run.records)
+                .await?
+        } else {
+            None
+        };
         Ok(RecallResponse {
             trace_id: trace.id,
             results,
             beliefs,
             trace: summary,
+            information_need,
         })
     }
 
