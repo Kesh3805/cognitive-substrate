@@ -95,6 +95,7 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Measured adoption** | A retrieval change becomes a default only through a preregistered experiment on held-out seeds. v1 recall (the newest 200 candidates) stays selectable as a frozen control. |
 | **Lexical candidate channel (default)** | Old but relevant memories are found at the same candidate budget, in one store round trip, and each candidate records the channel that proposed it. Experiment 005 found the gain but missed its latency gate. Experiment 006, run on new seeds, passed every gate: nDCG@10 +0.35, p95 latency 1.08×. |
 | **Exact dense search, by evidence** | Experiment 007 found per-space HNSW slower than exact search at every scope selectivity, and unable to find enough results in narrow scopes. Dense candidates stay exact and replayable (ADR-0023). |
+| **Information needs (M5.4)** | Recalls that opt in record what they could not answer, kept separate from what has been shown to be missing. Validation searches completely or says it could not. Experiment 008 found the lexical detector never misses an absence but often mistakes present knowledge for a gap, so it does not propose gaps; a person confirms one after a complete, empty search. |
 | **Benchmark harness** | `cs-bench` regenerates a seeded corpus bit for bit, runs every strategy and reports paired bootstrap confidence intervals and pass/fail on each preregistered gate. |
 
 ## Quick start
@@ -254,7 +255,7 @@ cargo run --release -p cs-bench -- 005 --store memory --dev   # development seed
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md), [information needs](docs/specifications/information-needs.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage
