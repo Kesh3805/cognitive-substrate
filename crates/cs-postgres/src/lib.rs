@@ -29,6 +29,7 @@ use sqlx::{
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+pub mod ann;
 mod m3;
 mod m4;
 mod m43;
