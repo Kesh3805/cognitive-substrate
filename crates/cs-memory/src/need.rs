@@ -13,9 +13,7 @@
 //! Demand (how often a need recurs) and availability (whether evidence
 //! exists) are separate fields, and only availability decides the status.
 
-use cs_core::{
-    Error, InformationNeedId, MemoryId, MemoryRevisionId, RecallTraceId, Result, Scope,
-};
+use cs_core::{Error, InformationNeedId, MemoryId, MemoryRevisionId, RecallTraceId, Result, Scope};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -70,13 +68,22 @@ pub struct TermStats {
 }
 
 impl TermStats {
-    /// `ln(1 + N / (1 + df))` per signature term.
+    /// Smoothed IDF, `ln((N + 1) / (df + 1))`, per signature term: a term
+    /// in every eligible revision weighs nothing, an absent term the most.
+    /// If every term is ubiquitous (all weights zero), every term weighs
+    /// one, so coverage falls back to plain term coverage.
     pub fn weights(&self) -> Vec<f64> {
         let n = self.documents as f64;
-        self.frequencies
+        let w: Vec<f64> = self
+            .frequencies
             .iter()
-            .map(|df| (1.0 + n / (1.0 + *df as f64)).ln())
-            .collect()
+            .map(|df| ((n + 1.0) / (*df as f64 + 1.0)).ln().max(0.0))
+            .collect();
+        if w.iter().all(|x| *x == 0.0) {
+            vec![1.0; w.len()]
+        } else {
+            w
+        }
     }
 }
 
@@ -187,8 +194,8 @@ pub struct GapValidation {
     pub detector: String,
     #[serde(with = "time::serde::rfc3339")]
     pub as_of: OffsetDateTime,
+    /// Eligible revisions sharing at least one term with the signature.
     pub candidates_examined: u32,
-    pub trace_id: RecallTraceId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -234,12 +241,7 @@ impl InformationNeed {
     /// Apply one more miss. Demand grows; a need recurring in a second
     /// distinct session becomes unresolved. Returns whether the status
     /// changed.
-    pub fn observe(
-        &mut self,
-        new_session: bool,
-        trace: RecallTraceId,
-        at: OffsetDateTime,
-    ) -> bool {
+    pub fn observe(&mut self, new_session: bool, trace: RecallTraceId, at: OffsetDateTime) -> bool {
         self.occurrences += 1;
         if new_session {
             self.sessions += 1;
@@ -384,16 +386,48 @@ mod tests {
             frequencies: v
                 .terms
                 .iter()
-                .map(|w| if w == "orion" || w == "ledger" { 3 } else { 500 })
+                .map(|w| {
+                    if w == "orion" || w == "ledger" {
+                        3
+                    } else {
+                        500
+                    }
+                })
                 .collect(),
         };
-        assert!(qualifies(&v, &stats, &t("orion ledger stores data in postgres")));
+        assert!(qualifies(
+            &v,
+            &stats,
+            &t("orion ledger stores data in postgres")
+        ));
         let single = Signature::of("billing").unwrap();
         let one = TermStats {
             documents: 10,
             frequencies: vec![2],
         };
         assert!(qualifies(&single, &one, &t("billing exports")));
+        // A term in every document still matches when nothing is rarer.
+        let all = TermStats {
+            documents: 10,
+            frequencies: vec![10],
+        };
+        assert!(qualifies(&single, &all, &t("billing exports")));
+    }
+
+    #[test]
+    fn small_scopes_do_not_let_framing_words_tie_with_entities() {
+        let t = |x: &str| crate::lexical::terms(x);
+        // Seven documents; six say "current deployment status".
+        let s = Signature::of("current deployment status helios").unwrap();
+        let stats = TermStats {
+            documents: 7,
+            frequencies: vec![6, 6, 0, 6],
+        };
+        assert!(!qualifies(
+            &s,
+            &stats,
+            &t("the current deployment status is green")
+        ));
     }
 
     #[test]
@@ -401,7 +435,10 @@ mod tests {
         let mut n = need(NeedStatus::RetrievalFailure, 1);
         let at = datetime!(2026-01-02 0:00 UTC);
         assert!(!n.observe(false, RecallTraceId::new_v7(), at));
-        assert_eq!((n.status, n.sessions, n.occurrences), (NeedStatus::RetrievalFailure, 1, 2));
+        assert_eq!(
+            (n.status, n.sessions, n.occurrences),
+            (NeedStatus::RetrievalFailure, 1, 2)
+        );
         assert!(n.observe(true, RecallTraceId::new_v7(), at));
         assert_eq!(n.status, NeedStatus::Unresolved);
         // Demand never upgrades a need to a gap.
@@ -419,6 +456,9 @@ mod tests {
         assert!((p.sessions - 1001f64.ln()).abs() < 1e-9, "log-saturated");
         assert!((p.recency - 0.5).abs() < 1e-9, "14 days old");
         assert!((p.priority - 1001f64.ln() * 0.5 * 0.5).abs() < 1e-9);
-        assert_eq!(acquisition_priority(&need(NeedStatus::Satisfied, 5), now).priority, 0.0);
+        assert_eq!(
+            acquisition_priority(&need(NeedStatus::Satisfied, 5), now).priority,
+            0.0
+        );
     }
 }
