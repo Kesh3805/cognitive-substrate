@@ -909,6 +909,7 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
     scenario!(
         channels_reach_beyond_the_recency_window,
         lexical_channel_matches_its_reference,
+        adaptive_budgets_expand_only_when_saturated,
     );
     use m54::*;
     scenario!(

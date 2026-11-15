@@ -208,3 +208,111 @@ pub async fn lexical_channel_matches_its_reference(h: &Harness) {
         );
     }
 }
+
+/// An adaptive budget expands only when the lexical channel saturates,
+/// records its decision, and replays identically.
+pub async fn adaptive_budgets_expand_only_when_saturated(h: &Harness) {
+    use cs_memory::CandidateBudget;
+    let old = h
+        .engine
+        .create_memory(
+            &h.alice,
+            h.fact(h.alice_scope(), "Billing stores invoices in Cassandra"),
+        )
+        .await
+        .unwrap();
+    // Newer notes sharing more of the query's terms crowd the old fact out
+    // of a small lexical allocation.
+    for i in 0..6 {
+        h.tick(1);
+        h.engine
+            .create_memory(
+                &h.alice,
+                h.fact(
+                    h.alice_scope(),
+                    &format!("Note {i}: billing invoices store review moved"),
+                ),
+            )
+            .await
+            .unwrap();
+    }
+    h.tick(1);
+    let adaptive = |initial, initial_lexical| RecallRequest {
+        query: "where does billing store invoices".into(),
+        policy: RecallPolicy {
+            max_candidates: 20,
+            max_results: 3,
+            min_score: 0.0,
+            candidates: CandidateGeneration::Channels {
+                lexical: 10,
+                dense: 0,
+            },
+            budget: CandidateBudget::Adaptive {
+                initial,
+                initial_lexical,
+            },
+            ..RecallPolicy::default()
+        },
+        session: None,
+    };
+
+    // Saturated (4 lexical slots, 7 matching records): expands to 20.
+    let r = h.engine.recall(&h.alice, adaptive(4, 4)).await.unwrap();
+    let t = h.engine.get_trace(&h.alice, r.trace_id).await.unwrap();
+    let d = t.budget.unwrap();
+    assert!(d.lexical_saturated);
+    assert_eq!(d.lexical_found, 4);
+    assert!(
+        t.candidates.iter().any(|c| c.memory_id == old.id),
+        "expansion recovers the old fact"
+    );
+    assert!(
+        h.engine
+            .replay_recall(&h.alice, r.trace_id, ReplayRequest::default())
+            .await
+            .unwrap()
+            .identical
+    );
+
+    // Not saturated (10 slots, 7 matches): the first pass stands.
+    let r = h.engine.recall(&h.alice, adaptive(10, 10)).await.unwrap();
+    let t = h.engine.get_trace(&h.alice, r.trace_id).await.unwrap();
+    let d = t.budget.unwrap();
+    assert!(!d.lexical_saturated);
+    assert_eq!(d.lexical_found, 7);
+    assert!(t.candidates.len() <= 10);
+
+    // Fixed budgets record no decision; invalid adaptive budgets are refused.
+    let fixed = h
+        .engine
+        .recall(
+            &h.alice,
+            RecallRequest {
+                policy: RecallPolicy {
+                    max_candidates: 20,
+                    max_results: 3,
+                    ..RecallPolicy::default()
+                },
+                ..adaptive(4, 4)
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        h.engine
+            .get_trace(&h.alice, fixed.trace_id)
+            .await
+            .unwrap()
+            .budget
+            .is_none()
+    );
+    for (initial, initial_lexical) in [(30, 4), (4, 5), (2, 1)] {
+        assert!(
+            h.engine
+                .recall(&h.alice, adaptive(initial, initial_lexical))
+                .await
+                .is_err(),
+            "({initial}, {initial_lexical}) must be refused"
+        );
+    }
+}
