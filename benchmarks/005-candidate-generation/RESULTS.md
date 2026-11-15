@@ -65,3 +65,7 @@ A follow-up experiment should test whether a cheaper channel implementation can 
 - index-only term matching.
 
 The relevance gain measured here is not reused as evidence for that experiment.
+
+## Post-hoc note (2026-11-15) — does not change the verdict
+
+005 ran its strategies in a fixed order for every query, with `v1` always first. On development seeds, the follow-up work found that this order, together with run-to-run variance on the benchmark machine, moves the measured p95 latencies substantially: `v1`'s development p95 ranged from 35 ms to 54 ms between runs. 005's latency ratio is therefore a noisy measurement. The verdict still stands as preregistered: the gate failed as measured. Experiment [006](../006-single-round-trip-lexical/PREREGISTRATION.md) rotates the strategy order per query and is preregistered on new held-out seeds.
