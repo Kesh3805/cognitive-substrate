@@ -58,16 +58,34 @@ pub struct RecallPolicy {
 
 /// Candidate generation strategy. Every strategy fills the same budget
 /// (`max_candidates` unique revisions) so strategies compare at equal cost.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The default, `channels { lexical: 100, dense: 0 }`, was adopted by the
+/// preregistered experiment 006. `recency_v1` stays selectable as the
+/// frozen control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "strategy", rename_all = "snake_case")]
 pub enum CandidateGeneration {
     /// v1, frozen: the newest revisions by transaction time.
-    #[default]
     RecencyV1,
     /// Up to `lexical` revisions sharing the most query terms and up to
     /// `dense` nearest revisions by exact cosine similarity, deduplicated,
     /// then filled with the newest revisions up to `max_candidates`.
+    /// Quotas are upper bounds: the set never exceeds `max_candidates`.
     Channels { lexical: u32, dense: u32 },
+}
+
+impl CandidateGeneration {
+    /// The default adopted by experiment 006.
+    pub const ADOPTED: Self = Self::Channels {
+        lexical: 100,
+        dense: 0,
+    };
+}
+
+impl Default for CandidateGeneration {
+    fn default() -> Self {
+        Self::ADOPTED
+    }
 }
 
 /// Which generation channel proposed a candidate.
@@ -118,7 +136,7 @@ impl Default for RecallPolicy {
             max_belief_results: 5,
             include_disputed_beliefs: true,
             include_retracted_beliefs: false,
-            candidates: CandidateGeneration::RecencyV1,
+            candidates: CandidateGeneration::ADOPTED,
         }
     }
 }
@@ -138,13 +156,6 @@ impl RecallPolicy {
                 "max_candidates must be in 1..={}",
                 Self::MAX_CANDIDATES
             )));
-        }
-        if let CandidateGeneration::Channels { lexical, dense } = self.candidates
-            && u64::from(lexical) + u64::from(dense) > u64::from(self.max_candidates)
-        {
-            return Err(Error::validation(
-                "lexical + dense channel quotas must not exceed max_candidates",
-            ));
         }
         if self.max_results == 0 || self.max_results > self.max_candidates {
             return Err(Error::validation(
