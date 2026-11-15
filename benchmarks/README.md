@@ -22,5 +22,6 @@ benchmarks/
 | 004 | Cognitive Debt Index validity | Planned |
 | 005 | [Candidate generation: channels vs. recency](005-candidate-generation/PREREGISTRATION.md) | **Done: not adopted** (latency gate failed; [results](005-candidate-generation/RESULTS.md)) |
 | 006 | [Lexical channel in one store round trip](006-single-round-trip-lexical/PREREGISTRATION.md) | **Done: adopted** ([results](006-single-round-trip-lexical/RESULTS.md)) |
+| 007 | [HNSW vs exact search under per-scope filtering](007-ann-under-filtering/PREREGISTRATION.md) | **Done: not adopted** (no stratum passed; [results](007-ann-under-filtering/RESULTS.md)) |
 
 See [the research program](../docs/research/research-program.md).
