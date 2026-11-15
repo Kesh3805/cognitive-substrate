@@ -7,5 +7,6 @@ pub mod corpus;
 pub mod exp005;
 pub mod exp006;
 pub mod exp007;
+pub mod exp008;
 pub mod metrics;
 pub mod rng;

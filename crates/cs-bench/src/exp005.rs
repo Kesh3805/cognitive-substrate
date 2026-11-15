@@ -87,7 +87,7 @@ pub struct Row {
     pub temporal_violations: usize,
 }
 
-fn new_memory(scope: Scope, ins: &crate::corpus::Insert) -> NewMemory {
+pub(crate) fn new_memory(scope: Scope, ins: &crate::corpus::Insert) -> NewMemory {
     let content = match &ins.kind {
         InsertKind::Fact {
             service,

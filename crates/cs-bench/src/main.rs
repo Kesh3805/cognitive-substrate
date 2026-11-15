@@ -11,7 +11,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::{exp005, exp006, exp007};
+use cs_bench::{exp005, exp006, exp007, exp008};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -54,6 +54,9 @@ async fn main() -> Result<(), String> {
     let experiment = args.get(1).cloned().unwrap_or_default();
     if experiment == "007" {
         return run_007(&args).await;
+    }
+    if experiment == "008" {
+        return run_008(&args).await;
     }
     let (dir, dev_seeds, held_out): (&str, &[u64], &[u64]) = match experiment.as_str() {
         "005" => (
@@ -277,4 +280,91 @@ async fn sql_scalar(url: &str, sql: &str) -> String {
         .fetch_one(pg.pool())
         .await
         .unwrap_or_else(|_| "unknown".into())
+}
+
+async fn run_008(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let seeds: Vec<u64> = if dev {
+        exp008::DEV_SEEDS.to_vec()
+    } else {
+        exp008::HELD_OUT_SEEDS.to_vec()
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/008-gap-validation/results/{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    for seed in &seeds {
+        eprintln!("seed {seed}: generating, loading, validating");
+        rows.extend(exp008::run_seed(store(&kind).await?, *seed).await?);
+    }
+    let summary = exp008::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "008-gap-validation",
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "detector": cs_memory::need::DETECTOR_VERSION,
+        "signature_version": cs_memory::need::SIGNATURE_VERSION,
+        "per_stratum": exp008::PER_STRATUM,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "{:<20} {:>4} {:>8} {:>8} {:>6}  statuses",
+        "stratum", "n", "error", "upper", "incmpl"
+    );
+    for (s, a) in &summary.strata {
+        println!(
+            "{:<20} {:>4} {:>8.4} {:>8.4} {:>6}  {:?}",
+            format!("{s:?}"),
+            a.questions,
+            a.error_rate,
+            a.error_upper_95,
+            a.incomplete,
+            a.statuses
+        );
+    }
+    for (title, gates) in [
+        ("automatic validation", &summary.auto_validate_gates),
+        ("gap proposals", &summary.propose_only_gates),
+    ] {
+        println!("-- {title}");
+        for g in gates {
+            println!(
+                "[{}] {} — {}",
+                if g.passed { "pass" } else { "FAIL" },
+                g.criterion,
+                g.value
+            );
+        }
+    }
+    println!(
+        "automatic validation permitted: {}; gap proposals permitted: {}",
+        summary.automatic_validation_permitted, summary.gap_proposals_permitted
+    );
+    Ok(())
 }

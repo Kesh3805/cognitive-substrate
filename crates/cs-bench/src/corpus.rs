@@ -182,7 +182,7 @@ pub fn start() -> OffsetDateTime {
     time::macros::datetime!(2025-11-14 0:00 UTC)
 }
 
-fn direct(rel: Relation, svc: &str) -> String {
+pub(crate) fn direct(rel: Relation, svc: &str) -> String {
     match rel {
         Relation::Store => format!("where does {svc} store data"),
         Relation::Owner => format!("{svc} is owned by which team"),
@@ -192,7 +192,7 @@ fn direct(rel: Relation, svc: &str) -> String {
     }
 }
 
-fn semantic(rel: Relation, svc: &str) -> String {
+pub(crate) fn semantic(rel: Relation, svc: &str) -> String {
     match rel {
         Relation::Store => format!("which database backs {svc}"),
         Relation::Owner => format!("who maintains {svc}"),
