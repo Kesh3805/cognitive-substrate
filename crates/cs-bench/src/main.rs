@@ -452,6 +452,12 @@ async fn run_009(args: &[String]) -> Result<(), String> {
         );
     }
     println!("{:?}", summary.expansions);
+    for (k, l) in &summary.latency_by_expansion {
+        println!(
+            "{k:<16} n {:>4}  p50 {:>7.2}  p95 {:>7.2}  p99 {:>7.2}",
+            l.queries, l.p50_ms, l.p95_ms, l.p99_ms
+        );
+    }
     for g in &summary.gates {
         println!(
             "[{}] {} — {}",

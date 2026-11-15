@@ -91,7 +91,8 @@ pub struct Row {
     pub latency_ms: f64,
     pub scope_violations: usize,
     pub temporal_violations: usize,
-    /// Store round trips for candidate generation: 2 when expanded.
+    /// Store operations for candidate generation: one for every
+    /// strategy (the adaptive decision is taken inside the store).
     pub round_trips: u32,
     /// Adaptive only.
     pub expanded: Option<bool>,
@@ -203,7 +204,7 @@ pub async fn run_seed(store: Arc<dyn CognitiveStore>, seed: u64) -> Result<Vec<R
                     .iter()
                     .filter(|i| selected.contains(i))
                     .count(),
-                round_trips: 1 + u32::from(d.is_some_and(|d| d.lexical_saturated)),
+                round_trips: 1,
                 expanded: d.map(|d| d.lexical_saturated),
                 lexical_found: d.map(|d| d.lexical_found),
                 best_overlap: d.map(|d| d.best_overlap),
@@ -264,6 +265,25 @@ pub struct Gate {
     pub passed: bool,
 }
 
+/// Latency of one group of queries.
+#[derive(Debug, Clone, Serialize)]
+pub struct Latency {
+    pub queries: usize,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+}
+
+fn latency(rows: &[&Row]) -> Latency {
+    let l: Vec<f64> = rows.iter().map(|r| r.latency_ms).collect();
+    Latency {
+        queries: l.len(),
+        p50_ms: percentile(&l, 50.0),
+        p95_ms: percentile(&l, 95.0),
+        p99_ms: percentile(&l, 99.0),
+    }
+}
+
 /// What the expansions did (reported, not gated).
 #[derive(Debug, Clone, Serialize)]
 pub struct Expansions {
@@ -285,6 +305,9 @@ pub struct Summary {
     /// Paired deltas of A against F200 and against F50.
     pub deltas: BTreeMap<String, Interval>,
     pub expansions: Expansions,
+    /// Latency of A and of F200 on the queries A expanded, and on those it
+    /// did not.
+    pub latency_by_expansion: BTreeMap<String, Latency>,
     pub gates: Vec<Gate>,
     pub adopt: bool,
 }
@@ -373,6 +396,19 @@ pub fn summarize(rows: &[Row]) -> Summary {
         }
     }
 
+    let mut latency_by_expansion = BTreeMap::new();
+    for (label, want) in [("expanded", true), ("not_expanded", false)] {
+        let keys: BTreeSet<Key> = a
+            .iter()
+            .filter(|(_, r)| r.expanded == Some(want))
+            .map(|(k, _)| *k)
+            .collect();
+        for (name, m) in [(PRIMARY, &a), (CONTROL, &f200)] {
+            let rs: Vec<&Row> = keys.iter().filter_map(|k| m.get(k).copied()).collect();
+            latency_by_expansion.insert(format!("{name} {label}"), latency(&rs));
+        }
+    }
+
     // ---- preregistered gates for A against F200 -------------------------
     let c = &overall[CONTROL];
     let p = &overall[PRIMARY];
@@ -450,6 +486,7 @@ pub fn summarize(rows: &[Row]) -> Summary {
         by_family,
         deltas,
         expansions: ex,
+        latency_by_expansion,
         gates,
         adopt,
     }
