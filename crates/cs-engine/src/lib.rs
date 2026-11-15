@@ -63,6 +63,7 @@ struct RecallRun {
     dense: DenseStatus,
     query_embedding: Option<Vec<f32>>,
     dense_coverage: Option<f64>,
+    budget: Option<cs_memory::BudgetDecision>,
 }
 
 #[derive(Debug, Clone)]
@@ -667,7 +668,7 @@ impl CognitiveEngine {
             limit: policy.max_candidates,
             order: cs_storage::CandidateOrder::Recent,
         };
-        let (stored, channels) = self
+        let (stored, channels, budget) = self
             .generate_candidates(query, policy, query_embedding.as_deref(), base)
             .await?;
 
@@ -760,6 +761,7 @@ impl CognitiveEngine {
             dense,
             query_embedding,
             dense_coverage,
+            budget,
         })
     }
 
@@ -775,6 +777,7 @@ impl CognitiveEngine {
     ) -> Result<(
         Vec<cs_storage::StoredMemory>,
         BTreeMap<MemoryRevisionId, BTreeSet<cs_memory::CandidateChannel>>,
+        Option<cs_memory::BudgetDecision>,
     )> {
         use cs_memory::{CandidateChannel as Ch, CandidateGeneration};
         use cs_storage::CandidateOrder;
@@ -784,10 +787,50 @@ impl CognitiveEngine {
         // the store supports it), same set and labels as the general path.
         if let CandidateGeneration::Channels { lexical, dense: 0 } = policy.candidates {
             let terms = cs_memory::lexical::terms(query);
-            let found = self
-                .store
-                .lexical_then_recent(&base, &terms, lexical)
-                .await?;
+            let (found, decision) = match policy.budget {
+                cs_memory::CandidateBudget::Fixed => (
+                    self.store
+                        .lexical_then_recent(&base, &terms, lexical)
+                        .await?,
+                    None,
+                ),
+                // A small first pass; the full budget only when the lexical
+                // channel filled every slot (more term-sharing records may
+                // exist beyond it).
+                cs_memory::CandidateBudget::Adaptive {
+                    initial,
+                    initial_lexical,
+                } => {
+                    let first = self
+                        .store
+                        .lexical_then_recent(
+                            &MemoryQuery {
+                                limit: initial,
+                                ..base.clone()
+                            },
+                            &terms,
+                            initial_lexical,
+                        )
+                        .await?;
+                    let lexical_found = u32::try_from(first.iter().filter(|c| c.lexical).count())
+                        .unwrap_or(u32::MAX);
+                    let lexical_saturated = lexical_found >= initial_lexical;
+                    let decision = cs_memory::BudgetDecision {
+                        initial,
+                        initial_lexical,
+                        lexical_found,
+                        lexical_saturated,
+                    };
+                    let found = if lexical_saturated {
+                        self.store
+                            .lexical_then_recent(&base, &terms, lexical)
+                            .await?
+                    } else {
+                        first
+                    };
+                    (found, Some(decision))
+                }
+            };
             for c in found {
                 let mut set = BTreeSet::new();
                 if c.lexical {
@@ -799,7 +842,7 @@ impl CognitiveEngine {
                 channels.insert(c.memory.record.revision_id, set);
                 picked.push(c.memory);
             }
-            return Ok((picked, channels));
+            return Ok((picked, channels, decision));
         }
         let mut add = |found: Vec<cs_storage::StoredMemory>, ch: Ch, room: usize| {
             for m in found {
@@ -843,7 +886,7 @@ impl CognitiveEngine {
         // Fill (or, for v1, form) the budget with the newest revisions.
         let recent = self.store.query_memories(&base).await?;
         add(recent, Ch::Recent, budget);
-        Ok((picked, channels))
+        Ok((picked, channels, None))
     }
 
     fn snapshot(&self, policy: &RecallPolicy, dense: &DenseStatus) -> String {
@@ -903,6 +946,7 @@ impl CognitiveEngine {
             belief_candidates: std::mem::take(&mut run.belief_candidates),
             dense: run.dense.clone(),
             executed_at: self.now(),
+            budget: run.budget,
         }
     }
 
