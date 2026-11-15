@@ -21,6 +21,6 @@ benchmarks/
 | 003 | Long-horizon knowledge accumulation | Planned |
 | 004 | Cognitive Debt Index validity | Planned |
 | 005 | [Candidate generation: channels vs. recency](005-candidate-generation/PREREGISTRATION.md) | **Done: not adopted** (latency gate failed; [results](005-candidate-generation/RESULTS.md)) |
-| 006 | [Lexical channel in one store round trip](006-single-round-trip-lexical/PREREGISTRATION.md) | Preregistered |
+| 006 | [Lexical channel in one store round trip](006-single-round-trip-lexical/PREREGISTRATION.md) | **Done: adopted** ([results](006-single-round-trip-lexical/RESULTS.md)) |
 
 See [the research program](../docs/research/research-program.md).
