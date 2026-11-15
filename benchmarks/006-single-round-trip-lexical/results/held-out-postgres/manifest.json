@@ -1,0 +1,19 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 7
+  },
+  "commit": "aad00e95cfc6d8e4bf1ebf805e6d139f3eeb2e76",
+  "embedder": "cs/hashing@1 (384d)",
+  "experiment": "006-single-round-trip-lexical",
+  "held_out": true,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    201,
+    202,
+    203,
+    204,
+    205
+  ],
+  "store": "postgres"
+}

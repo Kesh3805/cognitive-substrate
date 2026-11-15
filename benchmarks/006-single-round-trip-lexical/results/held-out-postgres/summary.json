@@ -1,0 +1,277 @@
+{
+  "overall": {
+    "L": {
+      "queries": 708,
+      "ndcg": 0.8097146849114041,
+      "mrr": 0.7614675813828352,
+      "recall": 0.9844632768361582,
+      "candidate_recall": 1.0,
+      "tokens": 202.12005649717514,
+      "latency_p50_ms": 23.542227999999998,
+      "latency_p95_ms": 33.579066,
+      "scope_violations": 0,
+      "temporal_violations": 0
+    },
+    "v1": {
+      "queries": 708,
+      "ndcg": 0.45797994146684795,
+      "mrr": 0.4623352165725046,
+      "recall": 0.4872881355932203,
+      "candidate_recall": 0.4872881355932203,
+      "tokens": 198.64830508474577,
+      "latency_p50_ms": 22.396099,
+      "latency_p95_ms": 31.181348,
+      "scope_violations": 0,
+      "temporal_violations": 0
+    }
+  },
+  "by_family": {
+    "direct": {
+      "L": {
+        "queries": 250,
+        "ndcg": 0.8911192638849802,
+        "mrr": 0.8774777777777778,
+        "recall": 0.992,
+        "candidate_recall": 1.0,
+        "tokens": 202.036,
+        "latency_p50_ms": 23.755295,
+        "latency_p95_ms": 33.471199,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 250,
+        "ndcg": 0.47306473267636245,
+        "mrr": 0.5173333333333333,
+        "recall": 0.464,
+        "candidate_recall": 0.464,
+        "tokens": 200.044,
+        "latency_p50_ms": 22.388419,
+        "latency_p95_ms": 34.727036000000005,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    },
+    "lexicaltrap": {
+      "L": {
+        "queries": 62,
+        "ndcg": 0.9345197949884845,
+        "mrr": 0.9112903225806451,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "tokens": 205.24193548387098,
+        "latency_p50_ms": 23.870021,
+        "latency_p95_ms": 33.425755,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 62,
+        "ndcg": 0.4940472540898622,
+        "mrr": 0.49193548387096775,
+        "recall": 0.5,
+        "candidate_recall": 0.5,
+        "tokens": 199.83870967741936,
+        "latency_p50_ms": 22.735122,
+        "latency_p95_ms": 29.612047999999998,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    },
+    "scope": {
+      "L": {
+        "queries": 52,
+        "ndcg": 0.9807692307692307,
+        "mrr": 0.9743589743589745,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "tokens": 204.1346153846154,
+        "latency_p50_ms": 24.687293999999998,
+        "latency_p95_ms": 45.322695,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 52,
+        "ndcg": 0.5,
+        "mrr": 0.5,
+        "recall": 0.5,
+        "candidate_recall": 0.5,
+        "tokens": 203.65384615384616,
+        "latency_p50_ms": 22.66313,
+        "latency_p95_ms": 31.464833,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    },
+    "semantic": {
+      "L": {
+        "queries": 250,
+        "ndcg": 0.5902318146269719,
+        "mrr": 0.47433174603174594,
+        "recall": 0.964,
+        "candidate_recall": 1.0,
+        "tokens": 200.724,
+        "latency_p50_ms": 23.288896,
+        "latency_p95_ms": 32.833684000000005,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 250,
+        "ndcg": 0.4094107425434645,
+        "mrr": 0.378,
+        "recall": 0.5,
+        "candidate_recall": 0.5,
+        "tokens": 195.268,
+        "latency_p50_ms": 22.387760999999998,
+        "latency_p95_ms": 30.345513,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    },
+    "temporal": {
+      "L": {
+        "queries": 94,
+        "ndcg": 1.0,
+        "mrr": 1.0,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "tokens": 202.88297872340425,
+        "latency_p50_ms": 23.402707,
+        "latency_p95_ms": 32.067173,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 94,
+        "ndcg": 0.5,
+        "mrr": 0.5,
+        "recall": 0.5,
+        "candidate_recall": 0.5,
+        "tokens": 200.37234042553192,
+        "latency_p50_ms": 21.818694,
+        "latency_p95_ms": 30.035954,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    }
+  },
+  "by_age": {
+    "old": {
+      "L": {
+        "queries": 354,
+        "ndcg": 0.7069306023353865,
+        "mrr": 0.6305152004304545,
+        "recall": 0.9689265536723164,
+        "candidate_recall": 1.0,
+        "tokens": 202.73728813559322,
+        "latency_p50_ms": 23.621445,
+        "latency_p95_ms": 35.57229,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 354,
+        "ndcg": 0.011485129841320033,
+        "mrr": 0.018361581920903956,
+        "recall": 0.009887005649717515,
+        "candidate_recall": 0.009887005649717515,
+        "tokens": 199.74576271186442,
+        "latency_p50_ms": 22.263957,
+        "latency_p95_ms": 31.927511,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    },
+    "recent": {
+      "L": {
+        "queries": 354,
+        "ndcg": 0.9124987674874224,
+        "mrr": 0.8924199623352165,
+        "recall": 1.0,
+        "candidate_recall": 1.0,
+        "tokens": 201.50282485875707,
+        "latency_p50_ms": 23.504146,
+        "latency_p95_ms": 33.520894000000006,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      },
+      "v1": {
+        "queries": 354,
+        "ndcg": 0.904474753092376,
+        "mrr": 0.9063088512241052,
+        "recall": 0.9646892655367232,
+        "candidate_recall": 0.9646892655367232,
+        "tokens": 197.55084745762713,
+        "latency_p50_ms": 22.580944,
+        "latency_p95_ms": 30.582529,
+        "scope_violations": 0,
+        "temporal_violations": 0
+      }
+    }
+  },
+  "deltas": {
+    "L": {
+      "candidate_recall": {
+        "mean": 0.5127118644067796,
+        "lower": 0.4766949152542373,
+        "upper": 0.5480225988700564
+      },
+      "mrr": {
+        "mean": 0.29913236481033084,
+        "lower": 0.2676917989417988,
+        "upper": 0.3306878306878305
+      },
+      "ndcg": {
+        "mean": 0.3517347434445565,
+        "lower": 0.3206529250437291,
+        "upper": 0.3823237252080171
+      }
+    }
+  },
+  "gates": [
+    {
+      "criterion": "nDCG@10 delta >= +0.03 absolute and >= 5% relative, CI lower bound > 0",
+      "value": "+0.3517 (+76.8%), CI [+0.3207, +0.3823]",
+      "passed": true
+    },
+    {
+      "criterion": "candidate recall delta >= +5 percentage points",
+      "value": "+51.27 pp",
+      "passed": true
+    },
+    {
+      "criterion": "no family regresses nDCG@10 by more than 0.02",
+      "value": "worst family semantic +0.1808",
+      "passed": true
+    },
+    {
+      "criterion": "recent stratum nDCG@10 does not regress by more than 0.02 (amendment 1)",
+      "value": "+0.0080",
+      "passed": true
+    },
+    {
+      "criterion": "MRR delta CI not entirely below 0",
+      "value": "CI [+0.2677, +0.3307]",
+      "passed": true
+    },
+    {
+      "criterion": "zero scope and temporal violations (all strategies)",
+      "value": "0",
+      "passed": true
+    },
+    {
+      "criterion": "mean tokens <= 1.05x v1",
+      "value": "1.017x",
+      "passed": true
+    },
+    {
+      "criterion": "p95 latency <= 1.25x v1",
+      "value": "1.08x (33.58 ms vs 31.18 ms)",
+      "passed": true
+    }
+  ],
+  "primary": "L",
+  "adopt": true
+}
