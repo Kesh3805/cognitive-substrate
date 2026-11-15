@@ -1,7 +1,8 @@
 //! `cs-bench`: run a preregistered experiment.
 //!
 //! ```text
-//! cs-bench 005|006 [--store memory|postgres] [--dev] [--out DIR]
+//! cs-bench 005|006|008|009 [--store memory|postgres] [--dev] [--out DIR]
+//! cs-bench 007 --reset [--dev] [--out DIR]
 //! ```
 //!
 //! `--dev` runs the development seeds (never reported as results).
@@ -11,7 +12,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::{exp005, exp006, exp007, exp008};
+use cs_bench::{exp005, exp006, exp007, exp008, exp009};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -57,6 +58,9 @@ async fn main() -> Result<(), String> {
     }
     if experiment == "008" {
         return run_008(&args).await;
+    }
+    if experiment == "009" {
+        return run_009(&args).await;
     }
     let (dir, dev_seeds, held_out): (&str, &[u64], &[u64]) = match experiment.as_str() {
         "005" => (
@@ -366,5 +370,96 @@ async fn run_008(args: &[String]) -> Result<(), String> {
         "automatic validation permitted: {}; gap proposals permitted: {}",
         summary.automatic_validation_permitted, summary.gap_proposals_permitted
     );
+    Ok(())
+}
+
+async fn run_009(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let seeds: Vec<u64> = if dev {
+        exp009::DEV_SEEDS.to_vec()
+    } else {
+        exp009::HELD_OUT_SEEDS.to_vec()
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/009-adaptive-budgets/results/{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    for seed in &seeds {
+        eprintln!("seed {seed}: generating and loading");
+        rows.extend(exp009::run_seed(store(&kind).await?, *seed).await?);
+    }
+    let summary = exp009::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "009-adaptive-budgets",
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "crowded_services": cs_bench::crowded::CROWDED_SERVICES,
+        "notes_per_service": cs_bench::crowded::NOTES_PER_SERVICE,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+        "bootstrap": { "resamples": exp009::BOOTSTRAP_RESAMPLES, "seed": exp009::BOOTSTRAP_SEED },
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "{:<6} {:>7} {:>7} {:>9} {:>7} {:>6} {:>8} {:>8} {:>8}",
+        "", "nDCG", "MRR", "cand.R", "cands", "trips", "p50 ms", "p95 ms", "p99 ms"
+    );
+    for (n, a) in &summary.overall {
+        println!(
+            "{n:<6} {:>7.4} {:>7.4} {:>9.4} {:>7.1} {:>6.3} {:>8.2} {:>8.2} {:>8.2}",
+            a.ndcg,
+            a.mrr,
+            a.candidate_recall,
+            a.candidates,
+            a.round_trips,
+            a.latency_p50_ms,
+            a.latency_p95_ms,
+            a.latency_p99_ms
+        );
+    }
+    for (f, m) in &summary.by_family {
+        let a = &m[exp009::PRIMARY];
+        println!(
+            "{f:<13} expansion {:.3}  nDCG A {:.4} F200 {:.4} F50 {:.4}",
+            a.expansion_rate.unwrap_or(0.0),
+            a.ndcg,
+            m[exp009::CONTROL].ndcg,
+            m[exp009::ABLATION].ndcg
+        );
+    }
+    println!("{:?}", summary.expansions);
+    for g in &summary.gates {
+        println!(
+            "[{}] {} — {}",
+            if g.passed { "pass" } else { "FAIL" },
+            g.criterion,
+            g.value
+        );
+    }
+    println!("adopt A: {}", summary.adopt);
     Ok(())
 }
