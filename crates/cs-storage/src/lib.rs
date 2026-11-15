@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
-    EvidenceId, ExecutionId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
+    EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId,
     RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
@@ -18,6 +18,7 @@ use cs_memory::{
     ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
+    need::{InformationNeed, NeedStatus, TermStats},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
 };
 use time::OffsetDateTime;
@@ -450,6 +451,54 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// by id. Readers filter by merge time to resolve as of a point.
     async fn merged_into(&self, ids: &[EntityId]) -> Result<Vec<Entity>>;
 
+    // ---- information needs (M5.4) -------------------------------------------
+
+    /// Term statistics over the eligible population of `query` (its
+    /// `limit` and `order` are ignored): the number of eligible revisions,
+    /// and how many of them contain each of `terms`.
+    async fn term_stats(&self, query: &MemoryQuery, terms: &[String]) -> Result<TermStats>;
+
+    async fn get_need(&self, id: InformationNeedId) -> Result<Option<InformationNeed>>;
+
+    async fn find_need(&self, partition: &str, signature: &str)
+    -> Result<Option<InformationNeed>>;
+
+    /// Needs the caller can read, by acquisition order of recency
+    /// (`last_seen` DESC, then id).
+    async fn list_needs(
+        &self,
+        access: &AccessContext,
+        status: Option<NeedStatus>,
+        limit: u32,
+    ) -> Result<Vec<InformationNeed>>;
+
+    /// Record one miss, atomically: insert `template` (as one occurrence in
+    /// one session) if its partition and signature are new, else apply
+    /// [`InformationNeed::observe`], counting `session_key` once. The store
+    /// appends `event` with its stream set to the need's id and a payload
+    /// of ids and counts.
+    async fn observe_need(
+        &self,
+        template: &InformationNeed,
+        session_key: &str,
+        trace: RecallTraceId,
+        at: OffsetDateTime,
+        event: EventDraft,
+    ) -> Result<InformationNeed>;
+
+    /// Insert (`expected_version: None`) or replace a need if its version
+    /// is unchanged; `Conflict` otherwise.
+    async fn write_need(
+        &self,
+        need: &InformationNeed,
+        expected_version: Option<u32>,
+        event: EventDraft,
+    ) -> Result<InformationNeed>;
+
+    /// Erase a need and its session keys (signatures can contain
+    /// sensitive query terms).
+    async fn purge_need(&self, id: InformationNeedId, event: EventDraft) -> Result<()>;
+
     // ---- capabilities (M4.4) ------------------------------------------------
 
     /// Record an execution at intent (status `started`).
@@ -716,4 +765,17 @@ impl PurgeKind {
             Self::Observation => "observation",
         }
     }
+}
+
+/// The payload of an `InformationNeedObserved` event: ids and counts only,
+/// never the query or its terms.
+pub fn need_observed_payload(n: &InformationNeed, trace: RecallTraceId) -> serde_json::Value {
+    serde_json::json!({
+        "need_id": n.id,
+        "status": n.status,
+        "sessions": n.sessions,
+        "occurrences": n.occurrences,
+        "trace_id": trace,
+        "version": n.version,
+    })
 }
