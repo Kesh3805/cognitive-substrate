@@ -12,7 +12,7 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
-    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, JobId, MemoryId,
+    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId,
     MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
     temporal::truncate_micros,
 };
@@ -22,6 +22,7 @@ use cs_memory::{
     Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
     derivation::{Derivation, DerivationStatus},
+    need::{InformationNeed, NeedStatus, TermStats},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
         EntityStatus, KnowledgeEdge, Projection, entity_id_for, partition_scope,
@@ -64,6 +65,8 @@ struct State {
     derivations: BTreeMap<DerivationId, Derivation>,
     executions: BTreeMap<ExecutionId, Execution>,
     cases: BTreeMap<EvaluationCaseId, EvaluationCase>,
+    needs: BTreeMap<InformationNeedId, InformationNeed>,
+    need_sessions: HashSet<(InformationNeedId, String)>,
 }
 
 impl State {
@@ -1390,6 +1393,130 @@ impl CognitiveStore for InMemoryStore {
             .collect();
         v.sort_by_key(|c| (c.created_at, c.id));
         Ok(v)
+    }
+
+    async fn term_stats(&self, query: &MemoryQuery, terms: &[String]) -> Result<TermStats> {
+        let all = self
+            .query_memories(&MemoryQuery {
+                limit: u32::MAX,
+                order: CandidateOrder::Recent,
+                ..query.clone()
+            })
+            .await?;
+        let docs: Vec<Vec<String>> = all.iter().map(|m| m.record.content.index_terms()).collect();
+        Ok(TermStats {
+            documents: docs.len() as u64,
+            frequencies: terms
+                .iter()
+                .map(|t| docs.iter().filter(|d| d.binary_search(t).is_ok()).count() as u64)
+                .collect(),
+        })
+    }
+
+    async fn get_need(&self, id: InformationNeedId) -> Result<Option<InformationNeed>> {
+        Ok(self.lock().needs.get(&id).cloned())
+    }
+
+    async fn find_need(
+        &self,
+        partition: &str,
+        signature: &str,
+    ) -> Result<Option<InformationNeed>> {
+        Ok(self
+            .lock()
+            .needs
+            .values()
+            .find(|n| n.partition == partition && n.signature.key() == signature)
+            .cloned())
+    }
+
+    async fn list_needs(
+        &self,
+        access: &AccessContext,
+        status: Option<NeedStatus>,
+        limit: u32,
+    ) -> Result<Vec<InformationNeed>> {
+        let s = self.lock();
+        let mut v: Vec<InformationNeed> = s
+            .needs
+            .values()
+            .filter(|n| access.can_read(&n.scope) && status.is_none_or(|x| n.status == x))
+            .cloned()
+            .collect();
+        v.sort_by_key(|n| (std::cmp::Reverse(n.last_seen), n.id));
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn observe_need(
+        &self,
+        template: &InformationNeed,
+        session_key: &str,
+        trace: RecallTraceId,
+        at: OffsetDateTime,
+        mut event: EventDraft,
+    ) -> Result<InformationNeed> {
+        let mut s = self.lock();
+        let key = template.signature.key();
+        let existing = s
+            .needs
+            .values()
+            .find(|n| n.partition == template.partition && n.signature.key() == key)
+            .map(|n| n.id);
+        let need = match existing {
+            None => {
+                let n = template.clone();
+                s.need_sessions.insert((n.id, session_key.to_owned()));
+                s.needs.insert(n.id, n.clone());
+                n
+            }
+            Some(id) => {
+                let new_session = s.need_sessions.insert((id, session_key.to_owned()));
+                let n = s
+                    .needs
+                    .get_mut(&id)
+                    .ok_or_else(|| Error::not_found("information need", id))?;
+                n.observe(new_session, trace, at);
+                n.clone()
+            }
+        };
+        event.stream_id = cs_core::EventStreamId(need.id.0);
+        event.payload = crate::need_observed_payload(&need, trace);
+        s.append(event);
+        Ok(need)
+    }
+
+    async fn write_need(
+        &self,
+        need: &InformationNeed,
+        expected_version: Option<u32>,
+        event: EventDraft,
+    ) -> Result<InformationNeed> {
+        let mut s = self.lock();
+        let current = s.needs.get(&need.id).map(|n| n.version);
+        if current != expected_version {
+            return Err(Error::conflict("information need changed; reload it"));
+        }
+        if expected_version.is_none()
+            && s.needs.values().any(|n| {
+                n.partition == need.partition && n.signature.key() == need.signature.key()
+            })
+        {
+            return Err(Error::conflict("this need is already recorded"));
+        }
+        s.needs.insert(need.id, need.clone());
+        s.append(event);
+        Ok(need.clone())
+    }
+
+    async fn purge_need(&self, id: InformationNeedId, event: EventDraft) -> Result<()> {
+        let mut s = self.lock();
+        if s.needs.remove(&id).is_none() {
+            return Err(Error::not_found("information need", id));
+        }
+        s.need_sessions.retain(|(n, _)| *n != id);
+        s.append(event);
+        Ok(())
     }
 
     async fn get_derivation(&self, id: DerivationId) -> Result<Option<Derivation>> {
