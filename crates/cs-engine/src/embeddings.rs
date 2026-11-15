@@ -5,7 +5,7 @@
 //! Invariant: embedding availability may affect retrieval quality, never
 //! the correctness, durability or authority of stored knowledge.
 
-use cs_core::{AccessContext, BeliefId, MemoryId, MemoryRevisionId, Result};
+use cs_core::{AccessContext, BeliefId, Error, MemoryId, MemoryRevisionId, Result};
 use cs_memory::{
     Belief, BeliefStatus, EmbeddingRecord, Job, JobKind, MemoryDomain, MemoryRecord, MemoryStatus,
 };
@@ -161,6 +161,19 @@ impl CognitiveEngine {
     /// Shadow embedding space id, if a migration is in progress.
     pub fn shadow_space(&self) -> Option<String> {
         self.shadow.as_ref().map(|e| e.space().id())
+    }
+
+    /// Embed `text` as a query in the active space, exactly as recall
+    /// does. For tools and benchmarks; recall itself records the vector.
+    pub async fn embed_query(&self, text: &str) -> Result<Vec<f32>> {
+        let e = self
+            .embedder
+            .as_ref()
+            .ok_or_else(|| Error::validation("no embedder configured"))?;
+        embed_one(e.as_ref(), text, EmbedKind::Query, self.now())
+            .await
+            .map(|r| r.vector)
+            .map_err(|e| Error::storage(e.to_string()))
     }
 
     pub(crate) fn space_key(&self) -> Option<(String, String)> {
