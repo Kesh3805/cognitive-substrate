@@ -101,18 +101,26 @@ pub async fn channels_reach_beyond_the_recency_window(h: &Harness) {
         assert!(replay.identical);
     }
 
-    // Quotas cannot exceed the budget.
-    assert!(
-        h.engine
-            .recall(
-                &h.alice,
-                recall(CandidateGeneration::Channels {
-                    lexical: 4,
-                    dense: 4,
-                }),
-            )
-            .await
-            .is_err()
+    // Quotas are upper bounds: the set never exceeds the budget.
+    for candidates in [
+        CandidateGeneration::Channels {
+            lexical: 4,
+            dense: 4,
+        },
+        CandidateGeneration::Channels {
+            lexical: 50,
+            dense: 0,
+        },
+    ] {
+        let r = h.engine.recall(&h.alice, recall(candidates)).await.unwrap();
+        assert_eq!(r.trace.candidates_considered, 5, "{candidates:?}");
+        assert_eq!(r.results[0].memory.id, old.id);
+    }
+
+    // The default is the adopted lexical channel (experiment 006).
+    assert_eq!(
+        RecallPolicy::default().candidates,
+        CandidateGeneration::ADOPTED
     );
 }
 
