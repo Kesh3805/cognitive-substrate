@@ -43,7 +43,7 @@
 | lexical_trap | 62 | 0.4940 | 0.9345 |
 | semantic | 250 | 0.4094 | 0.5902 |
 | temporal | 94 | 0.5000 | 1.0000 |
-| scope | 52 | 0.9808 | 0.9808 |
+| scope | 52 | 0.5000 | 0.9808 |
 
 ## What this does and does not show
 
