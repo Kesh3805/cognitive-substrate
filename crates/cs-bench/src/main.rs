@@ -1,7 +1,7 @@
 //! `cs-bench`: run a preregistered experiment.
 //!
 //! ```text
-//! cs-bench 005 [--store memory|postgres] [--dev] [--out DIR]
+//! cs-bench 005|006 [--store memory|postgres] [--dev] [--out DIR]
 //! ```
 //!
 //! `--dev` runs the development seeds (never reported as results).
@@ -11,7 +11,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::exp005;
+use cs_bench::{exp005, exp006};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -51,19 +51,34 @@ async fn store(kind: &str) -> Result<Arc<dyn CognitiveStore>, String> {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) != Some("005") {
-        return Err("usage: cs-bench 005 [--store memory|postgres] [--dev] [--out DIR]".into());
-    }
+    let experiment = args.get(1).cloned().unwrap_or_default();
+    let (dir, dev_seeds, held_out): (&str, &[u64], &[u64]) = match experiment.as_str() {
+        "005" => (
+            "005-candidate-generation",
+            &exp005::DEV_SEEDS,
+            &exp005::HELD_OUT_SEEDS,
+        ),
+        "006" => (
+            "006-single-round-trip-lexical",
+            &exp006::DEV_SEEDS,
+            &exp006::HELD_OUT_SEEDS,
+        ),
+        _ => {
+            return Err(
+                "usage: cs-bench 005|006 [--store memory|postgres] [--dev] [--out DIR]".into(),
+            );
+        }
+    };
     let kind = arg(&args, "--store").unwrap_or_else(|| "memory".into());
     let dev = args.iter().any(|a| a == "--dev");
     let seeds: Vec<u64> = if dev {
-        exp005::DEV_SEEDS.to_vec()
+        dev_seeds.to_vec()
     } else {
-        exp005::HELD_OUT_SEEDS.to_vec()
+        held_out.to_vec()
     };
     let out = PathBuf::from(arg(&args, "--out").unwrap_or_else(|| {
         format!(
-            "benchmarks/005-candidate-generation/results/{}-{kind}",
+            "benchmarks/{dir}/results/{}-{kind}",
             if dev { "dev" } else { "held-out" }
         )
     }));
@@ -74,9 +89,15 @@ async fn main() -> Result<(), String> {
         eprintln!("seed {seed}: generating and loading");
         // A fresh store per seed (Postgres: a fresh tenant in one database).
         let s = store(&kind).await?;
-        rows.extend(exp005::run_seed(s, *seed).await?);
+        rows.extend(match experiment.as_str() {
+            "005" => exp005::run_seed(s, *seed).await?,
+            _ => exp006::run_seed(s, *seed).await?,
+        });
     }
-    let summary = exp005::summarize(&rows);
+    let summary = match experiment.as_str() {
+        "005" => exp005::summarize(&rows),
+        _ => exp006::summarize(&rows),
+    };
 
     let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
     for r in &rows {
@@ -88,7 +109,7 @@ async fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
     let manifest = json!({
-        "experiment": "005-candidate-generation",
+        "experiment": dir,
         "seeds": seeds,
         "held_out": !dev,
         "store": kind,
@@ -126,6 +147,6 @@ async fn main() -> Result<(), String> {
             g.value
         );
     }
-    println!("adopt LD: {}", summary.adopt_ld);
+    println!("adopt {}: {}", summary.primary, summary.adopt);
     Ok(())
 }

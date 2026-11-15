@@ -130,6 +130,18 @@ fn new_memory(scope: Scope, ins: &crate::corpus::Insert) -> NewMemory {
 /// Load one seed's corpus into `store` and run every query under every
 /// strategy.
 pub async fn run_seed(store: Arc<dyn CognitiveStore>, seed: u64) -> Result<Vec<Row>, String> {
+    run_seed_with(store, seed, &strategies(), false).await
+}
+
+/// Run one seed under `strategies`. With `rotate`, the order in which the
+/// strategies run is rotated per query, so no strategy always runs first
+/// (experiment 006); 005 ran them in a fixed order.
+pub async fn run_seed_with(
+    store: Arc<dyn CognitiveStore>,
+    seed: u64,
+    strategies: &[(&'static str, CandidateGeneration)],
+    rotate: bool,
+) -> Result<Vec<Row>, String> {
     let corpus: Corpus = generate(seed);
     let clock = Arc::new(FixedClock::new(crate::corpus::start()));
     let engine = CognitiveEngine::builder(store).clock(clock.clone()).build();
@@ -157,7 +169,11 @@ pub async fn run_seed(store: Arc<dyn CognitiveStore>, seed: u64) -> Result<Vec<R
     for (qi, q) in corpus.queries.iter().enumerate() {
         let gold: BTreeMap<usize, u8> = q.gold.iter().copied().collect();
         let relevant = gold.values().filter(|g| **g >= 1).count();
-        for (name, strategy) in strategies() {
+        let mut order: Vec<(&'static str, CandidateGeneration)> = strategies.to_vec();
+        if rotate {
+            order.rotate_left(qi % strategies.len());
+        }
+        for (name, strategy) in order {
             let started = Instant::now();
             let resp = engine
                 .recall(
@@ -271,7 +287,10 @@ pub struct Summary {
     /// Paired deltas against v1: nDCG@10, MRR@10, candidate recall.
     pub deltas: BTreeMap<&'static str, BTreeMap<&'static str, Interval>>,
     pub gates: Vec<Gate>,
-    pub adopt_ld: bool,
+    /// The strategy the gates were evaluated for.
+    pub primary: &'static str,
+    /// Every gate passed.
+    pub adopt: bool,
 }
 
 fn paired(rows: &[Row], strategy: &str, f: fn(&Row) -> f64) -> (Vec<f64>, Vec<f64>) {
@@ -294,6 +313,13 @@ fn paired(rows: &[Row], strategy: &str, f: fn(&Row) -> f64) -> (Vec<f64>, Vec<f6
 
 pub fn summarize(rows: &[Row]) -> Summary {
     let names: Vec<&'static str> = strategies().into_iter().map(|(n, _)| n).collect();
+    summarize_for(rows, &names, "LD")
+}
+
+/// Aggregates, paired deltas against `v1`, and the preregistered gates
+/// evaluated for `primary`.
+pub fn summarize_for(rows: &[Row], names: &[&'static str], primary: &'static str) -> Summary {
+    let names = names.to_vec();
     let group = |pred: &dyn Fn(&Row) -> bool| -> BTreeMap<&'static str, Aggregate> {
         names
             .iter()
@@ -334,8 +360,8 @@ pub fn summarize(rows: &[Row]) -> Summary {
 
     // ---- preregistered gates for LD -------------------------------------
     let v1 = &overall["v1"];
-    let ld = &overall["LD"];
-    let d = &deltas["LD"];
+    let ld = &overall[primary];
+    let d = &deltas[primary];
     let mut gates = Vec::new();
     let mut gate = |criterion, value: String, passed| {
         gates.push(Gate {
@@ -369,8 +395,8 @@ pub fn summarize(rows: &[Row]) -> Summary {
         .iter()
         .map(|f| {
             let key = format!("{f:?}").to_lowercase();
-            let fam: &BTreeMap<&str, Aggregate> = &summary_family(rows, *f);
-            (key, fam["LD"].ndcg - fam["v1"].ndcg)
+            let fam: &BTreeMap<&str, Aggregate> = &summary_family(rows, &names, *f);
+            (key, fam[primary].ndcg - fam["v1"].ndcg)
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .unwrap_or_default();
@@ -383,7 +409,7 @@ pub fn summarize(rows: &[Row]) -> Summary {
     let recent_delta = mean(
         &recent
             .iter()
-            .filter(|r| r.strategy == "LD")
+            .filter(|r| r.strategy == primary)
             .map(|r| r.ndcg)
             .collect::<Vec<_>>(),
     ) - mean(
@@ -427,21 +453,27 @@ pub fn summarize(rows: &[Row]) -> Summary {
         ),
         ld.latency_p95_ms <= 1.25 * v1.latency_p95_ms,
     );
-    let adopt_ld = gates.iter().all(|g| g.passed);
+    let adopt = gates.iter().all(|g| g.passed);
     Summary {
         overall,
         by_family,
         by_age,
         deltas,
         gates,
-        adopt_ld,
+        primary,
+        adopt,
     }
 }
 
-fn summary_family(rows: &[Row], f: Family) -> BTreeMap<&'static str, Aggregate> {
-    strategies()
-        .into_iter()
-        .map(|(n, _)| {
+fn summary_family(
+    rows: &[Row],
+    names: &[&'static str],
+    f: Family,
+) -> BTreeMap<&'static str, Aggregate> {
+    names
+        .iter()
+        .copied()
+        .map(|n| {
             let rs: Vec<&Row> = rows
                 .iter()
                 .filter(|r| r.strategy == n && r.family == f)
