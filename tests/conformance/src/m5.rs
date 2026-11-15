@@ -274,6 +274,19 @@ pub async fn adaptive_budgets_expand_only_when_saturated(h: &Harness) {
             .identical
     );
 
+    // All 7 slots filled, but the cut falls below the best tier (the old
+    // fact shares 2 terms, the notes 3): not saturated.
+    let r = h.engine.recall(&h.alice, adaptive(7, 7)).await.unwrap();
+    let d = h
+        .engine
+        .get_trace(&h.alice, r.trace_id)
+        .await
+        .unwrap()
+        .budget
+        .unwrap();
+    assert_eq!((d.lexical_found, d.best_overlap, d.cut_overlap), (7, 3, 2));
+    assert!(!d.lexical_saturated);
+
     // Not saturated (10 slots, 7 matches): the first pass stands.
     let r = h.engine.recall(&h.alice, adaptive(10, 10)).await.unwrap();
     let t = h.engine.get_trace(&h.alice, r.trace_id).await.unwrap();
