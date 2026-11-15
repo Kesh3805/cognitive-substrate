@@ -794,56 +794,32 @@ impl CognitiveEngine {
                         .await?,
                     None,
                 ),
-                // A small first pass; the full budget only when the lexical
-                // channel filled every slot (more term-sharing records may
-                // exist beyond it).
+                // A small first pass, or the full budget when its lexical
+                // cut falls inside the best tier: decided and executed in
+                // one store operation.
                 cs_memory::CandidateBudget::Adaptive {
                     initial,
                     initial_lexical,
                 } => {
-                    let first = self
+                    let r = self
                         .store
-                        .lexical_then_recent(
-                            &MemoryQuery {
-                                limit: initial,
-                                ..base.clone()
-                            },
+                        .adaptive_lexical_then_recent(
+                            &base,
                             &terms,
+                            lexical,
+                            initial,
                             initial_lexical,
                         )
                         .await?;
-                    let overlaps: Vec<u32> = first
-                        .iter()
-                        .filter(|c| c.lexical)
-                        .map(|c| {
-                            let t = c.memory.record.content.index_terms();
-                            u32::try_from(cs_memory::lexical::overlap(&terms, &t))
-                                .unwrap_or(u32::MAX)
-                        })
-                        .collect();
-                    let lexical_found = u32::try_from(overlaps.len()).unwrap_or(u32::MAX);
-                    let best_overlap = overlaps.iter().copied().max().unwrap_or(0);
-                    let cut_overlap = overlaps.iter().copied().min().unwrap_or(0);
-                    // Truncated inside the best tier: equally good matches
-                    // may lie beyond the cut.
-                    let lexical_saturated =
-                        lexical_found >= initial_lexical && cut_overlap == best_overlap;
                     let decision = cs_memory::BudgetDecision {
                         initial,
                         initial_lexical,
-                        lexical_found,
-                        best_overlap,
-                        cut_overlap,
-                        lexical_saturated,
+                        lexical_found: r.lexical_found,
+                        best_overlap: r.best_overlap,
+                        cut_overlap: r.cut_overlap,
+                        lexical_saturated: r.saturated,
                     };
-                    let found = if lexical_saturated {
-                        self.store
-                            .lexical_then_recent(&base, &terms, lexical)
-                            .await?
-                    } else {
-                        first
-                    };
-                    (found, Some(decision))
+                    (r.candidates, Some(decision))
                 }
             };
             for c in found {
