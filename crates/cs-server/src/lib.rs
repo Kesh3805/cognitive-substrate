@@ -15,7 +15,7 @@ use axum::{
 };
 use cs_core::{
     BeliefId, CognitiveEventType, DerivationId, EntityId, EventQuery, EventStreamId, EvidenceId,
-    ExecutionId, JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
+    ExecutionId, InformationNeedId, JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
 };
 use cs_engine::{
     CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation,
@@ -143,7 +143,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/executions/{id}", get(get_execution))
         .route("/executions/{id}/finish", post(finish_execution))
-        .route("/executions/{id}/verifications", post(verify_execution));
+        .route("/executions/{id}/verifications", post(verify_execution))
+        .route("/information-needs", get(list_needs).post(ask_question))
+        .route("/information-needs/{id}", get(get_need))
+        .route("/information-needs/{id}/validate", post(validate_need))
+        .route("/information-needs/{id}/confirm", post(confirm_gap))
+        .route("/information-needs/{id}/dismiss", post(dismiss_need))
+        .route("/information-needs/{id}/weights", post(weigh_need))
+        .route("/information-needs/{id}/purge", post(purge_need));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -758,4 +765,83 @@ async fn verify_execution(
                 .await?,
         ),
     ))
+}
+
+// ---- information needs ------------------------------------------------------
+
+async fn list_needs(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_engine::needs::NeedView>> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    let status = parse_status(p.status.as_deref(), cs_memory::need::NeedStatus::parse)?;
+    ok(s.engine.list_needs(&ctx, status, p.limit).await?)
+}
+
+async fn ask_question(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    ApiJson(req): ApiJson<cs_engine::needs::AskQuestion>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    Ok((StatusCode::CREATED, Json(s.engine.ask(&ctx, req).await?)))
+}
+
+async fn get_need(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    ok(s.engine.get_need(&ctx, InformationNeedId(id)).await?)
+}
+
+async fn validate_need(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    ok(s.engine.validate_need(&ctx, InformationNeedId(id)).await?)
+}
+
+async fn confirm_gap(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<cs_engine::needs::NeedChange>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    ok(s.engine
+        .confirm_gap(&ctx, InformationNeedId(id), req)
+        .await?)
+}
+
+async fn dismiss_need(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<cs_engine::needs::NeedChange>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    ok(s.engine
+        .dismiss_need(&ctx, InformationNeedId(id), req)
+        .await?)
+}
+
+async fn weigh_need(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<cs_engine::needs::NeedWeights>,
+) -> ApiResult<cs_engine::needs::NeedView> {
+    ok(s.engine
+        .weigh_need(&ctx, InformationNeedId(id), req)
+        .await?)
+}
+
+async fn purge_need(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    s.engine.purge_need(&ctx, InformationNeedId(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
