@@ -1,0 +1,103 @@
+{
+  "strata": [
+    [
+      "Broad",
+      {
+        "queries": 120,
+        "recall": 0.9840000000000002,
+        "recall_ci_lower": 0.977666666666667,
+        "recall_ci_upper": 0.9894999999999998,
+        "min_recall": 0.78,
+        "underfill": 0,
+        "index_used": 120,
+        "exact_p50_ms": 113.29982500000001,
+        "exact_p95_ms": 199.727602,
+        "hnsw_p50_ms": 272.754051,
+        "hnsw_p95_ms": 349.031519,
+        "speedup_p95": 0.5722337127954338,
+        "violations": 0,
+        "passes": false,
+        "failed_criteria": [
+          "p95 speedup 0.57x < 2.0x"
+        ]
+      }
+    ],
+    [
+      "Medium",
+      {
+        "queries": 120,
+        "recall": 0.9738333333333332,
+        "recall_ci_lower": 0.9635000000000001,
+        "recall_ci_upper": 0.982,
+        "min_recall": 0.56,
+        "underfill": 0,
+        "index_used": 120,
+        "exact_p50_ms": 17.386008,
+        "exact_p95_ms": 44.643526,
+        "hnsw_p50_ms": 270.082387,
+        "hnsw_p95_ms": 375.833786,
+        "speedup_p95": 0.11878529196414503,
+        "violations": 0,
+        "passes": false,
+        "failed_criteria": [
+          "mean recall 0.9738 < 0.98",
+          "recall CI lower 0.9635 < 0.97",
+          "p95 speedup 0.12x < 2.0x"
+        ]
+      }
+    ],
+    [
+      "Narrow",
+      {
+        "queries": 120,
+        "recall": 0.5490000000000005,
+        "recall_ci_lower": 0.5100000000000003,
+        "recall_ci_upper": 0.5870000000000001,
+        "min_recall": 0.18,
+        "underfill": 87,
+        "index_used": 120,
+        "exact_p50_ms": 3.509542,
+        "exact_p95_ms": 4.775817,
+        "hnsw_p50_ms": 428.403574,
+        "hnsw_p95_ms": 508.86769300000003,
+        "speedup_p95": 0.00938518413665534,
+        "violations": 0,
+        "passes": false,
+        "failed_criteria": [
+          "mean recall 0.5490 < 0.98",
+          "recall CI lower 0.5100 < 0.97",
+          "87 underfilled queries",
+          "p95 speedup 0.01x < 2.0x"
+        ]
+      }
+    ],
+    [
+      "Tiny",
+      {
+        "queries": 120,
+        "recall": 0.1870833333333334,
+        "recall_ci_lower": 0.1679166666666667,
+        "recall_ci_upper": 0.20666666666666664,
+        "min_recall": 0.0,
+        "underfill": 120,
+        "index_used": 120,
+        "exact_p50_ms": 1.145559,
+        "exact_p95_ms": 1.4794980000000002,
+        "hnsw_p50_ms": 395.475477,
+        "hnsw_p95_ms": 489.033655,
+        "speedup_p95": 0.0030253500651197516,
+        "violations": 0,
+        "passes": false,
+        "failed_criteria": [
+          "mean recall 0.1871 < 0.95",
+          "recall CI lower 0.1679 < 0.93",
+          "120 underfilled queries",
+          "p95 speedup 0.00x < 2.0x"
+        ]
+      }
+    ]
+  ],
+  "overall_recall": 0.6734791666666662,
+  "overall_recall_ci_lower": 0.6413750000000001,
+  "any_stratum_passes": false
+}

@@ -1,0 +1,19 @@
+{
+  "commit": "d22f49b297e1efce30d6ef5b21d1d02abd7763c6",
+  "ef_search": 100,
+  "embedder": "cs/hashing@1 (384d)",
+  "experiment": "007-ann-under-filtering",
+  "held_out": true,
+  "iterative_scan": "strict_order",
+  "k": 50,
+  "pgvector": "0.8.7",
+  "postgres": "17.12 (Debian 17.12-1.pgdg12+1)",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    301,
+    302,
+    303
+  ],
+  "store": "postgres",
+  "vectors_per_seed": 100000
+}
