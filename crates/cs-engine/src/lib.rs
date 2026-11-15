@@ -812,13 +812,28 @@ impl CognitiveEngine {
                             initial_lexical,
                         )
                         .await?;
-                    let lexical_found = u32::try_from(first.iter().filter(|c| c.lexical).count())
-                        .unwrap_or(u32::MAX);
-                    let lexical_saturated = lexical_found >= initial_lexical;
+                    let overlaps: Vec<u32> = first
+                        .iter()
+                        .filter(|c| c.lexical)
+                        .map(|c| {
+                            let t = c.memory.record.content.index_terms();
+                            u32::try_from(cs_memory::lexical::overlap(&terms, &t))
+                                .unwrap_or(u32::MAX)
+                        })
+                        .collect();
+                    let lexical_found = u32::try_from(overlaps.len()).unwrap_or(u32::MAX);
+                    let best_overlap = overlaps.iter().copied().max().unwrap_or(0);
+                    let cut_overlap = overlaps.iter().copied().min().unwrap_or(0);
+                    // Truncated inside the best tier: equally good matches
+                    // may lie beyond the cut.
+                    let lexical_saturated =
+                        lexical_found >= initial_lexical && cut_overlap == best_overlap;
                     let decision = cs_memory::BudgetDecision {
                         initial,
                         initial_lexical,
                         lexical_found,
+                        best_overlap,
+                        cut_overlap,
                         lexical_saturated,
                     };
                     let found = if lexical_saturated {

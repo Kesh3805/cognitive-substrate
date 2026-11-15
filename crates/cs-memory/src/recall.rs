@@ -70,9 +70,10 @@ pub enum CandidateBudget {
     #[default]
     Fixed,
     /// A first pass with `initial` candidates and `initial_lexical` lexical
-    /// slots. If the lexical channel fills every slot (more records sharing
-    /// terms may exist beyond it), the recall runs again at the full
-    /// budget. Requires lexical-only channels.
+    /// slots. If the lexical channel is saturated (it filled every slot and
+    /// the last admitted record shares as many query terms as the best, so
+    /// equally good matches may lie beyond the cut), the recall runs again
+    /// at the full budget. Requires lexical-only channels.
     Adaptive { initial: u32, initial_lexical: u32 },
 }
 
@@ -84,9 +85,15 @@ pub struct BudgetDecision {
     pub initial_lexical: u32,
     /// Lexical candidates the first pass found.
     pub lexical_found: u32,
-    /// The lexical channel filled every first-pass slot, so more records
-    /// sharing terms may exist: the recall ran again at the full budget.
-    /// This says the first pass was truncated, not that expanding helps.
+    /// Shared query terms of the best and of the weakest admitted lexical
+    /// candidate.
+    pub best_overlap: u32,
+    pub cut_overlap: u32,
+    /// Every lexical slot was filled and the cut fell inside the
+    /// best-matching tier (`cut_overlap == best_overlap`): equally good
+    /// matches may lie beyond it, so the recall ran again at the full
+    /// budget. It says the first pass was truncated, not that expanding
+    /// helps.
     pub lexical_saturated: bool,
 }
 
