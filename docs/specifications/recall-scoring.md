@@ -29,6 +29,29 @@ The default is `channels { lexical: 100, dense: 0 }`, adopted by the preregister
 - **Dense channel.** Takes revisions with a vector in the active space that was available at `as_of_tx`, ordered by exact cosine distance ASC, then revision id ASC. If the query cannot be embedded, the channel contributes nothing.
 - **Channels in the trace.** Every candidate records the channels that proposed it (`recent`, `lexical`, `dense`).
 
+### Candidate budget
+
+`policy.budget` is `fixed` (default) or `adaptive { initial, initial_lexical }`.
+
+**Requirements:**
+- lexical-only channels `{ lexical: L, dense: 0 }`;
+- `0 < initial_lexical ≤ initial ≤ max_candidates`;
+- `initial_lexical ≤ L`;
+- `max_results ≤ initial`.
+
+**Rule.** Let `best` and `cut` be the shared-term counts of the first and the last of the first `initial_lexical` records in the lexical order.
+
+| Condition | Candidates |
+|---|---|
+| All `initial_lexical` slots are filled **and** `cut == best` (**saturated**) | The fixed result: up to `L` lexical candidates, then the recency fill, `max_candidates` in total |
+| Otherwise | Those lexical candidates, then the recency fill, `initial` in total |
+
+**Execution.** One store operation, `adaptive_lexical_then_recent`, decides and executes the budget. PostgreSQL uses one statement, tested against `adaptive_lexical_then_recent_reference`.
+
+**Trace.** The trace records `budget: { initial, initial_lexical, lexical_found, best_overlap, cut_overlap, lexical_saturated }`, and exact replay re-derives it. Fixed budgets record no decision.
+
+Experiment 009 found adaptive budgets non-inferior in quality at 0.48× the candidates scored, but p95 latency was 0.96× against a 0.9× gate. They are therefore not the default ([ADR-0025](../adr/0025-adaptive-budgets-stay-opt-in.md)).
+
 The BM25 component is computed over whichever candidate set was generated, so changing the strategy can change lexical scores as well as membership.
 
 ## Score
