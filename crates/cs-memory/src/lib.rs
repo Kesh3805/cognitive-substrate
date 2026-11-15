@@ -13,6 +13,7 @@ pub mod embedding;
 pub mod entity;
 pub mod job;
 pub mod lexical;
+pub mod need;
 pub mod observation;
 pub mod proposal;
 pub mod recall;
