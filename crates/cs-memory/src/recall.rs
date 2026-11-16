@@ -60,6 +60,9 @@ pub struct RecallPolicy {
     /// Fixed (the full budget at once) or adaptive (a small first pass,
     /// expanded only when the lexical channel was saturated).
     pub budget: CandidateBudget,
+    /// Decide whether to answer, investigate or abstain (M6.1). Off by
+    /// default; the decision is recorded in the trace.
+    pub metacognition: Option<crate::metacognition::MetacognitivePolicy>,
 }
 
 /// How much of the candidate budget a recall uses (M5.5).
@@ -181,6 +184,7 @@ impl Default for RecallPolicy {
             candidates: CandidateGeneration::ADOPTED,
             record_information_needs: false,
             budget: CandidateBudget::Fixed,
+            metacognition: None,
         }
     }
 }
@@ -189,6 +193,9 @@ impl RecallPolicy {
     pub const MAX_CANDIDATES: u32 = 10_000;
 
     pub fn validate(&self) -> Result<()> {
+        if let Some(m) = &self.metacognition {
+            m.validate()?;
+        }
         if self.version != 1 {
             return Err(Error::validation("unsupported recall policy version"));
         }
@@ -343,6 +350,9 @@ pub struct RecallTrace {
     /// Set when the policy's budget was adaptive.
     #[serde(default)]
     pub budget: Option<BudgetDecision>,
+    /// Set when the policy asked for a metacognitive decision.
+    #[serde(default)]
+    pub metacognition: Option<crate::metacognition::MetacognitiveDecision>,
 }
 
 impl RecallTrace {
