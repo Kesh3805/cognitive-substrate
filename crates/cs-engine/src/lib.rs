@@ -669,7 +669,6 @@ impl CognitiveEngine {
             limit: policy.max_candidates,
             order: cs_storage::CandidateOrder::Recent,
         };
-        let stats_query = policy.metacognition.is_some().then(|| base.clone());
         let (stored, channels, budget) = self
             .generate_candidates(query, policy, query_embedding.as_deref(), base)
             .await?;
@@ -755,13 +754,9 @@ impl CognitiveEngine {
         } else {
             (Vec::new(), BTreeMap::new())
         };
-        let metacognition = match (policy.metacognition, stats_query) {
-            (Some(mp), Some(q)) => Some(
-                self.metacognitive_decision(query, mp, &q, &candidates, &records)
-                    .await?,
-            ),
-            _ => None,
-        };
+        let metacognition = policy
+            .metacognition
+            .map(|mp| Self::metacognitive_decision(query, mp, &candidates, &records));
         Ok(RecallRun {
             candidates,
             records,
@@ -953,52 +948,52 @@ impl CognitiveEngine {
     }
 
     /// Signals for answer / investigate / abstain over the selected
-    /// memories (M6.1). Coverage uses detector `idf-coverage/1` with term
-    /// statistics over the population the recall searched.
-    async fn metacognitive_decision(
-        &self,
+    /// memories (M6.1), with detector `accounted-terms/1`. Pure: it reads
+    /// nothing beyond the recall's own selection.
+    fn metacognitive_decision(
         query: &str,
         policy: cs_memory::MetacognitivePolicy,
-        searched: &MemoryQuery,
         candidates: &[RecallCandidate],
         records: &BTreeMap<MemoryRevisionId, MemoryRecord>,
-    ) -> Result<cs_memory::MetacognitiveDecision> {
-        let selected: Vec<(&RecallCandidate, &MemoryRecord)> = candidates
+    ) -> cs_memory::MetacognitiveDecision {
+        use cs_policy::metacognition::{Coverage, coverage_of, question_terms, unaccounted_terms};
+        let (terms, ignored) = question_terms(query);
+        let selected: Vec<(&RecallCandidate, &MemoryRecord, Coverage)> = candidates
             .iter()
             .filter(|c| c.selected)
-            .filter_map(|c| records.get(&c.revision_id).map(|r| (c, r)))
+            .filter_map(|c| {
+                records
+                    .get(&c.revision_id)
+                    .map(|r| (c, r, coverage_of(&terms, r)))
+            })
             .collect();
-        let covering: Vec<(&RecallCandidate, &MemoryRecord)> =
-            match cs_memory::need::Signature::of(query) {
-                Some(sig) if !selected.is_empty() => {
-                    let stats = self.store.term_stats(searched, &sig.terms).await?;
-                    selected
-                        .iter()
-                        .copied()
-                        .filter(|(_, r)| {
-                            cs_memory::need::qualifies(&sig, &stats, &r.content.index_terms())
-                        })
-                        .collect()
-                }
-                _ => Vec::new(),
-            };
+        // Covering memories, best first: most specific subject, then score,
+        // then rank.
+        let mut covering: Vec<(&RecallCandidate, &MemoryRecord, usize)> = selected
+            .iter()
+            .filter_map(|(c, r, cov)| match cov {
+                Coverage::Covers { specificity } => Some((*c, *r, *specificity)),
+                _ => None,
+            })
+            .collect();
+        covering.sort_by(|a, b| {
+            b.2.cmp(&a.2)
+                .then_with(|| b.0.score.total_cmp(&a.0.score))
+                .then_with(|| a.0.rank.cmp(&b.0.rank))
+        });
         let active: Vec<&MemoryRecord> = covering
             .iter()
-            .map(|(_, r)| *r)
+            .map(|(_, r, _)| *r)
             .filter(|r| r.status == MemoryStatus::Active)
             .collect();
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-        // The best covering memory against the best other selected one.
-        let top = covering.iter().map(|(c, _)| c).max_by(|a, b| {
-            a.score
-                .total_cmp(&b.score)
-                .then_with(|| b.rank.cmp(&a.rank))
-        });
+        // The first covering memory against the best other selected one.
+        let top = covering.first().map(|(c, _, _)| *c);
         let margin = top.map(|t| {
             let next = selected
                 .iter()
-                .filter(|(c, _)| c.revision_id != t.revision_id)
-                .map(|(c, _)| c.score)
+                .filter(|(c, _, _)| c.revision_id != t.revision_id)
+                .map(|(c, _, _)| c.score)
                 .fold(f64::NEG_INFINITY, f64::max);
             if next.is_finite() {
                 t.score - next
@@ -1010,20 +1005,37 @@ impl CognitiveEngine {
             selected: count(selected.len()),
             covering_active: count(active.len()),
             covering_candidate: count(covering.len() - active.len()),
-            contradictions: cs_policy::metacognition::contradictions(&active),
-            covering: {
-                let mut c: Vec<&RecallCandidate> = covering.iter().map(|(c, _)| *c).collect();
-                c.sort_by(|a, b| {
-                    b.score
-                        .total_cmp(&a.score)
-                        .then_with(|| a.rank.cmp(&b.rank))
-                });
-                c.iter().map(|c| c.memory_id).collect()
+            anchored: count(
+                selected
+                    .iter()
+                    .filter(|(_, _, cov)| matches!(cov, Coverage::Anchored { .. }))
+                    .count(),
+            ),
+            unaccounted: if covering.is_empty() {
+                selected
+                    .iter()
+                    .filter_map(|(c, r, cov)| match cov {
+                        Coverage::Anchored { unaccounted } => Some((*unaccounted, *c, *r)),
+                        _ => None,
+                    })
+                    .min_by(|a, b| {
+                        a.0.cmp(&b.0)
+                            .then_with(|| b.1.score.total_cmp(&a.1.score))
+                            .then_with(|| a.1.rank.cmp(&b.1.rank))
+                    })
+                    .map(|(_, _, r)| unaccounted_terms(&terms, r))
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
             },
+            question_terms: terms.iter().cloned().collect(),
+            ignored_terms: ignored.iter().cloned().collect(),
+            contradictions: cs_policy::metacognition::contradictions(&active),
+            covering: covering.iter().map(|(c, _, _)| c.memory_id).collect(),
             top_score: top.map(|t| t.score),
             margin,
         };
-        Ok(cs_memory::metacognition::decide(policy, signals))
+        cs_memory::metacognition::decide(policy, signals)
     }
 
     /// Policy-controlled, traceable, reproducible recall of memories and
