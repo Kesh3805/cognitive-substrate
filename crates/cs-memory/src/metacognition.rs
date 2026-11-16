@@ -1,4 +1,4 @@
-//! Metacognitive policy v1: answer, investigate or abstain (M6.1).
+//! Metacognitive policy v2: answer, investigate or abstain (M6.1).
 //!
 //! The decision is a pure function of signals the recall already has. It
 //! claims nothing about the probability of being right: a score margin is
@@ -7,7 +7,9 @@
 use cs_core::{Error, MemoryId, Result};
 use serde::{Deserialize, Serialize};
 
-pub const METACOGNITION_VERSION: u32 = 1;
+pub const METACOGNITION_VERSION: u32 = 2;
+/// How a memory is judged to cover a question.
+pub const COVERAGE_DETECTOR: &str = "accounted-terms/1";
 
 /// What a caller should do with a recall.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -37,8 +39,12 @@ impl Decision {
 pub enum Reason {
     /// Nothing was selected.
     NoEvidence,
-    /// Nothing selected covers the question (detector `idf-coverage/1`).
+    /// No selected memory is about anything the question names (detector
+    /// `accounted-terms/1`).
     NotCovered,
+    /// Selected memories are about what the question names, but none
+    /// accounts for what it asks.
+    AspectUnmatched,
     /// Every covering memory is an unvalidated candidate.
     OnlyUnvalidated,
     /// Covering, validated memories state different values for the same
@@ -77,14 +83,29 @@ pub struct Signals {
     /// Selected memories that cover the question, active or candidate.
     pub covering_active: u32,
     pub covering_candidate: u32,
+    /// The question's terms as accounted (framing removed), and the framing
+    /// terms ignored.
+    #[serde(default)]
+    pub question_terms: Vec<String>,
+    #[serde(default)]
+    pub ignored_terms: Vec<String>,
+    /// When nothing covers: the terms the closest anchored memory leaves
+    /// unaccounted (fewest first, then score). Empty otherwise.
+    #[serde(default)]
+    pub unaccounted: Vec<String>,
+    /// Selected memories about what the question names that do not
+    /// account for the rest of it.
+    #[serde(default)]
+    pub anchored: u32,
     /// Pairs of covering, active memories that contradict each other.
     pub contradictions: Vec<(MemoryId, MemoryId)>,
-    /// Covering memories, best first (score DESC, then rank). When the
-    /// decision is to answer, the first is the evidence to answer from.
+    /// Covering memories, best first: most specific subject, then score
+    /// DESC, then rank. When the decision is to answer, the first is the
+    /// evidence to answer from.
     #[serde(default)]
     pub covering: Vec<MemoryId>,
-    /// Score of the best covering memory, and its lead over the best other
-    /// selected memory (the full score when it is the only one).
+    /// Score of the first covering memory, and its lead over the best
+    /// other selected memory (the full score when it is the only one).
     pub top_score: Option<f64>,
     pub margin: Option<f64>,
 }
@@ -103,11 +124,13 @@ pub struct MetacognitiveDecision {
 /// Rules, in order:
 ///
 /// 1. nothing selected → abstain (`no_evidence`);
-/// 2. nothing covering → abstain (`not_covered`);
-/// 3. only candidates cover → investigate (`only_unvalidated`);
-/// 4. covering active memories contradict → investigate (`contradiction`);
-/// 5. margin below `min_margin` → investigate (`narrow_margin`);
-/// 6. otherwise answer.
+/// 2. nothing covering or anchored → abstain (`not_covered`);
+/// 3. nothing covering, something anchored → investigate
+///    (`aspect_unmatched`);
+/// 4. only candidates cover → investigate (`only_unvalidated`);
+/// 5. covering active memories contradict → investigate (`contradiction`);
+/// 6. margin below `min_margin` → investigate (`narrow_margin`);
+/// 7. otherwise answer.
 ///
 /// Every rule that applies is listed; the first decides.
 pub fn decide(policy: MetacognitivePolicy, signals: Signals) -> MetacognitiveDecision {
@@ -117,7 +140,11 @@ pub fn decide(policy: MetacognitivePolicy, signals: Signals) -> MetacognitiveDec
     }
     let covering = signals.covering_active + signals.covering_candidate;
     if signals.selected > 0 && covering == 0 {
-        reasons.push(Reason::NotCovered);
+        reasons.push(if signals.anchored > 0 {
+            Reason::AspectUnmatched
+        } else {
+            Reason::NotCovered
+        });
     }
     if covering > 0 && signals.covering_active == 0 {
         reasons.push(Reason::OnlyUnvalidated);
@@ -154,6 +181,10 @@ mod tests {
             selected,
             covering_active: active,
             covering_candidate: candidate,
+            anchored: 0,
+            question_terms: Vec::new(),
+            ignored_terms: Vec::new(),
+            unaccounted: Vec::new(),
             contradictions: Vec::new(),
             covering: Vec::new(),
             top_score: Some(0.8),
@@ -170,6 +201,13 @@ mod tests {
             (Decision::Abstain, vec![Reason::NoEvidence])
         );
         assert_eq!(decide(p, signals(3, 0, 0)).decision, Decision::Abstain);
+        let mut s = signals(3, 0, 0);
+        s.anchored = 2;
+        let d = decide(p, s);
+        assert_eq!(
+            (d.decision, d.reasons),
+            (Decision::Investigate, vec![Reason::AspectUnmatched])
+        );
         let d = decide(p, signals(3, 0, 2));
         assert_eq!(
             (d.decision, d.reasons),
