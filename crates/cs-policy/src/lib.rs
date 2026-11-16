@@ -7,6 +7,7 @@
 pub mod capability;
 pub mod debt;
 pub mod lexical;
+pub mod metacognition;
 pub mod resolve;
 pub mod scoring;
 

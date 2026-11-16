@@ -159,7 +159,7 @@ fn eligible(m: &MemoryRecord) -> bool {
 }
 
 /// `(subject, predicate, object)` for domains with structured propositions.
-fn triple(c: &MemoryContent) -> Option<(String, String, String)> {
+pub(crate) fn triple(c: &MemoryContent) -> Option<(String, String, String)> {
     match c {
         MemoryContent::Semantic(m) => match (&m.subject, &m.predicate, &m.object) {
             (Some(s), Some(p), Some(o)) => Some((normalize(s), normalize(p), normalize(o))),
@@ -181,7 +181,7 @@ fn triple(c: &MemoryContent) -> Option<(String, String, String)> {
 
 /// Single-valued predicates can conflict; relational edges are multi-valued
 /// ("uses", "depends on") and never conflict on object alone.
-fn single_valued(domain: MemoryDomain) -> bool {
+pub(crate) fn single_valued(domain: MemoryDomain) -> bool {
     matches!(domain, MemoryDomain::Semantic | MemoryDomain::Temporal)
 }
 
