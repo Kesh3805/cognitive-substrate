@@ -1,0 +1,33 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 7
+  },
+  "commit": "61686fb89072a397e86770aff1818233a57aea05",
+  "experiment": "010-selective-answering",
+  "held_out": false,
+  "margin_only_threshold": 0.0546,
+  "metacognition_version": 2,
+  "mix": {
+    "absent": 20,
+    "candidate_only": 20,
+    "conflict": 20,
+    "framed": 25,
+    "framings": [
+      "please tell me",
+      "could you tell me"
+    ],
+    "qualified": 25,
+    "qualifiers": [
+      "previously",
+      "never"
+    ]
+  },
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "store": "memory"
+}

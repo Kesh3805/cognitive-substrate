@@ -1,0 +1,275 @@
+{
+  "overall": {
+    "answer_always": {
+      "queries": 640,
+      "answered": 640,
+      "coverage": 1.0,
+      "risk": 0.575,
+      "present_coverage": 1.0
+    },
+    "margin_only": {
+      "queries": 640,
+      "answered": 295,
+      "coverage": 0.4609375,
+      "risk": 0.423728813559322,
+      "present_coverage": 0.5194805194805194
+    },
+    "policy": {
+      "queries": 640,
+      "answered": 296,
+      "coverage": 0.4625,
+      "risk": 0.0,
+      "present_coverage": 0.7688311688311689
+    }
+  },
+  "decisions": {
+    "absent": {
+      "abstain": 1.0,
+      "answer": 0.0,
+      "investigate": 0.0
+    },
+    "candidateonly": {
+      "abstain": 0.0,
+      "answer": 0.0,
+      "investigate": 1.0
+    },
+    "conflict": {
+      "abstain": 0.0,
+      "answer": 0.0,
+      "investigate": 1.0
+    },
+    "present": {
+      "abstain": 0.0,
+      "answer": 0.7688311688311689,
+      "investigate": 0.23116883116883116
+    },
+    "qualified": {
+      "abstain": 0.0,
+      "answer": 0.0,
+      "investigate": 1.0
+    }
+  },
+  "by_family": {
+    "direct": {
+      "answer_always": {
+        "queries": 92,
+        "answered": 92,
+        "coverage": 1.0,
+        "risk": 0.22826086956521738,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 92,
+        "answered": 52,
+        "coverage": 0.5652173913043478,
+        "risk": 0.15384615384615385,
+        "present_coverage": 0.5652173913043478
+      },
+      "policy": {
+        "queries": 92,
+        "answered": 92,
+        "coverage": 1.0,
+        "risk": 0.0,
+        "present_coverage": 1.0
+      }
+    },
+    "framed": {
+      "answer_always": {
+        "queries": 75,
+        "answered": 75,
+        "coverage": 1.0,
+        "risk": 0.22666666666666666,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 75,
+        "answered": 40,
+        "coverage": 0.5333333333333333,
+        "risk": 0.125,
+        "present_coverage": 0.5333333333333333
+      },
+      "policy": {
+        "queries": 75,
+        "answered": 75,
+        "coverage": 1.0,
+        "risk": 0.0,
+        "present_coverage": 1.0
+      }
+    },
+    "lexicaltrap": {
+      "answer_always": {
+        "queries": 44,
+        "answered": 44,
+        "coverage": 1.0,
+        "risk": 0.1590909090909091,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 44,
+        "answered": 19,
+        "coverage": 0.4318181818181818,
+        "risk": 0.0,
+        "present_coverage": 0.4318181818181818
+      },
+      "policy": {
+        "queries": 44,
+        "answered": 44,
+        "coverage": 1.0,
+        "risk": 0.0,
+        "present_coverage": 1.0
+      }
+    },
+    "scope": {
+      "answer_always": {
+        "queries": 31,
+        "answered": 31,
+        "coverage": 1.0,
+        "risk": 0.16129032258064516,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 31,
+        "answered": 20,
+        "coverage": 0.6451612903225806,
+        "risk": 0.05,
+        "present_coverage": 0.6451612903225806
+      },
+      "policy": {
+        "queries": 31,
+        "answered": 31,
+        "coverage": 1.0,
+        "risk": 0.0,
+        "present_coverage": 1.0
+      }
+    },
+    "semantic": {
+      "answer_always": {
+        "queries": 89,
+        "answered": 89,
+        "coverage": 1.0,
+        "risk": 0.6966292134831461,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 89,
+        "answered": 29,
+        "coverage": 0.3258426966292135,
+        "risk": 0.5517241379310345,
+        "present_coverage": 0.3258426966292135
+      },
+      "policy": {
+        "queries": 89,
+        "answered": 0,
+        "coverage": 0.0,
+        "risk": 0.0,
+        "present_coverage": 0.0
+      }
+    },
+    "temporal": {
+      "answer_always": {
+        "queries": 54,
+        "answered": 54,
+        "coverage": 1.0,
+        "risk": 0.018518518518518517,
+        "present_coverage": 1.0
+      },
+      "margin_only": {
+        "queries": 54,
+        "answered": 40,
+        "coverage": 0.7407407407407407,
+        "risk": 0.0,
+        "present_coverage": 0.7407407407407407
+      },
+      "policy": {
+        "queries": 54,
+        "answered": 54,
+        "coverage": 1.0,
+        "risk": 0.0,
+        "present_coverage": 1.0
+      }
+    }
+  },
+  "reasons": {
+    "absent": {
+      "NotCovered": 60
+    },
+    "candidateonly": {
+      "OnlyUnvalidated": 60
+    },
+    "conflict": {
+      "Contradiction": 60
+    },
+    "present": {
+      "AspectUnmatched": 89
+    },
+    "qualified": {
+      "AspectUnmatched": 75
+    }
+  },
+  "wrong_answer_delta": {
+    "answer_always": {
+      "mean": -0.575,
+      "lower": -0.6140625,
+      "upper": -0.5359375
+    },
+    "margin_only": {
+      "mean": -0.1953125,
+      "lower": -0.2265625,
+      "upper": -0.1640625
+    }
+  },
+  "matched_margin_threshold": 0.05458831910453654,
+  "gates": [
+    {
+      "criterion": "fewer wrong answers than margin-only: 95% CI upper bound of the paired delta < 0",
+      "value": "-0.1953, CI [-0.2266, -0.1641]",
+      "passed": true
+    },
+    {
+      "criterion": "risk among answered <= 0.05",
+      "value": "0.0000 (296 answered)",
+      "passed": true
+    },
+    {
+      "criterion": "literal present questions answered >= 0.90",
+      "value": "1.0000 of 296",
+      "passed": true
+    },
+    {
+      "criterion": "paraphrases answered wrongly <= 0.05 (of paraphrase questions)",
+      "value": "0.0000 (investigated 1.0000, answered 0.0000)",
+      "passed": true
+    },
+    {
+      "criterion": "absent questions not answered >= 0.90",
+      "value": "1.0000",
+      "passed": true
+    },
+    {
+      "criterion": "conflict questions not answered >= 0.90",
+      "value": "1.0000",
+      "passed": true
+    },
+    {
+      "criterion": "candidate-only questions not answered >= 0.90",
+      "value": "1.0000",
+      "passed": true
+    },
+    {
+      "criterion": "qualified questions not answered >= 0.90",
+      "value": "1.0000",
+      "passed": true
+    },
+    {
+      "criterion": "exact replay reproduces every decision",
+      "value": "640/640",
+      "passed": true
+    },
+    {
+      "criterion": "zero scope violations",
+      "value": "0",
+      "passed": true
+    }
+  ],
+  "adopt": true
+}
