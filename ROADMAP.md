@@ -112,7 +112,7 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 
 Bounded causal claims, predictions within declared conditions, measured predictive failure, and the ability to decline to answer when the evidence is inadequate. M6 is not an autonomous scientist: it does no open-ended causal discovery, no general world simulation, and model-generated explanations never become evidence.
 
-### M6.1 — Metacognitive policy (answer / investigate / abstain)
+### ✅ M6.1 — Metacognitive policy (experiment 010: adopted)
 
 - A pure, deterministic policy over signals the recall already has:
   - evidence coverage of the question;
@@ -124,6 +124,9 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - Baselines: answer-always and margin-only.
   - Results are stratified by absence, conflict, candidate-only evidence and weak retrieval.
   - Thresholds are frozen on development seeds; held-out seeds shift the distractor and conflict rates.
+- **Result:**
+  - The coverage detector moved from IDF coverage (it leaked absent services on development seeds) to `accounted-terms/1`: a memory must name the question's subject and account for every other term.
+  - Held out, across 1,032 questions: **no wrong answers** among the 423 answered, every literal question answered, and every paraphrase, absent, conflicting, unvalidated-only and qualified question held back. Margin-only was wrong on 43% of its answers at the same coverage (ADR-0026, [results](benchmarks/010-selective-answering/RESULTS.md)).
 
 ### M6.2 — Causal hypotheses and interventions
 
