@@ -52,10 +52,13 @@ pub enum CognitiveEventType {
     InformationNeedObserved,
     InformationNeedValidated,
     InformationNeedChanged,
+    HypothesisChanged,
+    InterventionRecorded,
+    InterventionObserved,
 }
 
 impl CognitiveEventType {
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 41] = [
         Self::MemoryCreated,
         Self::MemoryRevised,
         Self::MemoryPromoted,
@@ -94,6 +97,9 @@ impl CognitiveEventType {
         Self::InformationNeedObserved,
         Self::InformationNeedValidated,
         Self::InformationNeedChanged,
+        Self::HypothesisChanged,
+        Self::InterventionRecorded,
+        Self::InterventionObserved,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -136,6 +142,9 @@ impl CognitiveEventType {
             Self::InformationNeedObserved => "information_need_observed",
             Self::InformationNeedValidated => "information_need_validated",
             Self::InformationNeedChanged => "information_need_changed",
+            Self::HypothesisChanged => "hypothesis_changed",
+            Self::InterventionRecorded => "intervention_recorded",
+            Self::InterventionObserved => "intervention_observed",
         }
     }
 

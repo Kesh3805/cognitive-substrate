@@ -93,4 +93,8 @@ id_type!(
     EvaluationCaseId,
     /// Something a caller needed to know that recall could not supply.
     InformationNeedId,
+    /// One lineage of a causal hypothesis (M6.2).
+    HypothesisId,
+    /// One deliberate or observed application of a treatment (M6.2).
+    InterventionId,
 );
