@@ -15,7 +15,8 @@ use axum::{
 };
 use cs_core::{
     BeliefId, CognitiveEventType, DerivationId, EntityId, EventQuery, EventStreamId, EvidenceId,
-    ExecutionId, InformationNeedId, JobId, MemoryId, ObservationId, ProposalId, RecallTraceId,
+    ExecutionId, HypothesisId, InformationNeedId, InterventionId, JobId, MemoryId, ObservationId,
+    ProposalId, RecallTraceId,
 };
 use cs_engine::{
     CognitiveEngine, Decision, NewBelief, NewDependency, NewEvidence, NewMemory, NewObservation,
@@ -150,7 +151,15 @@ pub fn router(state: AppState) -> Router {
         .route("/information-needs/{id}/confirm", post(confirm_gap))
         .route("/information-needs/{id}/dismiss", post(dismiss_need))
         .route("/information-needs/{id}/weights", post(weigh_need))
-        .route("/information-needs/{id}/purge", post(purge_need));
+        .route("/information-needs/{id}/purge", post(purge_need))
+        .route("/hypotheses", get(list_hypotheses).post(create_hypothesis))
+        .route("/hypotheses/{id}", get(get_hypothesis))
+        .route("/hypotheses/{id}/history", get(hypothesis_history))
+        .route("/hypotheses/{id}/evaluate", post(evaluate_hypothesis))
+        .route("/hypotheses/{id}/retire", post(retire_hypothesis))
+        .route("/interventions", post(record_intervention))
+        .route("/interventions/{id}", get(get_intervention))
+        .route("/interventions/{id}/outcomes", post(observe_outcome));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -844,4 +853,106 @@ async fn purge_need(
 ) -> Result<StatusCode, ApiError> {
     s.engine.purge_need(&ctx, InformationNeedId(id)).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- M6.2: causal hypotheses and interventions --------------------------------
+
+#[derive(Debug, Deserialize)]
+struct ExpectedVersion {
+    expected_version: u64,
+}
+
+async fn list_hypotheses(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> ApiResult<Vec<cs_memory::causal::Hypothesis>> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    let status = parse_status(
+        p.status.as_deref(),
+        cs_memory::causal::HypothesisStatus::parse,
+    )?;
+    ok(s.engine
+        .list_hypotheses(&ctx, status, p.limit.unwrap_or(100))
+        .await?)
+}
+
+async fn create_hypothesis(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    ApiJson(req): ApiJson<cs_engine::causal::NewHypothesis>,
+) -> ApiResult<cs_memory::causal::Hypothesis> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.engine.create_hypothesis(&ctx, req).await?),
+    ))
+}
+
+async fn get_hypothesis(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::causal::Hypothesis> {
+    ok(s.engine.get_hypothesis(&ctx, HypothesisId(id)).await?)
+}
+
+async fn hypothesis_history(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Vec<cs_memory::causal::Hypothesis>> {
+    ok(s.engine.hypothesis_history(&ctx, HypothesisId(id)).await?)
+}
+
+async fn evaluate_hypothesis(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<ExpectedVersion>,
+) -> ApiResult<cs_memory::causal::Hypothesis> {
+    ok(s.engine
+        .evaluate_hypothesis(&ctx, HypothesisId(id), req.expected_version)
+        .await?)
+}
+
+async fn retire_hypothesis(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<ExpectedVersion>,
+) -> ApiResult<cs_memory::causal::Hypothesis> {
+    ok(s.engine
+        .retire_hypothesis(&ctx, HypothesisId(id), req.expected_version)
+        .await?)
+}
+
+async fn record_intervention(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    ApiJson(req): ApiJson<cs_engine::causal::NewIntervention>,
+) -> ApiResult<cs_memory::causal::Intervention> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.engine.record_intervention(&ctx, req).await?),
+    ))
+}
+
+async fn get_intervention(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+) -> ApiResult<cs_memory::causal::Intervention> {
+    ok(s.engine.get_intervention(&ctx, InterventionId(id)).await?)
+}
+
+async fn observe_outcome(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<cs_engine::causal::ObserveOutcome>,
+) -> ApiResult<cs_memory::causal::Intervention> {
+    ok(s.engine
+        .observe_outcome(&ctx, InterventionId(id), req)
+        .await?)
 }
