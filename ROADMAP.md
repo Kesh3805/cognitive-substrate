@@ -128,7 +128,7 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - The coverage detector moved from IDF coverage (it leaked absent services on development seeds) to `accounted-terms/1`: a memory must name the question's subject and account for every other term.
   - Held out, across 1,032 questions: **no wrong answers** among the 423 answered, every literal question answered, and every paraphrase, absent, conflicting, unvalidated-only and qualified question held back. Margin-only was wrong on 43% of its answers at the same coverage (ADR-0026, [results](benchmarks/010-selective-answering/RESULTS.md)).
 
-### M6.2 — Causal hypotheses and interventions
+### ✅ M6.2 — Causal hypotheses and interventions (experiment 011: adopted)
 
 - A hypothesis is directional and versioned: "doing X raises/lowers Y", scoped to a declared environment and context partition (capability input classes).
 - Interventions record their **assignment mechanism** at intent:
@@ -140,6 +140,10 @@ Bounded causal claims, predictions within declared conditions, measured predicti
 - **Experiment 011:**
   - The environment includes true causes, confounded correlates, reverse causation, null and negative effects, context-dependent effects, a confounded agent policy and noisy context features.
   - The gate is the false-supported rate, with a minimum detection rate for true causes.
+- **Result:**
+  - The design was reviewed before implementation. Probes merged into `randomized` (draw and propensity recorded), and observational lift was moved out of the status.
+  - The evaluation is a stratified Newcombe–Wilson interval over randomized contexts, with a sign-consistency guard; `refuted` means below the stated minimum effect.
+  - Held out, over 1,400 hypotheses: 0.4% false support (the naive reading of the agent's own evidence: 45%), 97% of detectable causes found, 95% interval coverage. Harm in unsampled contexts can stay hidden (ADR-0027, [results](benchmarks/011-causal-evidence/RESULTS.md)).
 
 ### M6.3 — Counterfactuals, computed and labelled
 
