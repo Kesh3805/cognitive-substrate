@@ -52,23 +52,44 @@ pub struct Mix {
     pub absent: usize,
     pub conflict: usize,
     pub candidate_only: usize,
+    /// Literal direct questions wrapped in conversational framing (to be
+    /// answered), and with a qualifier that changes what is asked (not to
+    /// be answered from current facts).
+    pub framed: usize,
+    pub qualified: usize,
+    pub framings: &'static [&'static str],
+    pub qualifiers: &'static [&'static str],
 }
 
 pub const DEV_MIX: Mix = Mix {
     absent: 20,
     conflict: 20,
     candidate_only: 20,
+    framed: 25,
+    qualified: 25,
+    framings: &["please tell me", "could you tell me"],
+    qualifiers: &["previously", "never"],
 };
+/// Held out: a different mix, and framings and qualifiers never used on
+/// development seeds.
 pub const HELD_OUT_MIX: Mix = Mix {
     absent: 30,
     conflict: 30,
     candidate_only: 12,
+    framed: 24,
+    qualified: 24,
+    framings: &[
+        "can you show me",
+        "would you let me know",
+        "kindly tell me currently",
+    ],
+    qualifiers: &["not", "before", "only"],
 };
 
 /// Margin-only baseline: answer when the top selected memory leads the
 /// next by at least this much, else abstain. Fixed from development seeds
 /// (matched coverage with the policy) before the held-out run.
-pub const MARGIN_ONLY_THRESHOLD: f64 = 0.0;
+pub const MARGIN_ONLY_THRESHOLD: f64 = 0.0546;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,14 +98,16 @@ pub enum Stratum {
     Absent,
     Conflict,
     CandidateOnly,
+    Qualified,
 }
 
 impl Stratum {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Present,
         Self::Absent,
         Self::Conflict,
         Self::CandidateOnly,
+        Self::Qualified,
     ];
 
     /// The action a careful reader would take.
@@ -92,7 +115,7 @@ impl Stratum {
         match self {
             Self::Present => Decision::Answer,
             Self::Absent => Decision::Abstain,
-            Self::Conflict | Self::CandidateOnly => Decision::Investigate,
+            Self::Conflict | Self::CandidateOnly | Self::Qualified => Decision::Investigate,
         }
     }
 }
@@ -299,6 +322,36 @@ fn generate(seed: u64, mix: Mix) -> Corpus10 {
             });
         }
     }
+    // Framed and qualified variants of literal direct questions.
+    let mut direct: Vec<Query10> = queries
+        .iter()
+        .filter(|q| q.family == "direct")
+        .cloned()
+        .collect();
+    assert!(
+        direct.len() >= mix.framed.max(mix.qualified),
+        "seed {seed}: {} direct questions",
+        direct.len()
+    );
+    rng.shuffle(&mut direct);
+    for q in direct.iter().take(mix.framed) {
+        queries.push(Query10 {
+            family: "framed".into(),
+            text: format!("{} {}", rng.pick(mix.framings), q.text),
+            ..q.clone()
+        });
+    }
+    // Drawn independently: a question may appear framed and qualified.
+    rng.shuffle(&mut direct);
+    for q in direct.iter().take(mix.qualified) {
+        queries.push(Query10 {
+            stratum: Stratum::Qualified,
+            family: "qualified".into(),
+            text: format!("{} {}", q.text, rng.pick(mix.qualifiers)),
+            gold: BTreeSet::new(),
+            forbidden: q.forbidden.clone(),
+        });
+    }
     Corpus10 {
         inserts: all.into_iter().map(|(i, c, _)| (i, c)).collect(),
         queries,
@@ -340,6 +393,10 @@ pub struct Row {
     /// The policy's best covering memory answers it: what the policy
     /// answers from.
     pub covering_correct: bool,
+    /// The question, and the text of the memory the policy would answer
+    /// from (for inspecting failures).
+    pub question: String,
+    pub answered_from: Option<String>,
     /// Lead of the top selected memory over the next (margin-only input).
     pub top_margin: Option<f64>,
     pub scope_violations: usize,
@@ -440,6 +497,13 @@ pub async fn run_seed(
             reasons: decision.reasons.clone(),
             selected: decision.signals.selected,
             top_correct: selected.first().is_some_and(|i| q.gold.contains(i)),
+            question: q.text.clone(),
+            answered_from: decision.signals.covering.first().and_then(|id| {
+                resp.results
+                    .iter()
+                    .find(|r| r.memory.id == *id)
+                    .map(|r| r.memory.content.index_text())
+            }),
             covering_correct: decision
                 .signals
                 .covering
@@ -615,7 +679,6 @@ pub fn summarize(rows: &[Row]) -> Summary {
         .collect();
 
     let p = &overall["policy"];
-    let mo = &overall["margin_only"];
     let share = |s: Stratum, d: Decision| -> f64 {
         let rs: Vec<&Row> = rows.iter().filter(|r| r.stratum == s).collect();
         if rs.is_empty() {
@@ -648,13 +711,41 @@ pub fn summarize(rows: &[Row]) -> Summary {
         format!("{:.4} ({} answered)", p.risk, p.answered),
         p.risk <= 0.05,
     );
+    // Literal questions: the generator's templates for direct, lexical
+    // trap, temporal and scope questions, and their framed variants.
+    let literal: Vec<&Row> = rows
+        .iter()
+        .filter(|r| r.stratum == Stratum::Present && r.family != "semantic")
+        .collect();
+    let literal_answered = literal
+        .iter()
+        .filter(|r| r.decision == Decision::Answer)
+        .count() as f64
+        / literal.len().max(1) as f64;
     gate(
-        "present questions answered >= 0.80",
+        "literal present questions answered >= 0.90",
+        format!("{literal_answered:.4} of {}", literal.len()),
+        literal_answered >= 0.90,
+    );
+    let paraphrases: Vec<&Row> = rows.iter().filter(|r| r.family == "semantic").collect();
+    let paraphrase_wrong = paraphrases
+        .iter()
+        .filter(|r| answers("policy", r, t) && error("policy", r))
+        .count() as f64
+        / paraphrases.len().max(1) as f64;
+    let paraphrase_investigated = paraphrases
+        .iter()
+        .filter(|r| r.decision == Decision::Investigate)
+        .count() as f64
+        / paraphrases.len().max(1) as f64;
+    gate(
+        "paraphrases answered wrongly <= 0.05 (of paraphrase questions)",
         format!(
-            "{:.4} (margin-only {:.4})",
-            p.present_coverage, mo.present_coverage
+            "{paraphrase_wrong:.4} (investigated {paraphrase_investigated:.4}, answered {:.4})",
+            1.0 - share_family(rows, "semantic", Decision::Investigate)
+                - share_family(rows, "semantic", Decision::Abstain)
         ),
-        p.present_coverage >= 0.80,
+        paraphrase_wrong <= 0.05,
     );
     for (criterion, s) in [
         ("absent questions not answered >= 0.90", Stratum::Absent),
@@ -662,6 +753,10 @@ pub fn summarize(rows: &[Row]) -> Summary {
         (
             "candidate-only questions not answered >= 0.90",
             Stratum::CandidateOnly,
+        ),
+        (
+            "qualified questions not answered >= 0.90",
+            Stratum::Qualified,
         ),
     ] {
         let v = not_answered(s);
@@ -690,6 +785,11 @@ pub fn summarize(rows: &[Row]) -> Summary {
     }
 }
 
+fn share_family(rows: &[Row], family: &str, d: Decision) -> f64 {
+    let rs: Vec<&Row> = rows.iter().filter(|r| r.family == family).collect();
+    rs.iter().filter(|r| r.decision == d).count() as f64 / rs.len().max(1) as f64
+}
+
 /// Mean of a column, for reporting.
 pub fn mean_of(rows: &[Row], f: fn(&Row) -> f64) -> f64 {
     mean(&rows.iter().map(f).collect::<Vec<_>>())
@@ -706,6 +806,21 @@ mod tests {
         assert_eq!(count(Stratum::Absent), DEV_MIX.absent);
         assert_eq!(count(Stratum::Conflict), DEV_MIX.conflict);
         assert_eq!(count(Stratum::CandidateOnly), DEV_MIX.candidate_only);
+        assert_eq!(count(Stratum::Qualified), DEV_MIX.qualified);
+        assert_eq!(
+            c.queries.iter().filter(|q| q.family == "framed").count(),
+            DEV_MIX.framed
+        );
+        for seed in HELD_OUT_SEEDS {
+            let h = generate(seed, HELD_OUT_MIX);
+            assert_eq!(
+                h.queries
+                    .iter()
+                    .filter(|q| q.stratum == Stratum::Qualified)
+                    .count(),
+                HELD_OUT_MIX.qualified
+            );
+        }
         assert!(c.inserts.windows(2).all(|w| w[0].0.at <= w[1].0.at));
         assert_eq!(
             c.inserts.iter().filter(|(_, cand)| *cand).count(),
