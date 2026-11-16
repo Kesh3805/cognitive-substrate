@@ -25,5 +25,6 @@ benchmarks/
 | 007 | [HNSW vs exact search under per-scope filtering](007-ann-under-filtering/PREREGISTRATION.md) | **Done: not adopted** (no stratum passed; [results](007-ann-under-filtering/RESULTS.md)) |
 | 008 | [How far gap validation can be trusted](008-gap-validation/PREREGISTRATION.md) | **Done: gap proposals withdrawn** (both tiers failed; [results](008-gap-validation/RESULTS.md)) |
 | 009 | [Adaptive candidate budgets](009-adaptive-budgets/PREREGISTRATION.md) | **Done: not adopted** (p95 gate failed, 0.96×; [results](009-adaptive-budgets/RESULTS.md)) |
+| 010 | [Answer, investigate or abstain](010-selective-answering/PREREGISTRATION.md) | Preregistered |
 
 See [the research program](../docs/research/research-program.md).
