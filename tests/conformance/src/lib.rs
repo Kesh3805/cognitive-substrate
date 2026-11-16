@@ -16,6 +16,7 @@ pub mod m44;
 pub mod m5;
 pub mod m54;
 pub mod m6;
+pub mod m62;
 
 use std::sync::Arc;
 
@@ -919,4 +920,6 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
     );
     use m6::*;
     scenario!(recalls_answer_investigate_or_abstain);
+    use m62::*;
+    scenario!(hypotheses_follow_randomized_evidence);
 }
