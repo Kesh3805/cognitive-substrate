@@ -5,6 +5,7 @@
 //! recall traces replayable and debt reports auditable.
 
 pub mod capability;
+pub mod causal;
 pub mod debt;
 pub mod lexical;
 pub mod metacognition;
