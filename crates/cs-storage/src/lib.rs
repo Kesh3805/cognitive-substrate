@@ -8,8 +8,8 @@
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
-    EvidenceId, ExecutionId, InformationNeedId, JobId, MemoryId, MemoryRevisionId, ObservationId,
-    ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
+    EvidenceId, ExecutionId, HypothesisId, InformationNeedId, InterventionId, JobId, MemoryId,
+    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -17,6 +17,7 @@ use cs_memory::{
     MemoryStatus, Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion,
     ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
+    causal::{Hypothesis, HypothesisStatus, Intervention, OutcomeObservation},
     derivation::{Derivation, DerivationStatus},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
     need::{InformationNeed, NeedStatus, TermStats},
@@ -607,6 +608,56 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// Erase a need and its session keys (signatures can contain
     /// sensitive query terms).
     async fn purge_need(&self, id: InformationNeedId, event: EventDraft) -> Result<()>;
+
+    // ---- causal hypotheses and interventions (M6.2) --------------------------
+
+    /// Insert (`expected_version: None`) or replace a hypothesis if its
+    /// version is unchanged (`Conflict` otherwise). Every version written is
+    /// kept in its history.
+    async fn write_hypothesis(
+        &self,
+        h: &Hypothesis,
+        expected_version: Option<u64>,
+        event: EventDraft,
+    ) -> Result<Hypothesis>;
+
+    async fn get_hypothesis(&self, id: HypothesisId) -> Result<Option<Hypothesis>>;
+
+    /// Every version of a hypothesis, oldest first.
+    async fn hypothesis_history(&self, id: HypothesisId) -> Result<Vec<Hypothesis>>;
+
+    /// Hypotheses the caller can read, newest change first (then id).
+    async fn list_hypotheses(
+        &self,
+        access: &AccessContext,
+        status: Option<HypothesisStatus>,
+        limit: u32,
+    ) -> Result<Vec<Hypothesis>>;
+
+    /// Insert an intervention at intent. Its outcomes must be empty.
+    async fn insert_intervention(&self, i: &Intervention, event: EventDraft) -> Result<()>;
+
+    async fn get_intervention(&self, id: InterventionId) -> Result<Option<Intervention>>;
+
+    /// Record one outcome, atomically, once per key: `Conflict` if `key`
+    /// already has an observation.
+    async fn observe_intervention(
+        &self,
+        id: InterventionId,
+        key: &str,
+        observation: &OutcomeObservation,
+        event: EventDraft,
+    ) -> Result<Intervention>;
+
+    /// Interventions the caller can read for one environment and
+    /// treatment, by `recorded_at`, then id; at most `limit`.
+    async fn interventions_for(
+        &self,
+        access: &AccessContext,
+        environment: &str,
+        treatment: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>>;
 
     // ---- capabilities (M4.4) ------------------------------------------------
 

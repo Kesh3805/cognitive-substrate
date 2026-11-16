@@ -12,15 +12,16 @@ use std::{
 use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
-    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, InformationNeedId,
-    JobId, MemoryId, MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, TenantId,
-    temporal::truncate_micros,
+    Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, HypothesisId,
+    InformationNeedId, InterventionId, JobId, MemoryId, MemoryRevisionId, ObservationId,
+    ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
     ExtractionRun, Job, JobError, JobOutcome, JobStatus, Lease, MemoryRecord, MemoryStatus,
     Observation, ProposalDecision, ProposalStatus, RecallTrace, RecordVersion, ResolutionProposal,
     capability::{AbortReason, EvaluationCase, Execution, ExecutionStatus, Verification},
+    causal::{Hypothesis, HypothesisStatus, Intervention, OutcomeObservation},
     derivation::{Derivation, DerivationStatus},
     entity::{
         AliasSource, ENTITY_NORMALIZATION_VERSION, Entity, EntityAlias, EntityKind, EntityMention,
@@ -67,6 +68,8 @@ struct State {
     cases: BTreeMap<EvaluationCaseId, EvaluationCase>,
     needs: BTreeMap<InformationNeedId, InformationNeed>,
     need_sessions: HashSet<(InformationNeedId, String)>,
+    hypotheses: BTreeMap<HypothesisId, Vec<Hypothesis>>,
+    interventions: BTreeMap<InterventionId, Intervention>,
 }
 
 impl State {
@@ -1513,6 +1516,116 @@ impl CognitiveStore for InMemoryStore {
         s.need_sessions.retain(|(n, _)| *n != id);
         s.append(event);
         Ok(())
+    }
+
+    async fn write_hypothesis(
+        &self,
+        h: &Hypothesis,
+        expected_version: Option<u64>,
+        event: EventDraft,
+    ) -> Result<Hypothesis> {
+        let mut s = self.lock();
+        let current = s
+            .hypotheses
+            .get(&h.id)
+            .and_then(|v| v.last())
+            .map(|x| x.version);
+        if current != expected_version {
+            return Err(Error::conflict("hypothesis changed; reload it"));
+        }
+        s.hypotheses.entry(h.id).or_default().push(h.clone());
+        s.append(event);
+        Ok(h.clone())
+    }
+
+    async fn get_hypothesis(&self, id: HypothesisId) -> Result<Option<Hypothesis>> {
+        Ok(self
+            .lock()
+            .hypotheses
+            .get(&id)
+            .and_then(|v| v.last())
+            .cloned())
+    }
+
+    async fn hypothesis_history(&self, id: HypothesisId) -> Result<Vec<Hypothesis>> {
+        Ok(self.lock().hypotheses.get(&id).cloned().unwrap_or_default())
+    }
+
+    async fn list_hypotheses(
+        &self,
+        access: &AccessContext,
+        status: Option<HypothesisStatus>,
+        limit: u32,
+    ) -> Result<Vec<Hypothesis>> {
+        let s = self.lock();
+        let mut v: Vec<Hypothesis> = s
+            .hypotheses
+            .values()
+            .filter_map(|v| v.last())
+            .filter(|h| access.can_read(&h.scope) && status.is_none_or(|x| h.status == x))
+            .cloned()
+            .collect();
+        v.sort_by_key(|h| (std::cmp::Reverse(h.updated_at), h.id));
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn insert_intervention(&self, i: &Intervention, event: EventDraft) -> Result<()> {
+        let mut s = self.lock();
+        if s.interventions.contains_key(&i.id) {
+            return Err(Error::conflict("intervention already recorded"));
+        }
+        s.interventions.insert(i.id, i.clone());
+        s.append(event);
+        Ok(())
+    }
+
+    async fn get_intervention(&self, id: InterventionId) -> Result<Option<Intervention>> {
+        Ok(self.lock().interventions.get(&id).cloned())
+    }
+
+    async fn observe_intervention(
+        &self,
+        id: InterventionId,
+        key: &str,
+        observation: &OutcomeObservation,
+        event: EventDraft,
+    ) -> Result<Intervention> {
+        let mut s = self.lock();
+        let i = s
+            .interventions
+            .get_mut(&id)
+            .ok_or_else(|| Error::not_found("intervention", id))?;
+        if i.outcomes.contains_key(key) {
+            return Err(Error::conflict("this outcome is already recorded"));
+        }
+        i.outcomes.insert(key.to_owned(), observation.clone());
+        let out = i.clone();
+        s.append(event);
+        Ok(out)
+    }
+
+    async fn interventions_for(
+        &self,
+        access: &AccessContext,
+        environment: &str,
+        treatment: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>> {
+        let s = self.lock();
+        let mut v: Vec<Intervention> = s
+            .interventions
+            .values()
+            .filter(|i| {
+                i.environment == environment
+                    && i.treatment == treatment
+                    && access.can_read(&i.scope)
+            })
+            .cloned()
+            .collect();
+        v.sort_by_key(|i| (i.recorded_at, i.id));
+        v.truncate(limit as usize);
+        Ok(v)
     }
 
     async fn get_derivation(&self, id: DerivationId) -> Result<Option<Derivation>> {
