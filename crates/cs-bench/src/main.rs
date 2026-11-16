@@ -1,7 +1,7 @@
 //! `cs-bench`: run a preregistered experiment.
 //!
 //! ```text
-//! cs-bench 005|006|008|009|010 [--store memory|postgres] [--dev] [--out DIR]
+//! cs-bench 005|006|008|009|010|011 [--store memory|postgres] [--dev] [--out DIR]
 //! cs-bench 007 --reset [--dev] [--out DIR]
 //! ```
 //!
@@ -12,7 +12,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::{exp005, exp006, exp007, exp008, exp009, exp010};
+use cs_bench::{exp005, exp006, exp007, exp008, exp009, exp010, exp011};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -64,6 +64,9 @@ async fn main() -> Result<(), String> {
     }
     if experiment == "010" {
         return run_010(&args).await;
+    }
+    if experiment == "011" {
+        return run_011(&args).await;
     }
     let (dir, dev_seeds, held_out): (&str, &[u64], &[u64]) = match experiment.as_str() {
         "005" => (
@@ -552,6 +555,74 @@ async fn run_010(args: &[String]) -> Result<(), String> {
         "matched margin threshold {:.4}; wrong-answer delta {:?}",
         summary.matched_margin_threshold, summary.wrong_answer_delta
     );
+    for g in &summary.gates {
+        println!(
+            "[{}] {} — {}",
+            if g.passed { "pass" } else { "FAIL" },
+            g.criterion,
+            g.value
+        );
+    }
+    println!("adopt: {}", summary.adopt);
+    Ok(())
+}
+
+async fn run_011(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let seeds: Vec<u64> = if dev {
+        exp011::DEV_SEEDS.to_vec()
+    } else {
+        exp011::HELD_OUT_SEEDS.to_vec()
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/011-causal-evidence/results/{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    for seed in &seeds {
+        eprintln!("seed {seed}: generating, intervening, evaluating");
+        rows.extend(exp011::run_seed(store(&kind).await?, *seed).await?);
+    }
+    let summary = exp011::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "011-causal-evidence",
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "evaluation_version": cs_memory::causal::CAUSAL_EVALUATION_VERSION,
+        "per_type": exp011::PER_TYPE,
+        "contexts": exp011::CONTEXTS,
+        "min_effect": exp011::MIN_EFFECT,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    for (k, m) in &summary.statuses {
+        println!("{k:<18} {m:?}   naive {:?}", summary.naive_statuses[k]);
+    }
+    println!("harmful-in-one supported: {:?}", summary.harmed_supported);
     for g in &summary.gates {
         println!(
             "[{}] {} — {}",
