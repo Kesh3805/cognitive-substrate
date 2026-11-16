@@ -219,6 +219,9 @@ pub struct RecallResponse {
     /// Set when the policy asked to record information needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub information_need: Option<crate::needs::NeedOutcome>,
+    /// Set when the policy asked for a metacognitive decision (M6.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metacognition: Option<cs_memory::MetacognitiveDecision>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

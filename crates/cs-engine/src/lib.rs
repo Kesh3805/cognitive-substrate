@@ -64,6 +64,7 @@ struct RecallRun {
     query_embedding: Option<Vec<f32>>,
     dense_coverage: Option<f64>,
     budget: Option<cs_memory::BudgetDecision>,
+    metacognition: Option<cs_memory::MetacognitiveDecision>,
 }
 
 #[derive(Debug, Clone)]
@@ -668,6 +669,7 @@ impl CognitiveEngine {
             limit: policy.max_candidates,
             order: cs_storage::CandidateOrder::Recent,
         };
+        let stats_query = policy.metacognition.is_some().then(|| base.clone());
         let (stored, channels, budget) = self
             .generate_candidates(query, policy, query_embedding.as_deref(), base)
             .await?;
@@ -753,6 +755,13 @@ impl CognitiveEngine {
         } else {
             (Vec::new(), BTreeMap::new())
         };
+        let metacognition = match (policy.metacognition, stats_query) {
+            (Some(mp), Some(q)) => Some(
+                self.metacognitive_decision(query, mp, &q, &candidates, &records)
+                    .await?,
+            ),
+            _ => None,
+        };
         Ok(RecallRun {
             candidates,
             records,
@@ -762,6 +771,7 @@ impl CognitiveEngine {
             query_embedding,
             dense_coverage,
             budget,
+            metacognition,
         })
     }
 
@@ -938,7 +948,73 @@ impl CognitiveEngine {
             dense: run.dense.clone(),
             executed_at: self.now(),
             budget: run.budget,
+            metacognition: run.metacognition.take(),
         }
+    }
+
+    /// Signals for answer / investigate / abstain over the selected
+    /// memories (M6.1). Coverage uses detector `idf-coverage/1` with term
+    /// statistics over the population the recall searched.
+    async fn metacognitive_decision(
+        &self,
+        query: &str,
+        policy: cs_memory::MetacognitivePolicy,
+        searched: &MemoryQuery,
+        candidates: &[RecallCandidate],
+        records: &BTreeMap<MemoryRevisionId, MemoryRecord>,
+    ) -> Result<cs_memory::MetacognitiveDecision> {
+        let selected: Vec<(&RecallCandidate, &MemoryRecord)> = candidates
+            .iter()
+            .filter(|c| c.selected)
+            .filter_map(|c| records.get(&c.revision_id).map(|r| (c, r)))
+            .collect();
+        let covering: Vec<(&RecallCandidate, &MemoryRecord)> =
+            match cs_memory::need::Signature::of(query) {
+                Some(sig) if !selected.is_empty() => {
+                    let stats = self.store.term_stats(searched, &sig.terms).await?;
+                    selected
+                        .iter()
+                        .copied()
+                        .filter(|(_, r)| {
+                            cs_memory::need::qualifies(&sig, &stats, &r.content.index_terms())
+                        })
+                        .collect()
+                }
+                _ => Vec::new(),
+            };
+        let active: Vec<&MemoryRecord> = covering
+            .iter()
+            .map(|(_, r)| *r)
+            .filter(|r| r.status == MemoryStatus::Active)
+            .collect();
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        // The best covering memory against the best other selected one.
+        let top = covering.iter().map(|(c, _)| c).max_by(|a, b| {
+            a.score
+                .total_cmp(&b.score)
+                .then_with(|| b.rank.cmp(&a.rank))
+        });
+        let margin = top.map(|t| {
+            let next = selected
+                .iter()
+                .filter(|(c, _)| c.revision_id != t.revision_id)
+                .map(|(c, _)| c.score)
+                .fold(f64::NEG_INFINITY, f64::max);
+            if next.is_finite() {
+                t.score - next
+            } else {
+                t.score
+            }
+        });
+        let signals = cs_memory::Signals {
+            selected: count(selected.len()),
+            covering_active: count(active.len()),
+            covering_candidate: count(covering.len() - active.len()),
+            contradictions: cs_policy::metacognition::contradictions(&active),
+            top_score: top.map(|t| t.score),
+            margin,
+        };
+        Ok(cs_memory::metacognition::decide(policy, signals))
     }
 
     /// Policy-controlled, traceable, reproducible recall of memories and
@@ -1033,6 +1109,7 @@ impl CognitiveEngine {
                 "selected": summary.selected_count,
                 "beliefs_selected": summary.beliefs_selected,
                 "dense": trace.dense,
+                "decision": trace.metacognition.as_ref().map(|m| m.decision),
             }),
             trace.executed_at,
         );
@@ -1057,6 +1134,7 @@ impl CognitiveEngine {
             beliefs,
             trace: summary,
             information_need,
+            metacognition: trace.metacognition.clone(),
         })
     }
 
