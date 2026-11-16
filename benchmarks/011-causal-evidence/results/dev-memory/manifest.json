@@ -1,0 +1,16 @@
+{
+  "commit": "6e8fe0d67936c04ee5975657cf0e3aed187b6f87",
+  "contexts": 12,
+  "evaluation_version": 1,
+  "experiment": "011-causal-evidence",
+  "held_out": false,
+  "min_effect": 0.05,
+  "per_type": 40,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "store": "memory"
+}

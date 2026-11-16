@@ -1,0 +1,149 @@
+{
+  "statuses": {
+    "ConfoundedNull": {
+      "inconclusive": 83,
+      "proposed": 30,
+      "refuted": 6,
+      "supported": 1
+    },
+    "ContextDependent": {
+      "inconclusive": 87,
+      "proposed": 20,
+      "refuted": 1,
+      "supported": 12
+    },
+    "HarmfulInOne": {
+      "inconclusive": 58,
+      "proposed": 27,
+      "refuted": 1,
+      "supported": 34
+    },
+    "NearBoundary": {
+      "inconclusive": 88,
+      "proposed": 23,
+      "refuted": 1,
+      "supported": 8
+    },
+    "Negative": {
+      "inconclusive": 22,
+      "proposed": 23,
+      "refuted": 42,
+      "supported": 33
+    },
+    "ReverseCausation": {
+      "inconclusive": 81,
+      "proposed": 29,
+      "refuted": 10
+    },
+    "StrongPositive": {
+      "inconclusive": 28,
+      "proposed": 21,
+      "supported": 71
+    }
+  },
+  "naive_statuses": {
+    "ConfoundedNull": {
+      "inconclusive": 108,
+      "supported": 12
+    },
+    "ContextDependent": {
+      "inconclusive": 50,
+      "supported": 70
+    },
+    "HarmfulInOne": {
+      "inconclusive": 23,
+      "supported": 97
+    },
+    "NearBoundary": {
+      "inconclusive": 47,
+      "supported": 73
+    },
+    "Negative": {
+      "inconclusive": 66,
+      "refuted": 39,
+      "supported": 15
+    },
+    "ReverseCausation": {
+      "supported": 120
+    },
+    "StrongPositive": {
+      "inconclusive": 2,
+      "supported": 118
+    }
+  },
+  "false_supported": {
+    "n": 309,
+    "k": 1,
+    "rate": 0.003236245954692557,
+    "upper": 0.018101217705929446
+  },
+  "naive_false_supported": {
+    "n": 309,
+    "k": 139,
+    "rate": 0.44983818770226536,
+    "upper": 0.5055849618433615
+  },
+  "detection": {
+    "n": 47,
+    "k": 44,
+    "rate": 0.9361702127659575,
+    "upper": 0.9780550129792273
+  },
+  "detection_all": {
+    "n": 531,
+    "k": 158,
+    "rate": 0.2975517890772128,
+    "upper": 0.3377796378567278
+  },
+  "false_refuted": {
+    "n": 531,
+    "k": 3,
+    "rate": 0.005649717514124294,
+    "upper": 0.016477761423186577
+  },
+  "coverage": {
+    "n": 667,
+    "k": 620,
+    "rate": 0.9295352323838081,
+    "upper": 0.9465981785922356
+  },
+  "harmed_supported": {
+    "n": 120,
+    "k": 34,
+    "rate": 0.2833333333333333,
+    "upper": 0.369703692141789
+  },
+  "gates": [
+    {
+      "criterion": "false-supported rate <= 0.01 with Wilson 95% upper bound <= 0.02",
+      "value": "1/309 = 0.0032 (upper 0.0181)",
+      "passed": true
+    },
+    {
+      "criterion": "detectable causes (effect >= 0.25, >= 60 randomized outcomes per arm) supported >= 0.70",
+      "value": "44/47 = 0.9362",
+      "passed": true
+    },
+    {
+      "criterion": "false-refuted rate <= 0.01",
+      "value": "3/531 = 0.0056",
+      "passed": true
+    },
+    {
+      "criterion": "95% intervals cover the true effect >= 0.90",
+      "value": "620/667 = 0.9295",
+      "passed": true
+    },
+    {
+      "criterion": "the naive baseline is fooled: false-supported >= 0.20",
+      "value": "139/309 = 0.4498",
+      "passed": true
+    },
+    {
+      "criterion": "every evaluation is reproduced exactly",
+      "value": "true",
+      "passed": true
+    }
+  ],
+  "adopt": true
+}
