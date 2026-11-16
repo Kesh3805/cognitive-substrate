@@ -122,6 +122,23 @@ pub async fn recalls_answer_investigate_or_abstain(h: &Harness) {
     assert_eq!(d.decision, Decision::Abstain, "{d:?}");
     assert!(d.signals.selected > 0, "recency still fills the candidates");
 
+    // About billing invoices, but not about who maintains them: investigate.
+    let r = h
+        .engine
+        .recall(
+            &h.alice,
+            deciding("who maintains billing invoices", None, false),
+        )
+        .await
+        .unwrap();
+    let d = r.metacognition.unwrap();
+    assert_eq!(
+        (d.decision, d.reasons.clone()),
+        (Decision::Investigate, vec![Reason::AspectUnmatched]),
+        "{d:?}"
+    );
+    assert!(d.signals.anchored >= 1);
+
     // Only an unvalidated memory covers it: investigate.
     let r = h
         .engine
