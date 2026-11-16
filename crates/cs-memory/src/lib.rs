@@ -8,6 +8,7 @@
 
 pub mod belief;
 pub mod capability;
+pub mod causal;
 pub mod derivation;
 pub mod embedding;
 pub mod entity;
