@@ -10,6 +10,7 @@
 //! 3. is persisted atomically with a cognitive event.
 
 pub mod capabilities;
+pub mod causal;
 mod compile;
 pub mod embedding;
 mod embeddings;
@@ -1689,4 +1690,15 @@ impl CognitiveEngine {
             },
         ))
     }
+}
+
+/// A key that is non-empty and at most 200 characters.
+pub(crate) fn non_empty_key(field: &str, value: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || value.chars().count() > 200 {
+        return Err(Error::validation(format!(
+            "{field} must be 1..=200 characters"
+        )));
+    }
+    Ok(())
 }
