@@ -35,6 +35,7 @@ mod m4;
 mod m43;
 mod m44;
 mod m54;
+mod m62;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -1607,6 +1608,75 @@ impl CognitiveStore for PgStore {
 
     async fn purge_need(&self, id: cs_core::InformationNeedId, event: EventDraft) -> Result<()> {
         self.m54_purge_need(id, event).await
+    }
+
+    async fn write_hypothesis(
+        &self,
+        h: &cs_memory::causal::Hypothesis,
+        expected_version: Option<u64>,
+        event: EventDraft,
+    ) -> Result<cs_memory::causal::Hypothesis> {
+        self.m62_write_hypothesis(h, expected_version, event).await
+    }
+
+    async fn get_hypothesis(
+        &self,
+        id: cs_core::HypothesisId,
+    ) -> Result<Option<cs_memory::causal::Hypothesis>> {
+        self.m62_get_hypothesis(id).await
+    }
+
+    async fn hypothesis_history(
+        &self,
+        id: cs_core::HypothesisId,
+    ) -> Result<Vec<cs_memory::causal::Hypothesis>> {
+        self.m62_hypothesis_history(id).await
+    }
+
+    async fn list_hypotheses(
+        &self,
+        access: &AccessContext,
+        status: Option<cs_memory::causal::HypothesisStatus>,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::causal::Hypothesis>> {
+        self.m62_list_hypotheses(access, status, limit).await
+    }
+
+    async fn insert_intervention(
+        &self,
+        i: &cs_memory::causal::Intervention,
+        event: EventDraft,
+    ) -> Result<()> {
+        self.m62_insert_intervention(i, event).await
+    }
+
+    async fn get_intervention(
+        &self,
+        id: cs_core::InterventionId,
+    ) -> Result<Option<cs_memory::causal::Intervention>> {
+        self.m62_get_intervention(id).await
+    }
+
+    async fn observe_intervention(
+        &self,
+        id: cs_core::InterventionId,
+        key: &str,
+        observation: &cs_memory::causal::OutcomeObservation,
+        event: EventDraft,
+    ) -> Result<cs_memory::causal::Intervention> {
+        self.m62_observe_intervention(id, key, observation, event)
+            .await
+    }
+
+    async fn interventions_for(
+        &self,
+        access: &AccessContext,
+        environment: &str,
+        treatment: &str,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::causal::Intervention>> {
+        self.m62_interventions_for(access, environment, treatment, limit)
+            .await
     }
 
     async fn insert_execution(
