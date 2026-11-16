@@ -1,0 +1,37 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 7
+  },
+  "commit": "6de9378f95874748c62f2c82e7ddae6c26d3004c",
+  "experiment": "010-selective-answering",
+  "held_out": true,
+  "margin_only_threshold": 0.0546,
+  "metacognition_version": 2,
+  "mix": {
+    "absent": 30,
+    "candidate_only": 12,
+    "conflict": 30,
+    "framed": 24,
+    "framings": [
+      "can you show me",
+      "would you let me know",
+      "kindly tell me currently"
+    ],
+    "qualified": 24,
+    "qualifiers": [
+      "not",
+      "before",
+      "only"
+    ]
+  },
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    601,
+    602,
+    603,
+    604,
+    605
+  ],
+  "store": "postgres"
+}
