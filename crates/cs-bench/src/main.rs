@@ -1,7 +1,7 @@
 //! `cs-bench`: run a preregistered experiment.
 //!
 //! ```text
-//! cs-bench 005|006|008|009 [--store memory|postgres] [--dev] [--out DIR]
+//! cs-bench 005|006|008|009|010 [--store memory|postgres] [--dev] [--out DIR]
 //! cs-bench 007 --reset [--dev] [--out DIR]
 //! ```
 //!
@@ -12,7 +12,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::{exp005, exp006, exp007, exp008, exp009};
+use cs_bench::{exp005, exp006, exp007, exp008, exp009, exp010};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -61,6 +61,9 @@ async fn main() -> Result<(), String> {
     }
     if experiment == "009" {
         return run_009(&args).await;
+    }
+    if experiment == "010" {
+        return run_010(&args).await;
     }
     let (dir, dev_seeds, held_out): (&str, &[u64], &[u64]) = match experiment.as_str() {
         "005" => (
@@ -467,5 +470,96 @@ async fn run_009(args: &[String]) -> Result<(), String> {
         );
     }
     println!("adopt A: {}", summary.adopt);
+    Ok(())
+}
+
+async fn run_010(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let (seeds, mix): (Vec<u64>, exp010::Mix) = if dev {
+        (exp010::DEV_SEEDS.to_vec(), exp010::DEV_MIX)
+    } else {
+        (exp010::HELD_OUT_SEEDS.to_vec(), exp010::HELD_OUT_MIX)
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/010-selective-answering/results/{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    for seed in &seeds {
+        eprintln!("seed {seed}: generating, loading, deciding");
+        rows.extend(exp010::run_seed(store(&kind).await?, *seed, mix).await?);
+    }
+    let summary = exp010::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "010-selective-answering",
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "mix": mix,
+        "metacognition_version": cs_memory::metacognition::METACOGNITION_VERSION,
+        "margin_only_threshold": exp010::MARGIN_ONLY_THRESHOLD,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+        "bootstrap": { "resamples": exp010::BOOTSTRAP_RESAMPLES, "seed": exp010::BOOTSTRAP_SEED },
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "{:<14} {:>6} {:>9} {:>7} {:>9}",
+        "", "n", "coverage", "risk", "present"
+    );
+    for (n, s) in &summary.overall {
+        println!(
+            "{n:<14} {:>6} {:>9.4} {:>7.4} {:>9.4}",
+            s.queries, s.coverage, s.risk, s.present_coverage
+        );
+    }
+    for (stratum, d) in &summary.decisions {
+        println!(
+            "{stratum:<15} {d:?}  reasons {:?}",
+            summary.reasons[stratum]
+        );
+    }
+    for (f, m) in &summary.by_family {
+        let p = &m["policy"];
+        println!(
+            "family {f:<13} answered {:.4} risk {:.4}",
+            p.present_coverage, p.risk
+        );
+    }
+    println!(
+        "matched margin threshold {:.4}; wrong-answer delta {:?}",
+        summary.matched_margin_threshold, summary.wrong_answer_delta
+    );
+    for g in &summary.gates {
+        println!(
+            "[{}] {} — {}",
+            if g.passed { "pass" } else { "FAIL" },
+            g.criterion,
+            g.value
+        );
+    }
+    println!("adopt: {}", summary.adopt);
     Ok(())
 }
