@@ -79,6 +79,10 @@ pub struct Signals {
     pub covering_candidate: u32,
     /// Pairs of covering, active memories that contradict each other.
     pub contradictions: Vec<(MemoryId, MemoryId)>,
+    /// Covering memories, best first (score DESC, then rank). When the
+    /// decision is to answer, the first is the evidence to answer from.
+    #[serde(default)]
+    pub covering: Vec<MemoryId>,
     /// Score of the best covering memory, and its lead over the best other
     /// selected memory (the full score when it is the only one).
     pub top_score: Option<f64>,
@@ -151,6 +155,7 @@ mod tests {
             covering_active: active,
             covering_candidate: candidate,
             contradictions: Vec::new(),
+            covering: Vec::new(),
             top_score: Some(0.8),
             margin: Some(0.3),
         }

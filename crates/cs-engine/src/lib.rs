@@ -1011,6 +1011,15 @@ impl CognitiveEngine {
             covering_active: count(active.len()),
             covering_candidate: count(covering.len() - active.len()),
             contradictions: cs_policy::metacognition::contradictions(&active),
+            covering: {
+                let mut c: Vec<&RecallCandidate> = covering.iter().map(|(c, _)| *c).collect();
+                c.sort_by(|a, b| {
+                    b.score
+                        .total_cmp(&a.score)
+                        .then_with(|| a.rank.cmp(&b.rank))
+                });
+                c.iter().map(|c| c.memory_id).collect()
+            },
             top_score: top.map(|t| t.score),
             margin,
         };
