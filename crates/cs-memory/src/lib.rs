@@ -13,6 +13,7 @@ pub mod embedding;
 pub mod entity;
 pub mod job;
 pub mod lexical;
+pub mod metacognition;
 pub mod need;
 pub mod observation;
 pub mod proposal;
@@ -25,6 +26,7 @@ pub use belief::{
 };
 pub use embedding::{EmbeddingRecord, EmbeddingSpace};
 pub use job::{ClaimedJob, Job, JobError, JobKind, JobOutcome, JobStatus, Lease, RetryPolicy};
+pub use metacognition::{Decision, MetacognitiveDecision, MetacognitivePolicy, Reason, Signals};
 pub use observation::{ExtractedCandidate, ExtractionRun, Observation};
 pub use proposal::{
     DetectionMetadata, ProposalDecision, ProposalStatus, RecordVersion, ResolutionKind,
