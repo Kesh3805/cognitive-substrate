@@ -110,7 +110,46 @@ Open: weighting by extraction confidence, and excluding episodes conditioned on 
 
 ## M6 — Reasoning
 
-Causal hypotheses and intervention tracking, explicitly labelled counterfactuals, bounded world models, and metacognitive policies (answer / investigate / abstain).
+Bounded causal claims, predictions within declared conditions, measured predictive failure, and the ability to decline to answer when the evidence is inadequate. M6 is not an autonomous scientist: it does no open-ended causal discovery, no general world simulation, and model-generated explanations never become evidence.
+
+### M6.1 — Metacognitive policy (answer / investigate / abstain)
+
+- A pure, deterministic policy over signals the recall already has:
+  - evidence coverage of the question;
+  - evidence that is only unvalidated (`candidate`);
+  - open contradictions among the selected evidence;
+  - the score margin.
+- Its decision and reasons are recorded in the trace, and it replays exactly. Score margins are signals, not probabilities.
+- **Experiment 010:** selective answering, as risk–coverage.
+  - Baselines: answer-always and margin-only.
+  - Results are stratified by absence, conflict, candidate-only evidence and weak retrieval.
+  - Thresholds are frozen on development seeds; held-out seeds shift the distractor and conflict rates.
+
+### M6.2 — Causal hypotheses and interventions
+
+- A hypothesis is directional and versioned: "doing X raises/lowers Y", scoped to a declared environment and context partition (capability input classes).
+- Interventions record their **assignment mechanism** at intent:
+  - `randomized` or `probe` interventions count as causal evidence;
+  - interventions chosen by a policy (`passive`) count only as association.
+- **Status:** `proposed` → `associated` (observational only) → `supported`, `refuted` or `inconclusive`.
+  - Support needs a stratified lower bound on the treatment–control difference above zero, across at least K independent contexts.
+  - A non-significant result is `inconclusive`, never `refuted`.
+- **Experiment 011:**
+  - The environment includes true causes, confounded correlates, reverse causation, null and negative effects, context-dependent effects, a confounded agent policy and noisy context features.
+  - The gate is the false-supported rate, with a minimum detection rate for true causes.
+
+### M6.3 — Counterfactuals, computed and labelled
+
+- "Had X not been done in episode E, Y would likely not have happened" is computed **at read time** from a supported hypothesis and an episode, and is never stored.
+- It is labelled inferred, is never evidence for a belief or a hypothesis, and disappears when its hypothesis loses support.
+
+### M6.4 — Bounded predictions
+
+- Supported hypotheses act as explicit transition rules.
+- A prediction is recorded at an execution's intent and scored after verification. Rules that mispredict are demoted by a ratchet.
+- **Experiment 012:** prediction-gated execution against the existing capability reliability filter, not against nothing.
+  - Actions are paired, and the regime shifts partway through.
+  - Measured: failure rate, completion rate and how often a gate refuses to act.
 
 ## M7 — Collective intelligence & interoperability
 
