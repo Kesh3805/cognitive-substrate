@@ -15,6 +15,7 @@ pub mod m43;
 pub mod m44;
 pub mod m5;
 pub mod m54;
+pub mod m6;
 
 use std::sync::Arc;
 
@@ -916,4 +917,6 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
         misses_become_needs_and_evidence_satisfies_them,
         validation_is_complete_or_says_so,
     );
+    use m6::*;
+    scenario!(recalls_answer_investigate_or_abstain);
 }
