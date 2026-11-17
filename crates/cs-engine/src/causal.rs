@@ -303,3 +303,55 @@ impl CognitiveEngine {
         )
     }
 }
+
+/// A counterfactual, computed on request from one randomized intervention
+/// and one supported hypothesis (M6.3). Always labelled inferred; never
+/// stored, never evented, never evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CounterfactualView {
+    /// Always `"inferred"`.
+    pub kind: String,
+    pub version: u32,
+    pub hypothesis_id: HypothesisId,
+    pub hypothesis_version: u64,
+    pub intervention_id: InterventionId,
+    #[serde(flatten)]
+    pub result: CounterfactualResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum CounterfactualResult {
+    Bounds {
+        bounds: cs_policy::counterfactual::Bounds,
+    },
+    Refused {
+        reason: cs_policy::counterfactual::Refusal,
+    },
+}
+
+impl CognitiveEngine {
+    /// Compute a counterfactual for an intervention under a hypothesis. A
+    /// read: nothing is written. Refusals are results, not errors.
+    pub async fn counterfactual(
+        &self,
+        ctx: &AccessContext,
+        intervention: InterventionId,
+        hypothesis: HypothesisId,
+    ) -> Result<CounterfactualView> {
+        let i = self.get_intervention(ctx, intervention).await?;
+        let h = self.get_hypothesis(ctx, hypothesis).await?;
+        let result = match cs_policy::counterfactual::counterfactual(&h, &i) {
+            Ok(bounds) => CounterfactualResult::Bounds { bounds },
+            Err(reason) => CounterfactualResult::Refused { reason },
+        };
+        Ok(CounterfactualView {
+            kind: "inferred".into(),
+            version: cs_policy::counterfactual::COUNTERFACTUAL_VERSION,
+            hypothesis_id: h.id,
+            hypothesis_version: h.version,
+            intervention_id: i.id,
+            result,
+        })
+    }
+}
