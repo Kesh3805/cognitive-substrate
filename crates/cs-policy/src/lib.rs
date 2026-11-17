@@ -6,6 +6,7 @@
 
 pub mod capability;
 pub mod causal;
+pub mod counterfactual;
 pub mod debt;
 pub mod lexical;
 pub mod metacognition;
