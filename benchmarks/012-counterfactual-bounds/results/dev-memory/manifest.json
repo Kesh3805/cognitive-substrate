@@ -1,0 +1,15 @@
+{
+  "commit": "bab83b417663fb735548155e69681513bcb70363",
+  "counterfactual_version": 1,
+  "evaluation_version": 1,
+  "experiment": "012-counterfactual-bounds",
+  "held_out": false,
+  "per_family": 20,
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "store": "memory"
+}

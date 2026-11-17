@@ -1,0 +1,136 @@
+{
+  "supported": {
+    "Boundary": [
+      60,
+      60
+    ],
+    "Defiers": [
+      57,
+      60
+    ],
+    "Monotone": [
+      60,
+      60
+    ],
+    "Null": [
+      0,
+      60
+    ],
+    "Rare": [
+      48,
+      60
+    ]
+  },
+  "coverage_necessity": {
+    "n": 1786,
+    "k": 1781,
+    "rate": 0.9972004479283315
+  },
+  "coverage_sufficiency": {
+    "n": 1800,
+    "k": 1794,
+    "rate": 0.9966666666666667
+  },
+  "coverage_by_family": {
+    "Boundary": {
+      "Necessity": {
+        "n": 480,
+        "k": 480,
+        "rate": 1.0
+      },
+      "Sufficiency": {
+        "n": 480,
+        "k": 480,
+        "rate": 1.0
+      }
+    },
+    "Defiers": {
+      "Necessity": {
+        "n": 456,
+        "k": 455,
+        "rate": 0.9978070175438597
+      },
+      "Sufficiency": {
+        "n": 456,
+        "k": 455,
+        "rate": 0.9978070175438597
+      }
+    },
+    "Monotone": {
+      "Necessity": {
+        "n": 480,
+        "k": 476,
+        "rate": 0.9916666666666667
+      },
+      "Sufficiency": {
+        "n": 480,
+        "k": 478,
+        "rate": 0.9958333333333333
+      }
+    },
+    "Null": {
+      "Necessity": {
+        "n": 0,
+        "k": 0,
+        "rate": 0.0
+      },
+      "Sufficiency": {
+        "n": 0,
+        "k": 0,
+        "rate": 0.0
+      }
+    },
+    "Rare": {
+      "Necessity": {
+        "n": 370,
+        "k": 370,
+        "rate": 1.0
+      },
+      "Sufficiency": {
+        "n": 384,
+        "k": 381,
+        "rate": 0.9921875
+      }
+    }
+  },
+  "sharpness": {
+    "n": 1752,
+    "k": 1440,
+    "rate": 0.821917808219178
+  },
+  "refusals_correct": {
+    "n": 1200,
+    "k": 1200,
+    "rate": 1.0
+  },
+  "insufficient": 0,
+  "nothing_written": true,
+  "gates": [
+    {
+      "criterion": "necessity bounds contain the true PN >= 0.95",
+      "value": "1781/1786 = 0.9972",
+      "passed": true
+    },
+    {
+      "criterion": "sufficiency bounds contain the true PS >= 0.95",
+      "value": "1794/1800 = 0.9967",
+      "passed": true
+    },
+    {
+      "criterion": "well-powered contexts give an informative lower bound (> 0) >= 0.80",
+      "value": "1440/1752 = 0.8219",
+      "passed": true
+    },
+    {
+      "criterion": "every probe is refused with the expected reason",
+      "value": "1200/1200",
+      "passed": true
+    },
+    {
+      "criterion": "computing counterfactuals writes nothing",
+      "value": "true",
+      "passed": true
+    }
+  ],
+  "adopt": true
+}
