@@ -106,3 +106,45 @@ Evaluating writes a new version, even when the status is unchanged. A stale `exp
 | `HypothesisChanged` | Version, status, change (`created`, `evaluated`, `retired`) and evidence counts |
 | `InterventionRecorded` | Arm and assignment |
 | `InterventionObserved` | Tier |
+
+## Counterfactuals (version 1, experimental)
+
+`GET /v1/interventions/{id}/counterfactual?hypothesis={id}` computes, and never stores, the following.
+
+### Order of checks
+
+The first check that applies decides:
+
+| # | Condition | Result |
+|---|---|---|
+| 1 | The hypothesis is not supported | `not_supported` |
+| 2 | Another environment or treatment | `unrelated` |
+| 3 | A passive assignment | `not_randomized` |
+| 4 | The context is not in `scope_contexts` | `out_of_scope` |
+| 5 | No strong-tier outcome | `no_eligible_outcome` |
+| 6 | Treated with the outcome present | PN |
+| 7 | Control with the outcome absent | PS |
+| 8 | Anything else | `outcome_mismatch` |
+
+For `lowers`, "present" means the outcome is absent.
+
+### Bounds
+
+From the context's counts:
+
+```
+PN ∈ [1 − p0/p1, (1 − p0)/p1]
+PS ∈ [1 − (1 − p1)/(1 − p0), p1/(1 − p0)]
+```
+
+- Each ratio takes its one-sided 97.5% Katz upper limit: `log R + 1.96 · sqrt(1/a − 1/nₐ + 1/b − 1/n_b)`.
+- With any empty cell, 0.5 is added to every count and 1 to every total (Haldane).
+- An empty denominator count returns `insufficient_evidence`.
+- Results are clipped to [0, 1].
+
+### Response
+
+`{ kind: "inferred", version, hypothesis_id, hypothesis_version, intervention_id, result }`, where `result` is either:
+
+- `bounds { query, lower, upper, context, assumptions, informative }`, or
+- `refused { reason }`.
