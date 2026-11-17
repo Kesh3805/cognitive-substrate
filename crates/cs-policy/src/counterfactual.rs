@@ -14,11 +14,12 @@
 //! the episode only selects which question applies. They are not
 //! identifiable from data; with a randomized (exogenous) assignment, Tian
 //! and Pearl's bounds follow from the experimental proportions in the
-//! unit's context. Each arm's proportion gets a Wilson interval at 97.5%
-//! (Bonferroni), so the pair lies in the box with at least 95% joint
-//! confidence, and the reported bounds are the extremes over that box. The
-//! width therefore reflects both incomplete identification and finite
-//! data. No monotonicity is assumed: a stated direction is a claim about an
+//! unit's context. Each of the two bounds is a ratio of two independent
+//! proportions, or one minus such a ratio, and gets its own one-sided 97.5%
+//! limit (Katz's log interval for a ratio of proportions), so the lower
+//! bound is below the true lower bound and the upper bound above the true
+//! upper bound with at least 95% joint confidence (Bonferroni). The width
+//! therefore reflects both incomplete identification and finite data. No monotonicity is assumed: a stated direction is a claim about an
 //! average, not about every unit.
 
 use cs_memory::causal::{
@@ -26,10 +27,8 @@ use cs_memory::causal::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::capability::wilson;
-
-/// Two-sided 97.5% per arm: at least 95% joint coverage for the pair.
-pub const Z_JOINT: f64 = 2.241_402_727_604_947;
+/// One-sided 97.5% per bound: at least 95% joint coverage for the pair.
+pub const Z_ONE_SIDED: f64 = 1.959_963_984_540_054;
 
 pub const COUNTERFACTUAL_VERSION: u32 = 1;
 
@@ -105,40 +104,55 @@ pub struct Bounds {
     pub informative: bool,
 }
 
-/// `p1` = P(outcome | treated), `p0` = P(outcome | control).
-fn necessity(p1: f64, p0: f64) -> (f64, f64) {
-    if p1 <= 0.0 {
-        return (0.0, 1.0);
+/// One-sided 97.5% upper limit of `(a / na) / (b / nb)` for independent
+/// binomial counts (Katz's log method), or `None` when `b = 0`. When any
+/// cell is empty, 0.5 is added to each count and 1 to each total
+/// (Haldane), so the limit stays finite and conservative.
+fn ratio_upper(a: u32, na: u32, b: u32, nb: u32) -> Option<f64> {
+    if b == 0 || na == 0 || nb == 0 {
+        return None;
     }
-    (((p1 - p0) / p1).max(0.0), ((1.0 - p0) / p1).min(1.0))
+    let (mut a, mut na, mut b, mut nb) = (f64::from(a), f64::from(na), f64::from(b), f64::from(nb));
+    if a == 0.0 || a == na || b == nb {
+        a += 0.5;
+        na += 1.0;
+        b += 0.5;
+        nb += 1.0;
+    }
+    let ratio = (a / na) / (b / nb);
+    let se = (1.0 / a - 1.0 / na + 1.0 / b - 1.0 / nb).max(0.0).sqrt();
+    Some(ratio * (Z_ONE_SIDED * se).exp())
 }
 
-fn sufficiency(p1: f64, p0: f64) -> (f64, f64) {
-    if p0 >= 1.0 {
-        return (0.0, 1.0);
-    }
-    (
-        ((p1 - p0) / (1.0 - p0)).max(0.0),
-        (p1 / (1.0 - p0)).min(1.0),
-    )
+/// Bounds from counts: `x1` of `n1` treated and `x0` of `n0` control units
+/// with the outcome. `None` when the bound's denominator has no units
+/// (necessity needs `x1 > 0`; sufficiency needs `x0 < n0`).
+fn bounds(query: Query, x1: u32, n1: u32, x0: u32, n0: u32) -> Option<(f64, f64)> {
+    let (lower_ratio, upper_ratio) = match query {
+        // PN in [1 − p0/p1, (1 − p0)/p1].
+        Query::Necessity => (
+            ratio_upper(x0, n0, x1, n1)?,
+            ratio_upper(n0 - x0, n0, x1, n1)?,
+        ),
+        // PS in [1 − (1 − p1)/(1 − p0), p1/(1 − p0)].
+        Query::Sufficiency => (
+            ratio_upper(n1 - x1, n1, n0 - x0, n0)?,
+            ratio_upper(x1, n1, n0 - x0, n0)?,
+        ),
+    };
+    Some(((1.0 - lower_ratio).max(0.0), upper_ratio.min(1.0)))
 }
 
-/// Extremes of `f` over the corners of the box `[l1, u1] × [l0, u0]`. Both
-/// bound functions are monotone in each argument, so the corners suffice.
-fn over_box(
-    f: fn(f64, f64) -> (f64, f64),
-    (l1, u1): (f64, f64),
-    (l0, u0): (f64, f64),
-) -> (f64, f64) {
-    let corners = [(l1, l0), (l1, u0), (u1, l0), (u1, u0)];
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
-    for (a, b) in corners {
-        let (l, u) = f(a, b);
-        lo = lo.min(l);
-        hi = hi.max(u);
+/// Tian and Pearl's bounds at known proportions, for reference.
+pub fn point_bounds(query: Query, p1: f64, p0: f64) -> (f64, f64) {
+    match query {
+        Query::Necessity if p1 > 0.0 => (((p1 - p0) / p1).max(0.0), ((1.0 - p0) / p1).min(1.0)),
+        Query::Sufficiency if p0 < 1.0 => (
+            ((p1 - p0) / (1.0 - p0)).max(0.0),
+            (p1 / (1.0 - p0)).min(1.0),
+        ),
+        _ => (0.0, 1.0),
     }
-    (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0))
 }
 
 /// The counterfactual for `intervention` under `hypothesis`, or why there
@@ -185,27 +199,22 @@ pub fn counterfactual(
         .find(|c| c.context == intervention.context && c.eligible)
         .ok_or(Refusal::OutOfScope)?
         .clone();
-    // Proportions of the hypothesis's "present" outcome.
-    let interval = |positive: u32, n: u32| {
-        let p = match hypothesis.direction {
-            Direction::Raises => positive,
-            Direction::Lowers => n - positive,
-        };
-        wilson(f64::from(p), f64::from(n), Z_JOINT).unwrap_or((0.0, 1.0))
+    // Counts of the hypothesis's "present" outcome.
+    let present_count = |positive: u32, n: u32| match hypothesis.direction {
+        Direction::Raises => positive,
+        Direction::Lowers => n - positive,
     };
-    let w1 = interval(context.treated.positive, context.treated.n);
-    let w0 = interval(context.control.positive, context.control.n);
-    // Undefined at the region's edge: refuse rather than divide by a tiny
-    // number.
-    match query {
-        Query::Necessity if w1.0 <= 0.0 => return Err(Refusal::InsufficientEvidence),
-        Query::Sufficiency if w0.1 >= 1.0 => return Err(Refusal::InsufficientEvidence),
-        _ => {}
-    }
-    let (lower, upper) = match query {
-        Query::Necessity => over_box(necessity, w1, w0),
-        Query::Sufficiency => over_box(sufficiency, w1, w0),
-    };
+    let (x1, n1) = (
+        present_count(context.treated.positive, context.treated.n),
+        context.treated.n,
+    );
+    let (x0, n0) = (
+        present_count(context.control.positive, context.control.n),
+        context.control.n,
+    );
+    // Undefined when the bound's denominator has no units: refuse rather
+    // than divide by nothing.
+    let (lower, upper) = bounds(query, x1, n1, x0, n0).ok_or(Refusal::InsufficientEvidence)?;
     Ok(Bounds {
         query,
         lower,
@@ -223,14 +232,14 @@ mod tests {
     #[test]
     fn point_bounds_match_tian_and_pearl() {
         // p1 = 0.8, p0 = 0.2.
-        let (l, u) = necessity(0.8, 0.2);
+        let (l, u) = point_bounds(Query::Necessity, 0.8, 0.2);
         assert!((l - 0.75).abs() < 1e-12 && (u - 1.0).abs() < 1e-12);
-        let (l, u) = sufficiency(0.8, 0.2);
+        let (l, u) = point_bounds(Query::Sufficiency, 0.8, 0.2);
         assert!((l - 0.75).abs() < 1e-12 && (u - 1.0).abs() < 1e-12);
         // p1 = 0.5, p0 = 0.4: PN in [0.2, 1], PS in [1/6, 5/6].
-        let (l, u) = necessity(0.5, 0.4);
+        let (l, u) = point_bounds(Query::Necessity, 0.5, 0.4);
         assert!((l - 0.2).abs() < 1e-12 && (u - 1.0).abs() < 1e-12);
-        let (l, u) = sufficiency(0.5, 0.4);
+        let (l, u) = point_bounds(Query::Sufficiency, 0.5, 0.4);
         assert!((l - 1.0 / 6.0).abs() < 1e-12 && (u - 5.0 / 6.0).abs() < 1e-12);
     }
 
@@ -472,23 +481,31 @@ mod tests {
 
     #[test]
     fn large_samples_converge_on_the_analytic_interval() {
-        // Wilson intervals shrink to the proportions, so the joint box
-        // converges on the point bounds.
-        let n = 1_000_000.0;
-        let w = |p: f64| wilson(p * n, n, Z_JOINT).unwrap();
-        let (l, u) = over_box(necessity, w(0.6), w(0.3));
-        let (pl, pu) = necessity(0.6, 0.3);
-        assert!((l - pl).abs() < 0.01 && (u - pu).abs() < 0.01, "{l} {u}");
+        let n = 1_000_000;
+        for q in [Query::Necessity, Query::Sufficiency] {
+            let (l, u) = bounds(q, 600_000, n, 300_000, n).unwrap();
+            let (pl, pu) = point_bounds(q, 0.6, 0.3);
+            assert!(
+                (l - pl).abs() < 0.01 && (u - pu).abs() < 0.01,
+                "{q:?} {l} {u}"
+            );
+            assert!(l <= pl && u >= pu, "limits stay on the safe side");
+        }
     }
 
     #[test]
-    fn box_propagation_widens_and_stays_in_range() {
-        let point = necessity(0.6, 0.3);
-        let (l, u) = over_box(necessity, (0.4, 0.8), (0.1, 0.5));
-        assert!(l <= point.0 && u >= point.1);
-        assert!((0.0..=1.0).contains(&l) && (0.0..=1.0).contains(&u));
-        // Degenerate proportions give the vacuous interval, not NaN.
-        assert_eq!(necessity(0.0, 0.3), (0.0, 1.0));
-        assert_eq!(sufficiency(0.6, 1.0), (0.0, 1.0));
+    fn finite_samples_widen_and_stay_in_range() {
+        for q in [Query::Necessity, Query::Sufficiency] {
+            let (l, u) = bounds(q, 24, 40, 12, 40).unwrap();
+            let (pl, pu) = point_bounds(q, 0.6, 0.3);
+            assert!(l <= pl && u >= pu, "{q:?}");
+            assert!((0.0..=1.0).contains(&l) && (0.0..=1.0).contains(&u));
+        }
+        // Empty and full cells stay finite.
+        let (l, u) = bounds(Query::Necessity, 10, 10, 0, 10).unwrap();
+        assert!(l > 0.0 && u <= 1.0, "{l} {u}");
+        // Undefined denominators.
+        assert_eq!(bounds(Query::Necessity, 0, 10, 3, 10), None);
+        assert_eq!(bounds(Query::Sufficiency, 5, 10, 10, 10), None);
     }
 }
