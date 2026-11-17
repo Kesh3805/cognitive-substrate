@@ -120,6 +120,79 @@ pub async fn hypotheses_follow_randomized_evidence(h: &Harness) {
     assert_eq!(e.interventions.len(), 36);
     assert!(e.effect.unwrap().lower > 0.1);
 
+    // Counterfactuals are computed on read, labelled inferred, and leave
+    // nothing behind.
+    let events_before = h
+        .engine
+        .events(
+            &h.alice,
+            cs_core::EventQuery {
+                limit: Some(1000),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .len();
+    let mut treated = None;
+    for id in &e.interventions {
+        if h.engine.get_intervention(&h.alice, *id).await.unwrap().arm == Arm::Treated {
+            treated = Some(*id);
+            break;
+        }
+    }
+    let treated = treated.unwrap();
+    let cf = h
+        .engine
+        .counterfactual(&h.alice, treated, hyp.id)
+        .await
+        .unwrap();
+    assert_eq!(cf.kind, "inferred");
+    assert_eq!(cf.hypothesis_version, 3);
+    match &cf.result {
+        cs_engine::causal::CounterfactualResult::Bounds { bounds } => {
+            assert_eq!(bounds.query, cs_policy::counterfactual::Query::Necessity);
+            assert!(bounds.lower >= 0.0 && bounds.upper <= 1.0 && bounds.lower <= bounds.upper);
+        }
+        other => panic!("{other:?}"),
+    }
+    let passive = h
+        .engine
+        .record_intervention(
+            &h.alice,
+            intervention(h, "class-0", Arm::Treated, Assignment::Passive),
+        )
+        .await
+        .unwrap();
+    let refused = h
+        .engine
+        .counterfactual(&h.alice, passive.id, hyp.id)
+        .await
+        .unwrap();
+    assert!(matches!(
+        refused.result,
+        cs_engine::causal::CounterfactualResult::Refused {
+            reason: cs_policy::counterfactual::Refusal::NotRandomized
+        }
+    ));
+    let events_after = h
+        .engine
+        .events(
+            &h.alice,
+            cs_core::EventQuery {
+                limit: Some(1000),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "only the passive intervention was recorded"
+    );
+
     // History keeps every version, with the evaluation that made it.
     let history = h.engine.hypothesis_history(&h.alice, hyp.id).await.unwrap();
     assert_eq!(
