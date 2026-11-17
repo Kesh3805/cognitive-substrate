@@ -145,10 +145,13 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - The evaluation is a stratified Newcombe–Wilson interval over randomized contexts, with a sign-consistency guard; `refuted` means below the stated minimum effect.
   - Held out, over 1,400 hypotheses: 0.4% false support (the naive reading of the agent's own evidence: 45%), 97% of detectable causes found, 95% interval coverage. Harm in unsampled contexts can stay hidden (ADR-0027, [results](benchmarks/011-causal-evidence/RESULTS.md)).
 
-### M6.3 — Counterfactuals, computed and labelled
+### ✅ M6.3 — Counterfactuals, computed and labelled (experiment 012: not adopted; endpoint experimental)
 
 - "Had X not been done in episode E, Y would likely not have happened" is computed **at read time** from a supported hypothesis and an episode, and is never stored.
 - It is labelled inferred, is never evidence for a belief or a hypothesis, and disappears when its hypothesis loses support.
+- **Result:**
+  - Built as Tian–Pearl bounds on the probabilities of necessity and sufficiency for randomized units, with per-limit one-sided ratio intervals, typed refusals and stated assumptions.
+  - Held out: coverage of the true value 99.8–99.9% (every family ≥ 99.6%), every refusal correct, nothing written. But the lower bound was informative in only 78% of well-powered contexts (gate 80%; rare outcomes 17% at 25 per arm). **The endpoint stays experimental** (ADR-0028, [results](benchmarks/012-counterfactual-bounds/RESULTS.md)).
 
 ### M6.4 — Bounded predictions
 
