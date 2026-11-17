@@ -159,7 +159,8 @@ pub fn router(state: AppState) -> Router {
         .route("/hypotheses/{id}/retire", post(retire_hypothesis))
         .route("/interventions", post(record_intervention))
         .route("/interventions/{id}", get(get_intervention))
-        .route("/interventions/{id}/outcomes", post(observe_outcome));
+        .route("/interventions/{id}/outcomes", post(observe_outcome))
+        .route("/interventions/{id}/counterfactual", get(counterfactual));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -954,5 +955,23 @@ async fn observe_outcome(
 ) -> ApiResult<cs_memory::causal::Intervention> {
     ok(s.engine
         .observe_outcome(&ctx, InterventionId(id), req)
+        .await?)
+}
+
+#[derive(Debug, Deserialize)]
+struct CounterfactualParams {
+    hypothesis: Uuid,
+}
+
+async fn counterfactual(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    params: Result<Query<CounterfactualParams>, QueryRejection>,
+) -> ApiResult<cs_engine::causal::CounterfactualView> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    ok(s.engine
+        .counterfactual(&ctx, InterventionId(id), HypothesisId(p.hypothesis))
         .await?)
 }
