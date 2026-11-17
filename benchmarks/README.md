@@ -27,5 +27,6 @@ benchmarks/
 | 009 | [Adaptive candidate budgets](009-adaptive-budgets/PREREGISTRATION.md) | **Done: not adopted** (p95 gate failed, 0.96×; [results](009-adaptive-budgets/RESULTS.md)) |
 | 010 | [Answer, investigate or abstain](010-selective-answering/PREREGISTRATION.md) | **Done: adopted** (0 wrong answers among 423; [results](010-selective-answering/RESULTS.md)) |
 | 011 | [Causal hypotheses under confounding](011-causal-evidence/PREREGISTRATION.md) | **Done: adopted** (0.4% false support vs 45% naive; [results](011-causal-evidence/RESULTS.md)) |
+| 012 | [Read-time counterfactual bounds](012-counterfactual-bounds/PREREGISTRATION.md) | Preregistered |
 
 See [the research program](../docs/research/research-program.md).
