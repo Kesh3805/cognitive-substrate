@@ -1007,6 +1007,8 @@ struct RuleParams {
     context: String,
     #[serde(default)]
     threshold: Option<f64>,
+    #[serde(default)]
+    min_effect: Option<f64>,
 }
 
 async fn prediction_rule(
@@ -1018,6 +1020,12 @@ async fn prediction_rule(
     let Query(p) = params
         .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
     ok(s.engine
-        .prediction_rule(&ctx, HypothesisId(id), &p.context, p.threshold)
+        .prediction_rule(
+            &ctx,
+            HypothesisId(id),
+            &p.context,
+            p.threshold,
+            p.min_effect,
+        )
         .await?)
 }

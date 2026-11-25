@@ -14,7 +14,7 @@ use cs_core::{
     AccessContext, CognitiveEventType, Error, HypothesisId, InterventionId, PredictionId, Result,
 };
 use cs_memory::{
-    causal::{Hypothesis, Intervention},
+    causal::{Arm, Hypothesis, Intervention},
     prediction::{PREDICTION_VERSION, Prediction},
 };
 use cs_policy::prediction::{
@@ -114,19 +114,31 @@ impl CognitiveEngine {
     }
 
     /// The rule for a hypothesis in one context, its lineage's monitor and,
-    /// with `threshold`, the gate's decision. A read: nothing is written.
+    /// with `threshold`, the gate's decision; with `min_effect` too, an
+    /// effect gate's. A read: nothing is written.
     pub async fn prediction_rule(
         &self,
         ctx: &AccessContext,
         hypothesis: HypothesisId,
         context: &str,
         threshold: Option<f64>,
+        min_effect: Option<f64>,
     ) -> Result<RuleView> {
         crate::non_empty_key("context", context)?;
         if let Some(t) = threshold
             && !(t.is_finite() && (0.0..=1.0).contains(&t))
         {
             return Err(Error::validation("threshold must be in 0..=1"));
+        }
+        if let Some(m) = min_effect
+            && !(m.is_finite() && (-1.0..=1.0).contains(&m))
+        {
+            return Err(Error::validation("min_effect must be in -1..=1"));
+        }
+        if min_effect.is_some() && threshold.is_none() {
+            return Err(Error::validation(
+                "min_effect needs a threshold (0 for none on the treated rate)",
+            ));
         }
         let h = self.get_hypothesis(ctx, hypothesis).await?;
         let now = self.now();
@@ -144,7 +156,7 @@ impl CognitiveEngine {
             hypothesis_id: h.id,
             hypothesis_version: h.version,
             context: context.to_owned(),
-            gate: threshold.map(|t| policy::gate(&rule, t)),
+            gate: threshold.map(|t| policy::gate(&rule, t, min_effect)),
             result: RuleResult::from(rule),
             monitor: lineage.monitor,
             as_of: now,
@@ -183,6 +195,26 @@ impl CognitiveEngine {
             Ok(r) => r,
             Err(reason) => return Ok(PredictionResult::Refused { reason }),
         };
+        // A treated intervention is predicted from the treated arm; a control
+        // one (a holdout under an effect gate) from the control arm, and its
+        // null is an upper bound.
+        let (estimate, lower, upper, null, n) = match i.arm {
+            Arm::Treated => (
+                rule.estimate,
+                rule.lower,
+                rule.upper,
+                rule.null,
+                rule.treated_n,
+            ),
+            Arm::Control => match rule.control {
+                Some(c) => (c.estimate, c.lower, c.upper, c.control_null(), c.n),
+                None => {
+                    return Ok(PredictionResult::Refused {
+                        reason: RuleRefusal::Imprecise,
+                    });
+                }
+            },
+        };
         let p = Prediction {
             id: PredictionId::new_v7(),
             scope: i.scope.clone(),
@@ -191,12 +223,13 @@ impl CognitiveEngine {
             hypothesis_version: h.version,
             context: i.context.clone(),
             lineage: policy::lineage(&h, &i.context),
+            arm: i.arm,
             favourable: rule.favourable,
-            estimate: rule.estimate,
-            lower: rule.lower,
-            upper: rule.upper,
-            null: rule.null,
-            treated_n: rule.treated_n,
+            estimate,
+            lower,
+            upper,
+            null,
+            treated_n: n,
             requalified: rule.requalified,
             recorded_at: now,
             deadline: now + Duration::seconds(OUTCOME_DEADLINE_SECONDS),
