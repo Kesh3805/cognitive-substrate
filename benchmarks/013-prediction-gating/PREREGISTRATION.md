@@ -143,7 +143,7 @@ Each run has **6 contexts**, one of each kind below and two benefit contexts. Bo
 | `success_filter` | Per context, the window rule on treated success (window 25, at least 10 runs, Wilson upper below 0.6 quarantines, sticky), from the burn-in. |
 | `absolute_gate` | The M6.4 gate at τ = 0.6, without `min_effect`. No probing. |
 | `effect_baseline` | Acts where the burn-in's Newcombe lower bound of the effect is ≥ 0.1. Never updates. |
-| `effect_gate` | The M6.4 gate with threshold 0 and `min_effect` 0.1, through the real engine. On a cleared opportunity, it runs a randomized **holdout** (treated or control at 0.5) with probability **0.1**, else a passive treated action, and predicts it either way. On a refused opportunity, it runs a randomized probe (treated or control at 0.5) with probability **0.25** if the lineage is demoted, or **0.05** if a rule exists but its effect is short. Every randomized run is scored at its true utility. |
+| `effect_gate` | The M6.4 gate with threshold 0 and `min_effect` 0.1, through the real engine. On a cleared opportunity, it runs a randomized **holdout** (treated or control at 0.5) with probability **0.8** (chosen on development seeds by the rule in the disclosure; originally 0.1), else a passive treated action, and predicts it either way. On a refused opportunity, it runs a randomized probe (treated or control at 0.5) with probability **0.25** if the lineage is demoted, or **0.05** if a rule exists but its effect is short. Every randomized run is scored at its true utility. |
 
 ### Part B criteria (all must hold on held-out seeds 911–915)
 
@@ -246,4 +246,36 @@ Thresholds τ, α, block size and utilities were not changed.
 
 The holdout rate is chosen on the development seeds, by a rule fixed **before** seeing those results: the smallest of 0.3, 0.5 and 0.8 that passes B5 becomes `HOLDOUT`. If none passes, 0.8 is used and B5 is expected to fail.
 
-Development runs with the corrected seeding (part A, and part B at each candidate holdout) are recorded below once complete. Constants are not changed after held-out results exist.
+**Development runs with corrected seeding (seeds 1–3, 24 distinct runs per family).** These are the first development results that are evidence. Results are in `results/dev-memory` (part A) and `results/b-dev-memory-holdout-{0.3,0.5,0.8}` (part B).
+
+*Part A* passed G3 (0/24), G4 and G5. It failed G1, G2 and G6.
+
+| Family | Gate | `per_context_probing` | Gate − `per_context_probing` (95% CI) |
+|---|---|---|---|
+| Stationary | 0.618 | 0.637 | −0.019 [−0.037, −0.006] |
+| Cliff | 0.362 | 0.384 | −0.021 [−0.037, −0.009] |
+| Gradual | 0.389 | 0.410 | −0.020 [−0.038, −0.007] |
+| Recovery | 0.453 | 0.489 | −0.036 [−0.062, −0.017] |
+| Global | −0.181 | −0.146 | −0.035 [−0.049, −0.022] |
+
+- **G4.** Cliff: 42/42 exposed contexts detected, median 17, p90 31. Global: 134/134, median 27, p90 64.
+- **G5.** 34/42 re-earned.
+- **G6.** Fails only in recovery: −0.0135, CI lower −0.031.
+
+With correct replication, the gate is about 0.02 per opportunity **below** the strongest per-context heuristic in every family. That is just past the 0.02 margin.
+
+*Part B* failed every criterion at every candidate holdout.
+
+| Holdout | B5 detected | Effect gate − static effect baseline: stationary / control rise / reversal | Effect gate − success filter (stationary) |
+|---|---|---|---|
+| 0.3 | 10/39 | −0.137 / −0.044 / −0.071 | +0.034 [−0.042, +0.101] |
+| 0.5 | 22/39 | −0.181 / −0.053 / −0.087 | −0.011 |
+| 0.8 | 33/39 | −0.244 / −0.060 / −0.111 | −0.074 |
+
+- **Holdouts cost more than they buy.** Every control holdout in a benefit context forgoes about 1.2 utility. Detecting a control rise needs a median of 28 control observations, and a p90 of 52.
+- **Hypothesis support gates everything.** After the burn-in, the hypothesis was supported in only 21/24 (stationary), 20/24 (control rise) and 16/24 (effect reversal) runs. Without support the gate refuses every context, while the static effect baseline needs no support. The mildly harmful context weakens or blocks the pooled claim (ADR-0027, as ADR-0030 anticipated).
+- **The earlier, pseudo-replicated advantage over the success filter does not survive.** At a holdout of 0.3 it is +0.034 with a CI crossing 0; at higher holdouts it reverses.
+
+**By the rule fixed before these results, no candidate passed B5, so `HOLDOUT` = 0.8.** B5 is expected to fail on held-out seeds, and on development evidence so are B1–B4.
+
+**Where this leaves M6.4.** On development evidence, the gate is a sound and well-tested governance mechanism. It is sequentially valid, fails closed, resists laundering and recovers. But it does not improve decisions over simpler per-context baselines in either part. Running the held-out seeds now would be expected to confirm "not adopted". Whether to run them as preregistered, or to treat these findings as the result and redesign, is decided outside this document. Constants are not changed after held-out results exist.

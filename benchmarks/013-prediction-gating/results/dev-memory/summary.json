@@ -5,44 +5,44 @@
       "runs": 24,
       "supported": 24,
       "utility": {
-        "oracle": 0.6615,
+        "oracle": 0.63675,
         "refuse": -0.25,
-        "global": -0.09002083333333333,
-        "per_context": 0.5548541666666668,
-        "per_context_probing": 0.6615,
-        "per_context_cusum": 0.6525208333333334,
-        "gate": 0.6493541666666667
+        "global": -0.0691597222222222,
+        "per_context": 0.44325694444444447,
+        "per_context_probing": 0.63675,
+        "per_context_cusum": 0.6187430555555555,
+        "gate": 0.6176180555555556
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.012145833333333314,
-          "lower": -0.0185972222222222,
-          "upper": -0.006437499999999989
+          "mean": -0.019131944444444444,
+          "lower": -0.03650694444444445,
+          "upper": -0.005874999999999996
         },
         "refuse": {
-          "mean": 0.8993541666666668,
-          "lower": 0.8624027777777777,
-          "upper": 0.9368055555555556
+          "mean": 0.8676180555555556,
+          "lower": 0.8293541666666665,
+          "upper": 0.9031388888888888
         },
         "global": {
-          "mean": 0.739375,
-          "lower": 0.6535277777777778,
-          "upper": 0.8276111111111112
+          "mean": 0.6867777777777778,
+          "lower": 0.5710347222222223,
+          "upper": 0.7783611111111112
         },
         "per_context": {
-          "mean": 0.09450000000000001,
-          "lower": 0.06234027777777781,
-          "upper": 0.1302777777777778
+          "mean": 0.17436111111111116,
+          "lower": 0.1253888888888889,
+          "upper": 0.21987499999999996
         },
         "per_context_probing": {
-          "mean": -0.012145833333333314,
-          "lower": -0.0185972222222222,
-          "upper": -0.006437499999999989
+          "mean": -0.019131944444444444,
+          "lower": -0.03650694444444445,
+          "upper": -0.005874999999999996
         },
         "per_context_cusum": {
-          "mean": -0.003166666666666637,
-          "lower": -0.004993055555555519,
-          "upper": -0.001451388888888877
+          "mean": -0.0011250000000000056,
+          "lower": -0.0030555555555555566,
+          "upper": 0.0004722222222222165
         }
       },
       "runs_with_false_demotion": 0,
@@ -58,52 +58,52 @@
       "runs": 24,
       "supported": 24,
       "utility": {
-        "oracle": 0.42654166666666676,
+        "oracle": 0.4407222222222222,
         "refuse": -0.25,
-        "global": -0.0715625,
-        "per_context": 0.2910416666666666,
-        "per_context_probing": 0.33937500000000004,
-        "per_context_cusum": 0.33462499999999995,
-        "gate": 0.3367916666666666
+        "global": -0.08350000000000002,
+        "per_context": 0.3007083333333334,
+        "per_context_probing": 0.38367361111111115,
+        "per_context_cusum": 0.3631527777777778,
+        "gate": 0.3623611111111111
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.08975,
-          "lower": -0.09415972222222224,
-          "upper": -0.085625
+          "mean": -0.0783611111111111,
+          "lower": -0.09461111111111109,
+          "upper": -0.06453472222222222
         },
         "refuse": {
-          "mean": 0.5867916666666667,
-          "lower": 0.5665763888888887,
-          "upper": 0.6040347222222223
+          "mean": 0.612361111111111,
+          "lower": 0.5830069444444445,
+          "upper": 0.6387291666666667
         },
         "global": {
-          "mean": 0.40835416666666663,
-          "lower": 0.3550416666666667,
-          "upper": 0.4678333333333334
+          "mean": 0.4458611111111111,
+          "lower": 0.3983194444444444,
+          "upper": 0.4991319444444444
         },
         "per_context": {
-          "mean": 0.04574999999999999,
-          "lower": 0.02859722222222222,
-          "upper": 0.06595833333333334
+          "mean": 0.06165277777777777,
+          "lower": 0.020152777777777776,
+          "upper": 0.10207638888888891
         },
         "per_context_probing": {
-          "mean": -0.0025833333333333403,
-          "lower": -0.007715277777777777,
-          "upper": 0.0020902777777777673
+          "mean": -0.021312499999999998,
+          "lower": -0.03657638888888889,
+          "upper": -0.009111111111111106
         },
         "per_context_cusum": {
-          "mean": 0.002166666666666664,
-          "lower": 0.0008194444444444305,
-          "upper": 0.003576388888888888
+          "mean": -0.0007916666666666674,
+          "lower": -0.0020694444444444523,
+          "upper": 0.0004652777777777728
         }
       },
       "runs_with_false_demotion": 0,
       "false_demotion_upper": 0.13798057582897535,
-      "shifted_contexts": 48,
-      "detected": 48,
+      "shifted_contexts": 42,
+      "detected": 42,
       "median_delay": 17.0,
-      "p90_delay": 34.0,
+      "p90_delay": 31.0,
       "requalified": 0
     },
     {
@@ -111,52 +111,52 @@
       "runs": 24,
       "supported": 24,
       "utility": {
-        "oracle": 0.425125,
+        "oracle": 0.4332013888888888,
         "refuse": -0.25,
-        "global": -0.095125,
-        "per_context": 0.2927916666666667,
-        "per_context_probing": 0.3914791666666666,
-        "per_context_cusum": 0.37985416666666666,
-        "gate": 0.3817291666666666
+        "global": -0.100875,
+        "per_context": 0.2913055555555556,
+        "per_context_probing": 0.4095069444444444,
+        "per_context_cusum": 0.3889652777777777,
+        "gate": 0.3893402777777777
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.04339583333333332,
-          "lower": -0.05770833333333333,
-          "upper": -0.030055555555555558
+          "mean": -0.04386111111111111,
+          "lower": -0.06143055555555555,
+          "upper": -0.029458333333333326
         },
         "refuse": {
-          "mean": 0.6317291666666666,
-          "lower": 0.6023819444444444,
-          "upper": 0.6623611111111111
+          "mean": 0.6393402777777778,
+          "lower": 0.6035347222222224,
+          "upper": 0.6671874999999999
         },
         "global": {
-          "mean": 0.4768541666666668,
-          "lower": 0.39818055555555554,
-          "upper": 0.5450208333333334
+          "mean": 0.4902152777777779,
+          "lower": 0.41387499999999994,
+          "upper": 0.5669791666666667
         },
         "per_context": {
-          "mean": 0.0889375,
-          "lower": 0.0392013888888889,
-          "upper": 0.14805555555555555
+          "mean": 0.09803472222222225,
+          "lower": 0.0430763888888889,
+          "upper": 0.1544930555555556
         },
         "per_context_probing": {
-          "mean": -0.009749999999999995,
-          "lower": -0.020527777777777766,
-          "upper": 0.000013888888888889672
+          "mean": -0.020166666666666663,
+          "lower": -0.03764583333333333,
+          "upper": -0.00659722222222222
         },
         "per_context_cusum": {
-          "mean": 0.0018750000000000017,
-          "lower": -0.00013888888888888748,
-          "upper": 0.003861111111111116
+          "mean": 0.000374999999999998,
+          "lower": -0.003145833333333336,
+          "upper": 0.004256944444444445
         }
       },
       "runs_with_false_demotion": 0,
       "false_demotion_upper": 0.13798057582897535,
-      "shifted_contexts": 45,
-      "detected": 45,
-      "median_delay": 67.0,
-      "p90_delay": 154.0,
+      "shifted_contexts": 43,
+      "detected": 40,
+      "median_delay": 78.0,
+      "p90_delay": 167.0,
       "requalified": 0
     },
     {
@@ -164,102 +164,102 @@
       "runs": 24,
       "supported": 24,
       "utility": {
-        "oracle": 0.5526458333333333,
+        "oracle": 0.5789652777777777,
         "refuse": -0.25,
-        "global": -0.14654166666666665,
-        "per_context": 0.24637499999999998,
-        "per_context_probing": 0.40681249999999997,
-        "per_context_cusum": 0.3937916666666666,
-        "gate": 0.39191666666666675
+        "global": -0.06659722222222224,
+        "per_context": 0.2950763888888888,
+        "per_context_probing": 0.48865277777777777,
+        "per_context_cusum": 0.46655555555555545,
+        "gate": 0.45305555555555554
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.16072916666666667,
-          "lower": -0.17480555555555546,
-          "upper": -0.14761805555555554
+          "mean": -0.12590972222222221,
+          "lower": -0.15289583333333337,
+          "upper": -0.10615277777777778
         },
         "refuse": {
-          "mean": 0.6419166666666668,
-          "lower": 0.6218125,
-          "upper": 0.6657083333333335
+          "mean": 0.7030555555555557,
+          "lower": 0.6574930555555555,
+          "upper": 0.7452013888888888
         },
         "global": {
-          "mean": 0.5384583333333334,
-          "lower": 0.4701458333333331,
-          "upper": 0.6011666666666667
+          "mean": 0.5196527777777779,
+          "lower": 0.4771805555555555,
+          "upper": 0.5684583333333334
         },
         "per_context": {
-          "mean": 0.14554166666666668,
-          "lower": 0.07489583333333333,
-          "upper": 0.2186041666666667
+          "mean": 0.15797916666666664,
+          "lower": 0.09970833333333333,
+          "upper": 0.2199236111111111
         },
         "per_context_probing": {
-          "mean": -0.01489583333333333,
-          "lower": -0.028590277777777773,
-          "upper": -0.0031805555555555498
+          "mean": -0.03559722222222223,
+          "lower": -0.06211805555555558,
+          "upper": -0.01665972222222223
         },
         "per_context_cusum": {
-          "mean": -0.0018749999999999878,
-          "lower": -0.006187499999999987,
-          "upper": 0.0031597222222222283
+          "mean": -0.013499999999999998,
+          "lower": -0.030930555555555548,
+          "upper": -0.003979166666666668
         }
       },
       "runs_with_false_demotion": 0,
       "false_demotion_upper": 0.13798057582897535,
-      "shifted_contexts": 48,
-      "detected": 48,
-      "median_delay": 18.0,
-      "p90_delay": 30.0,
-      "requalified": 21
+      "shifted_contexts": 42,
+      "detected": 42,
+      "median_delay": 23.0,
+      "p90_delay": 35.0,
+      "requalified": 34
     },
     {
       "family": "upward",
       "runs": 24,
-      "supported": 24,
+      "supported": 23,
       "utility": {
-        "oracle": 0.5506666666666666,
+        "oracle": 0.5746180555555557,
         "refuse": -0.25,
-        "global": -0.2341458333333333,
-        "per_context": 0.15737500000000001,
-        "per_context_probing": 0.4682916666666667,
-        "per_context_cusum": 0.3431458333333333,
-        "gate": 0.3485833333333333
+        "global": -0.2353333333333333,
+        "per_context": 0.223125,
+        "per_context_probing": 0.5388472222222223,
+        "per_context_cusum": 0.44870833333333343,
+        "gate": 0.4114166666666667
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.20208333333333336,
-          "lower": -0.2173263888888889,
-          "upper": -0.18797916666666667
+          "mean": -0.16320138888888888,
+          "lower": -0.2514513888888888,
+          "upper": -0.1194236111111111
         },
         "refuse": {
-          "mean": 0.5985833333333334,
-          "lower": 0.5610347222222223,
-          "upper": 0.6380625
+          "mean": 0.6614166666666667,
+          "lower": 0.5660555555555556,
+          "upper": 0.715576388888889
         },
         "global": {
-          "mean": 0.5827291666666669,
-          "lower": 0.5525833333333334,
-          "upper": 0.6124097222222222
+          "mean": 0.64675,
+          "lower": 0.5534791666666666,
+          "upper": 0.699013888888889
         },
         "per_context": {
-          "mean": 0.1912083333333333,
-          "lower": 0.1441527777777778,
-          "upper": 0.24233333333333332
+          "mean": 0.18829166666666663,
+          "lower": 0.09506944444444443,
+          "upper": 0.25454166666666667
         },
         "per_context_probing": {
-          "mean": -0.11970833333333332,
-          "lower": -0.1492152777777778,
-          "upper": -0.08980555555555557
+          "mean": -0.12743055555555557,
+          "lower": -0.21490972222222227,
+          "upper": -0.0802777777777778
         },
         "per_context_cusum": {
-          "mean": 0.005437499999999994,
-          "lower": -0.0012083333333333332,
-          "upper": 0.01448611111111111
+          "mean": -0.037291666666666674,
+          "lower": -0.11879861111111116,
+          "upper": -0.0017152777777777715
         }
       },
       "runs_with_false_demotion": 0,
       "false_demotion_upper": 0.13798057582897535,
-      "shifted_contexts": 0,
+      "shifted_contexts": 3,
       "detected": 0,
       "median_delay": null,
       "p90_delay": null,
@@ -270,85 +270,97 @@
       "runs": 24,
       "supported": 24,
       "utility": {
-        "oracle": -0.008416666666666668,
+        "oracle": -0.018,
         "refuse": -0.25,
-        "global": -0.10533333333333332,
-        "per_context": -0.040874999999999995,
-        "per_context_probing": -0.15687500000000001,
-        "per_context_cusum": -0.17522916666666666,
-        "gate": -0.17414583333333333
+        "global": -0.12565972222222221,
+        "per_context": -0.05363888888888888,
+        "per_context_probing": -0.14554166666666665,
+        "per_context_cusum": -0.17986805555555554,
+        "gate": -0.1806875
       },
       "gate_minus": {
         "oracle": {
-          "mean": -0.16572916666666668,
-          "lower": -0.1750277777777778,
-          "upper": -0.15204166666666666
+          "mean": -0.1626875,
+          "lower": -0.17775000000000005,
+          "upper": -0.14918750000000003
         },
         "refuse": {
-          "mean": 0.07585416666666667,
-          "lower": 0.06179166666666668,
-          "upper": 0.09256944444444447
+          "mean": 0.06931250000000001,
+          "lower": 0.051381944444444445,
+          "upper": 0.08774305555555557
         },
         "global": {
-          "mean": -0.06881249999999998,
-          "lower": -0.11751388888888888,
-          "upper": -0.023375000000000003
+          "mean": -0.05502777777777778,
+          "lower": -0.10697222222222223,
+          "upper": -0.0015694444444444473
         },
         "per_context": {
-          "mean": -0.13327083333333334,
-          "lower": -0.14799999999999996,
-          "upper": -0.1152291666666667
+          "mean": -0.12704861111111107,
+          "lower": -0.14631944444444436,
+          "upper": -0.10657638888888887
         },
         "per_context_probing": {
-          "mean": -0.017270833333333332,
-          "lower": -0.0322013888888889,
-          "upper": -0.004687499999999997
+          "mean": -0.03514583333333334,
+          "lower": -0.049340277777777775,
+          "upper": -0.021666666666666667
         },
         "per_context_cusum": {
-          "mean": 0.0010833333333333407,
-          "lower": -0.00307638888888888,
-          "upper": 0.0041597222222222304
+          "mean": -0.0008194444444444444,
+          "lower": -0.0029166666666666703,
+          "upper": 0.0010555555555555526
         }
       },
       "runs_with_false_demotion": 0,
       "false_demotion_upper": 0.13798057582897535,
-      "shifted_contexts": 141,
-      "detected": 141,
-      "median_delay": 28.0,
-      "p90_delay": 62.0,
+      "shifted_contexts": 134,
+      "detected": 134,
+      "median_delay": 27.0,
+      "p90_delay": 64.0,
       "requalified": 0
     }
   ],
   "gates": [
     {
-      "criterion": "G1 every harmful family: gate beats every existing arm (Bonferroni CI lower > 0)",
-      "value": "Cliff vs PerContextProbing: Interval { mean: -0.0025833333333333403, lower: -0.007715277777777777, upper: 0.0020902777777777673 }; Gradual vs PerContextProbing: Interval { mean: -0.009749999999999995, lower: -0.020527777777777766, upper: 1.3888888888889672e-5 }; Recovery vs PerContextProbing: Interval { mean: -0.01489583333333333, lower: -0.028590277777777773, upper: -0.0031805555555555498 }; Global vs Global: Interval { mean: -0.06881249999999998, lower: -0.11751388888888888, upper: -0.023375000000000003 }; Global vs PerContext: Interval { mean: -0.13327083333333334, lower: -0.14799999999999996, upper: -0.1152291666666667 }; Global vs PerContextProbing: Interval { mean: -0.017270833333333332, lower: -0.0322013888888889, upper: -0.004687499999999997 }",
-      "passed": false
+      "criterion": "G1 (superseded, reported) every harmful family: gate beats every existing arm",
+      "value": "Cliff vs PerContextProbing: Interval { mean: -0.021312499999999998, lower: -0.03657638888888889, upper: -0.009111111111111106 }; Gradual vs PerContextProbing: Interval { mean: -0.020166666666666663, lower: -0.03764583333333333, upper: -0.00659722222222222 }; Recovery vs PerContextProbing: Interval { mean: -0.03559722222222223, lower: -0.06211805555555558, upper: -0.01665972222222223 }; Global vs Global: Interval { mean: -0.05502777777777778, lower: -0.10697222222222223, upper: -0.0015694444444444473 }; Global vs PerContext: Interval { mean: -0.12704861111111107, lower: -0.14631944444444436, upper: -0.10657638888888887 }; Global vs PerContextProbing: Interval { mean: -0.03514583333333334, lower: -0.049340277777777775, upper: -0.021666666666666667 }",
+      "passed": false,
+      "binding": false
+    },
+    {
+      "criterion": "G1 every harmful family: gate non-inferior (CI lower > −0.02) to every admissible existing arm",
+      "value": "admissible [PerContextProbing]; Cliff vs PerContextProbing: Interval { mean: -0.021312499999999998, lower: -0.03657638888888889, upper: -0.009111111111111106 }; Gradual vs PerContextProbing: Interval { mean: -0.020166666666666663, lower: -0.03764583333333333, upper: -0.00659722222222222 }; Recovery vs PerContextProbing: Interval { mean: -0.03559722222222223, lower: -0.06211805555555558, upper: -0.01665972222222223 }; Global vs PerContextProbing: Interval { mean: -0.03514583333333334, lower: -0.049340277777777775, upper: -0.021666666666666667 }",
+      "passed": false,
+      "binding": true
     },
     {
       "criterion": "G2 stationary: gate non-inferior to every existing arm (CI lower > −0.02)",
-      "value": "all 4 comparisons",
-      "passed": true
+      "value": "vs PerContextProbing: Interval { mean: -0.019131944444444444, lower: -0.03650694444444445, upper: -0.005874999999999996 }",
+      "passed": false,
+      "binding": true
     },
     {
       "criterion": "G3 stationary: runs with any false demotion ≤ 5%",
       "value": "0/24 (Wilson upper 0.138)",
-      "passed": true
+      "passed": true,
+      "binding": true
     },
     {
-      "criterion": "G4 cliff and global: ≥ 95% of shifted contexts demoted; median delay ≤ 20",
-      "value": "cliff 48/48 median Some(17.0) p90 Some(34.0); global 141/141 median Some(28.0) p90 Some(62.0)",
-      "passed": false
+      "criterion": "G4 cliff and global: ≥ 95% of exposed shifted contexts demoted; median delay ≤ 20 (cliff), ≤ 40 (global)",
+      "value": "cliff 42/42 median Some(17.0) p90 Some(31.0); global 134/134 median Some(27.0) p90 Some(64.0)",
+      "passed": true,
+      "binding": true
     },
     {
       "criterion": "G5 recovery: ≥ 80% of returned contexts acted on again from a re-earned rule",
-      "value": "21/48",
-      "passed": false
+      "value": "34/42",
+      "passed": true,
+      "binding": true
     },
     {
       "criterion": "G6 every family: gate non-inferior to the per-context CUSUM (CI lower > −0.02)",
-      "value": "all 6 families",
-      "passed": true
+      "value": "Recovery: Interval { mean: -0.013499999999999998, lower: -0.030930555555555548, upper: -0.003979166666666668 }; Upward: Interval { mean: -0.037291666666666674, lower: -0.11879861111111116, upper: -0.0017152777777777715 }",
+      "passed": false,
+      "binding": true
     }
   ],
   "adopt": false
