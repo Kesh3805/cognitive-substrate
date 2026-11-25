@@ -102,9 +102,10 @@ impl ArmEstimate {
         }
     }
 
-    /// The control arm's monitored null: its upper bound, capped.
+    /// The control arm's monitored null: its upper bound, clamped to
+    /// `[NULL_FLOOR, 1 − NULL_FLOOR]` (symmetric with the treated arm's).
     pub fn control_null(&self) -> f64 {
-        self.upper.min(1.0 - NULL_FLOOR)
+        self.upper.clamp(NULL_FLOOR, 1.0 - NULL_FLOOR)
     }
 }
 
@@ -129,8 +130,10 @@ pub struct Rule {
     pub estimate: f64,
     pub lower: f64,
     pub upper: f64,
-    /// `max(lower, NULL_FLOOR)`: the live rate is monitored against the
-    /// rule's own lower bound, with no further slack.
+    /// `lower` clamped to `[NULL_FLOOR, 1 − NULL_FLOOR]`: the live rate is
+    /// monitored against the rule's own lower bound, with no further slack.
+    /// The cap stops near-perfect evidence from making one or two late
+    /// outcomes decisive.
     pub null: f64,
     /// Computed from evidence recorded after the lineage's last demotion.
     pub requalified: bool,
@@ -171,7 +174,7 @@ fn rule_from_counts(
         estimate: t.estimate,
         lower: t.lower,
         upper: t.upper,
-        null: t.lower.max(NULL_FLOOR),
+        null: t.lower.clamp(NULL_FLOOR, 1.0 - NULL_FLOOR),
         requalified,
         control,
         effect,
@@ -212,7 +215,7 @@ fn deadline_outcome(
         .filter(|o| o.tier.is_strong() && o.observed_at <= deadline && o.observed_at <= now);
     match observed {
         Some(o) => Some(o.value == favourable),
-        None => (now >= deadline).then_some(false),
+        None => (now > deadline).then_some(false),
     }
 }
 
@@ -352,7 +355,7 @@ pub fn resolve(
             o.observed_at,
         ));
     }
-    (now >= p.deadline).then_some((Resolution::Missed, p.deadline))
+    (now > p.deadline).then_some((Resolution::Missed, p.deadline))
 }
 
 /// One demotion of a lineage.
@@ -1012,6 +1015,21 @@ mod tests {
     }
 
     #[test]
+    fn monitored_nulls_are_clamped_on_both_arms() {
+        // Near-perfect treated evidence: the null is capped at 0.98, so two
+        // late outcomes cannot demote (cap 0.98: two misses give ~121).
+        let perfect = rule_from_counts(true, (2000, 2000), Some((200, 0)), false);
+        assert!((perfect.null - (1.0 - NULL_FLOOR)).abs() < 1e-12);
+        let mut d = Detector::new();
+        d.update(perfect.null, false);
+        assert!(d.update(perfect.null, false) < 1.0 / ALPHA);
+        // A control arm that is never favourable: its null is floored at
+        // 0.02, so its complement is at most 0.98 too.
+        let c = perfect.control.unwrap();
+        assert!((c.control_null() - NULL_FLOOR).abs() < 1e-12);
+    }
+
+    #[test]
     fn the_gate_fails_closed() {
         let r = rule_from_counts(true, (40, 36), None, false);
         assert!(gate(&Ok(r), 0.7, None).execute);
@@ -1610,7 +1628,11 @@ mod tests {
                 present.recorded_at
             ))
         );
-        let missed = resolve(&p, "y", None, p.deadline).unwrap();
+        // At the deadline instant an outcome can still arrive, so nothing is
+        // a miss yet; strictly after it, silence is a miss dated at the
+        // deadline. (A miss can therefore never be undone by an outcome.)
+        assert_eq!(resolve(&p, "y", None, p.deadline), None);
+        let missed = resolve(&p, "y", None, p.deadline + Duration::microseconds(1)).unwrap();
         assert_eq!(missed, (Resolution::Missed, p.deadline));
         assert!(!missed.0.favourable());
         // Exactly at the deadline an observation still counts; a self-assessed

@@ -55,8 +55,8 @@ pub struct Prediction {
     pub lower: f64,
     pub upper: f64,
     /// The monitored null. Treated: the live favourable rate is at least
-    /// this (the arm's lower bound, floored). Control: at most this (the
-    /// arm's upper bound, capped).
+    /// this (the arm's lower bound). Control: at most this (the arm's upper
+    /// bound). Both are clamped to `[0.02, 0.98]`.
     pub null: f64,
     /// Outcomes of the predicted arm the rule was computed from.
     pub treated_n: u32,
