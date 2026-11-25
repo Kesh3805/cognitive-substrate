@@ -77,8 +77,15 @@ struct Lineage {
 }
 
 impl CognitiveEngine {
-    /// The interventions bearing on `h` (its own scope) and the monitor of
-    /// the lineage `h` × `context`, as of `now`.
+    /// The interventions bearing on `h` in `context` (its own scope) and the
+    /// monitor of the lineage `h` × `context`, as of `now`.
+    ///
+    /// Rules, requalification blocks and the lineage's predictions only
+    /// concern `h`'s exact scope and `context` (a prediction's intervention
+    /// is in both), so only those interventions are read, the same for
+    /// every caller who can read `h`. The read is never truncated: a
+    /// lineage over [`MAX_EVALUATED`] interventions is an error, since a
+    /// dropped intervention would score its prediction as a miss.
     async fn lineage(
         &self,
         ctx: &AccessContext,
@@ -88,11 +95,21 @@ impl CognitiveEngine {
     ) -> Result<Lineage> {
         let interventions: Vec<Intervention> = self
             .store
-            .interventions_for(ctx, &h.environment, &h.treatment, MAX_EVALUATED)
-            .await?
-            .into_iter()
-            .filter(|i| i.scope == h.scope)
-            .collect();
+            .interventions_in_context(
+                ctx,
+                &h.scope,
+                &h.environment,
+                &h.treatment,
+                context,
+                MAX_EVALUATED + 1,
+            )
+            .await?;
+        if interventions.len() > MAX_EVALUATED as usize {
+            return Err(Error::validation(format!(
+                "the lineage has more than {MAX_EVALUATED} interventions; \
+                 a rule is never computed from a truncated read"
+            )));
+        }
         let predictions = self
             .store
             .predictions_for(&policy::lineage(h, context))
