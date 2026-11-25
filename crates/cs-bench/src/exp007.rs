@@ -266,7 +266,7 @@ pub async fn run_seed(store: Arc<PgStore>, seed: u64) -> Result<Vec<Row>, String
             };
             let run = |mode| store.nearest(&q, &vector, mode);
             // Rotate which mode runs first.
-            let (exact, hnsw): (NearestResult, NearestResult) = if qi % 2 == 0 {
+            let (exact, hnsw): (NearestResult, NearestResult) = if qi.is_multiple_of(2) {
                 let e = run(NearestMode::Exact).await.map_err(|e| e.to_string())?;
                 let h = run(NearestMode::Hnsw {
                     ef_search: EF_SEARCH,

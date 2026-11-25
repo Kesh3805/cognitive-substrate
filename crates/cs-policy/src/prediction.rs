@@ -267,7 +267,7 @@ pub fn rule(
             .collect();
         fresh.sort_by_key(|i| (i.recorded_at, i.id));
         let mut out = Vec::new();
-        for chunk in fresh.chunks_exact(MIN_RULE_N as usize) {
+        for chunk in fresh.as_chunks::<{ MIN_RULE_N as usize }>().0 {
             let outcomes: Option<Vec<bool>> = chunk
                 .iter()
                 .map(|i| deadline_outcome(i, &h.outcome, favourable, now))

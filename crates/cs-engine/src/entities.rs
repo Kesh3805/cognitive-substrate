@@ -156,10 +156,10 @@ pub struct Neighborhood {
 /// Name stem for merge-candidate detection.
 pub fn identity_stem(key: &str) -> &str {
     for s in STEM_SUFFIXES {
-        if let Some(stem) = key.strip_suffix(s) {
-            if stem.chars().count() >= 3 {
-                return stem;
-            }
+        if let Some(stem) = key.strip_suffix(s)
+            && stem.chars().count() >= 3
+        {
+            return stem;
         }
     }
     key
