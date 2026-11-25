@@ -1,0 +1,32 @@
+# Dependency policy: security advisories, licenses, bans and sources (deny.toml).
+name: cargo-deny
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # New advisories appear without any change to this repository.
+    - cron: "41 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    # A new advisory should not block unrelated pull requests.
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check ${{ matrix.checks }}
