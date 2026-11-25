@@ -35,7 +35,7 @@ Before removing a public item, we deprecate it for at least one minor release wh
 
 ## MSRV
 
-The minimum supported Rust version is the `rust-version` in the workspace `Cargo.toml` (currently **1.85**, the first release with edition 2024).
+The minimum supported Rust version is the `rust-version` in the workspace `Cargo.toml` (currently **1.88**). It was raised from 1.85 on 2026-11-25 so that the lockfile could take security fixes: `time` 0.3.47 (RUSTSEC-2026-0009) requires Rust 1.88.
 
 - Raising the MSRV is allowed in a minor release, is noted in the release notes, and is never done in a patch release.
 - The optional `cs-embedder-fastembed` crate (and `cs-server`'s `fastembed` feature) depends on `ort`, which currently needs a newer Rust (1.92). The MSRV applies to the default workspace members.
