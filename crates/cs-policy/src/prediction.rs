@@ -1624,4 +1624,205 @@ mod tests {
         weak.outcomes.get_mut("y").unwrap().tier = OracleTier::SelfAssessed;
         assert_eq!(resolve(&p, "y", Some(&weak), now), None);
     }
+
+    // ---- Gate, effect interval and detector numerics ----
+
+    #[test]
+    fn rule_numbers_are_hand_checkable() {
+        // Wilson 95% for 36 of 40.
+        let r = rule_from_counts(true, (40, 36), None, false);
+        assert!((r.lower - 0.769_479_256_195_261).abs() < 1e-12, "{r:?}");
+        assert!((r.upper - 0.960_421_112_404_425).abs() < 1e-12, "{r:?}");
+        assert!(close(r.estimate, 36.5 / 41.0));
+        assert!(close(r.null, r.lower));
+        // A rule whose lower bound is 0 is monitored at the floor.
+        let zero = rule_from_counts(true, (20, 0), None, false);
+        assert_eq!((zero.lower, zero.null), (0.0, NULL_FLOOR));
+        // A control arm at 20 of 20 has an upper bound just below 1; its
+        // monitored null is capped at 0.98.
+        let c = ArmEstimate::new(20, 20);
+        assert!(c.upper > 0.999_999 && c.upper <= 1.0);
+        assert_eq!(c.control_null(), 1.0 - NULL_FLOOR);
+        // A control arm with a low upper bound is monitored at that bound.
+        let low = ArmEstimate::new(20, 0);
+        assert!(close(low.control_null(), low.upper));
+    }
+
+    #[test]
+    fn the_gate_checks_in_order_and_ties_execute() {
+        let r = rule_from_counts(true, (40, 36), Some((40, 10)), false);
+        let e = r.effect.expect("control present");
+        let bare = rule_from_counts(true, (40, 36), None, false);
+        let above = |x: f64| x + 1e-9;
+
+        // No rule beats everything, and the inputs are echoed.
+        let d = gate(&Err(RuleRefusal::Imprecise), 2.0, Some(5.0));
+        assert_eq!(d.reason, GateReason::NoRule(RuleRefusal::Imprecise));
+        assert!(!d.execute);
+        assert_eq!((d.threshold, d.min_effect), (2.0, Some(5.0)));
+        // Below threshold beats a missing effect estimate and a small effect.
+        assert_eq!(
+            gate(&Ok(bare), above(bare.lower), Some(-1.0)).reason,
+            GateReason::BelowThreshold
+        );
+        assert_eq!(
+            gate(&Ok(r), above(r.lower), Some(above(e.lower))).reason,
+            GateReason::BelowThreshold
+        );
+        // A missing estimate refuses even the most permissive effect gate.
+        let d = gate(&Ok(bare), 0.0, Some(-1.0));
+        assert_eq!(d.reason, GateReason::NoEffectEstimate);
+        assert!(!d.execute);
+        assert!(gate(&Ok(bare), 0.0, None).execute);
+        // A small effect is refused once the threshold is met.
+        assert_eq!(
+            gate(&Ok(r), r.lower, Some(above(e.lower))).reason,
+            GateReason::EffectBelowThreshold
+        );
+        // Ties execute: a threshold equal to the lower bound, and a minimum
+        // effect equal to the effect's lower bound.
+        let d = gate(&Ok(r), r.lower, None);
+        assert_eq!((d.execute, d.reason), (true, GateReason::Clear));
+        let d = gate(&Ok(r), r.lower, Some(e.lower));
+        assert_eq!((d.execute, d.reason), (true, GateReason::Clear));
+        // The gate never executes for any refusal.
+        for refusal in [
+            RuleRefusal::NotSupported,
+            RuleRefusal::Unrelated,
+            RuleRefusal::OutOfScope,
+            RuleRefusal::LocallyUnsupported,
+            RuleRefusal::Imprecise,
+            RuleRefusal::Demoted,
+        ] {
+            assert!(!gate(&Err(refusal), 0.0, None).execute);
+        }
+    }
+
+    #[test]
+    fn difference_interval_is_sane() {
+        use crate::causal::difference_interval;
+        assert_eq!(difference_interval(0, 0, 3, 10), None);
+        assert_eq!(difference_interval(3, 10, 0, 0), None);
+        assert_eq!(difference_interval(0, 0, 0, 0), None);
+
+        // 0 of 10 against 0 of 10: Wilson upper 0.27754 on each arm.
+        let (d, l, u) = difference_interval(0, 10, 0, 10).unwrap();
+        assert_eq!(d, 0.0);
+        assert!((u - 0.277_540_168_766_616_5).abs() < 1e-12, "{u}");
+        assert!((l + u).abs() < 1e-15);
+        // 10 of 10 against 0 of 10: lower 1 − √2 · 0.27754, upper 1.
+        let (d, l, u) = difference_interval(10, 10, 0, 10).unwrap();
+        assert_eq!(d, 1.0);
+        assert!((l - (1.0 - 2f64.sqrt() * 0.277_540_168_766_616_5)).abs() < 1e-12);
+        assert!((u - 1.0).abs() < 1e-12);
+
+        for (k1, n1, k0, n0) in [
+            (0, 1, 1, 1),
+            (3, 7, 5, 9),
+            (36, 40, 10, 40),
+            (1, 50, 49, 50),
+            (20, 20, 20, 20),
+            (7, 300, 2, 3),
+        ] {
+            let (d, l, u) = difference_interval(k1, n1, k0, n0).unwrap();
+            assert!(
+                (-1.0..=1.0).contains(&l) && (-1.0..=1.0).contains(&u),
+                "{k1}/{n1} vs {k0}/{n0}: ({l}, {u})"
+            );
+            assert!(
+                l <= d && d <= u,
+                "{k1}/{n1} vs {k0}/{n0}: {d} not in ({l}, {u})"
+            );
+            assert!(close(
+                d,
+                f64::from(k1) / f64::from(n1) - f64::from(k0) / f64::from(n0)
+            ));
+            // Swapping the arms negates the interval.
+            let (sd, sl, su) = difference_interval(k0, n0, k1, n1).unwrap();
+            assert_eq!((sd, sl, su), (-d, -u, -l));
+        }
+    }
+
+    #[test]
+    fn the_detector_is_finite_at_the_floor() {
+        // p0 = 0.02: every alternative is p0 / 4 = 0.005.
+        let mut d = Detector::new();
+        assert!(close(d.update(NULL_FLOOR, true), 0.25));
+        let mut d = Detector::new();
+        assert!(close(d.update(NULL_FLOOR, false), 0.995 / 0.98));
+        // All failures: (0.995 / 0.98)^k crosses 1000 at k = 455.
+        let mut d = Detector::new();
+        let mut crossed = None;
+        for k in 1..=10_000u32 {
+            let v = d.update(NULL_FLOOR, false);
+            assert!(v.is_finite() && v > 0.0, "step {k}: {v}");
+            if crossed.is_none() && v >= 1.0 / ALPHA {
+                crossed = Some(k);
+            }
+        }
+        assert_eq!(crossed, Some(455));
+        // Repeated successes at the floor hold every CUSUM at 0.25.
+        let mut d = Detector::new();
+        for _ in 0..10 {
+            d.update(NULL_FLOOR, true);
+        }
+        assert!(close(d.value(), 0.25));
+        // The same through the monitor.
+        let m = run(&[false; 500], NULL_FLOOR);
+        assert_eq!(m.demotions.len(), 1);
+        assert_eq!(m.demotions[0].resolved, 455);
+        assert!(m.demotions[0].e_value.is_finite());
+    }
+
+    #[test]
+    fn the_detector_is_finite_at_a_high_null() {
+        // p0 = 0.98: alternatives 0.88, 0.78, 0.68.
+        let mut d = Detector::new();
+        assert!(close(
+            d.update(0.98, true),
+            (0.88 + 0.78 + 0.68) / 0.98 / 3.0
+        ));
+        // One miss: LRs 6, 11, 16; three misses: 1881.
+        let mut d = Detector::new();
+        assert!(close(d.update(0.98, false), 11.0));
+        assert!(close(d.update(0.98, false), (36.0 + 121.0 + 256.0) / 3.0));
+        assert!(close(d.update(0.98, false), 1881.0));
+        // Thirty misses through the monitor: a demotion every three, each
+        // epoch starting afresh, never NaN.
+        let m = run(&[false; 30], 0.98);
+        assert_eq!(m.demotions.len(), 10);
+        for d in &m.demotions {
+            assert_eq!(d.resolved, 3);
+            assert!(close(d.e_value, 1881.0), "{d:?}");
+        }
+        assert_eq!(m.current.resolved, 0);
+        assert_eq!((m.current.e_value, m.current.control_e_value), (0.0, 0.0));
+        // A control holdout at the capped null tests the complement, 0.02.
+        let preds: Vec<Prediction> = (0..1_000u128)
+            .map(|i| control_prediction(i + 1, 0.98, T0 + Duration::minutes(i as i64)))
+            .collect();
+        let pairs: Vec<_> = preds
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p, seen(i % 3 != 0, p.recorded_at)))
+            .collect();
+        let m = monitor(&pairs);
+        assert!(
+            m.demotions.is_empty(),
+            "a control rate of 2/3 is within 0.98"
+        );
+        assert!(m.current.control_e_value.is_finite());
+        assert_eq!(m.current.e_value, 0.0);
+        // Long sequences at a rate above each extreme null stay finite and
+        // positive (1 in 7 favourable at the floor, 99 in 100 at 0.98).
+        type Case = (f64, fn(u32) -> bool);
+        let cases: [Case; 2] = [(NULL_FLOOR, |k| k % 7 == 0), (0.98, |k| k % 100 != 0)];
+        for (p0, favourable) in cases {
+            let mut d = Detector::new();
+            for k in 0..10_000u32 {
+                let v = d.update(p0, favourable(k));
+                assert!(v.is_finite() && v > 0.0, "p0 {p0}, step {k}: {v}");
+            }
+        }
+    }
 }
