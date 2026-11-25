@@ -159,8 +159,12 @@ Bounded causal claims, predictions within declared conditions, measured predicti
 - A prediction is recorded at an intervention's intent, with the rule frozen in it. No strong-tier outcome within an hour counts as unfavourable.
 - A one-sided mixture CUSUM e-detector over each lineage demotes over-optimistic rules. A lineage is the claim (scope, environment, treatment, outcome, direction, context), not a hypothesis record. The detector folds predictions in intent order and is valid under continuous monitoring, with an average run length to a false alarm of at least 1000. Demotions are derived from append-only records, never stored, and survive re-evaluation and restatement. Only a fixed block of 20 fresh randomized treated outcomes re-earns a lineage.
 - The gate fails closed: no rule, a demoted rule, or a lower bound below the threshold all refuse (ADR-0029).
+- **Effect gates (ADR-0030).** Rules carry the control arm and the treated-minus-control effect with a Newcombe interval. With `min_effect`, the gate acts only where the effect pays for the action's cost. Control holdouts are predicted and monitored, so a rising control rate demotes the lineage too.
 - The design was reviewed externally twice, as a draft and as implemented. The window-versus-interval ratchet, the fall-through on "no rule", two-outcome rules, resolution-order folding, the slack on the null, id-keyed lineages and growing-sample requalification were replaced.
-- **Experiment 013** (the roadmap earlier called it 012, a number already used): prediction-gated execution against the existing capability filter, its per-context variants, always refusing, and the same detector run on raw executions.
+- **Experiment 013** (the roadmap earlier called it 012, a number already used), in two parts:
+  - **Part A, predictive governance.** The gate must cost nothing against the existing capability filters that keep healthy work, and against the same detector without the causal layer. It must also detect collapses and recover.
+  - **Part B, causal decision value.** Acting has a cost and refusing yields the control outcome. The effect gate must beat success-rate gating and keep its value when the control rate rises or the effect reverses.
+  - Version 2 of the preregistration supersedes v1's infeasible G1, keeping it in the record.
   - Families: stationary, cliff, gradual, recovery, upward and global.
   - Scored on opportunity-level utility, with common random numbers.
   - [Preregistration](benchmarks/013-prediction-gating/PREREGISTRATION.md).
