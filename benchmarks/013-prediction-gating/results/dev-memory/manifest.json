@@ -1,0 +1,15 @@
+{
+  "commit": "72b03c203edff0e83c070a67aee90cd26816509c",
+  "evaluation_version": 1,
+  "experiment": "013-prediction-gating",
+  "held_out": false,
+  "per_family": 8,
+  "prediction_version": 1,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "store": "memory"
+}
