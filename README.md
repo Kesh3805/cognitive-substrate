@@ -239,6 +239,8 @@ Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-pro
 
 Errors are always `{"error": {"code": "...", "message": "..."}}`.
 
+The full API, with every parameter, schema and status code, is described in [`docs/api/openapi.yaml`](docs/api/openapi.yaml) (OpenAPI 3.1). A test keeps it in sync with the router. See [docs/api](docs/api/README.md) to view it or generate Python and TypeScript clients.
+
 A typed Python client (sync and async, built on `httpx`) lives in [`sdks/python`](sdks/python/README.md). It covers memories, recall and replay, evidence and beliefs, observations and proposals, hypotheses, interventions and predictions.
 
 ## Workspace
@@ -273,6 +275,7 @@ cargo run --release -p cs-bench -- 005 --store memory --dev   # development seed
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
+- [HTTP API reference (OpenAPI 3.1)](docs/api/README.md)
 - Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md), [information needs](docs/specifications/information-needs.md), [metacognition](docs/specifications/metacognition.md), [causal evidence](docs/specifications/causal-evidence.md), [predictions](docs/specifications/predictions.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
