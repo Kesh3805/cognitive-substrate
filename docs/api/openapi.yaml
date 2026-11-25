@@ -2721,6 +2721,14 @@ components:
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
+        owner_user_id:
+          type: [string, 'null']
+          format: uuid
+          description: The user that ran the recall. Only the same principal (tenant, user and agent) may read or replay the trace.
+        owner_agent_id:
+          type: [string, 'null']
+          format: uuid
+          description: The agent that ran the recall, if any. A trace with no owner is readable by no one.
         policy: {$ref: '#/components/schemas/RecallPolicy'}
         scoring_version: {type: integer, format: int32, minimum: 0}
         query_hash: {type: string}
@@ -2804,6 +2812,18 @@ components:
         replayed_beliefs:
           type: array
           items: {type: string, format: uuid}
+        purged_candidates:
+          type: array
+          items: {type: string, format: uuid}
+          description: Memories in the original candidate set that have since been purged.
+        purged_selected:
+          type: array
+          items: {type: string, format: uuid}
+          description: Purged memories that the original recall selected.
+        fidelity:
+          type: string
+          enum: [exact, degraded_by_purge, diverged]
+          description: '`degraded_by_purge` if any original candidate was purged, else `exact` if identical, else `diverged` (expected for counterfactual replays).'
         replay: {$ref: '#/components/schemas/RecallTrace'}
     ConfidenceInterpretation:
       type: string
