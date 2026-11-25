@@ -35,7 +35,7 @@ M6.2 lets a context into `scope_contexts` with two outcomes per arm, and pooled 
 - the context's **own** effect estimate pointing the hypothesis's way;
 - at least **20** treated outcomes.
 
-Rules predict the treated arm only. Rules are computed on read and never stored.
+Rules predict the treated arm (ADR-0030 adds the control arm and the effect). Rules are computed on read and never stored.
 
 ### Predictions are made at intent and frozen
 
@@ -91,7 +91,7 @@ No rule, a demoted rule, or a lower bound below the threshold all refuse. "No ru
 - A rule always answers to its own predictions. A cliff to near zero demotes a confident rule within about ten predictions.
 - Recovery costs randomized probes, and the evidence needed to re-earn a rule is deliberately the same as minting one.
 - **Selection within a context is not modelled.** If production chooses harder cases than the randomized trial did, the monitor reads that as drift and demotes. This is conservative by design.
-- **Probing is a cost and must back off.** In experiment 013, each probe block that does not restore acting halves the context's probe rate, up to four times. A flat rate bled utility in permanently degraded contexts in development run 1.
+- **Probing is a cost and must be bounded.** A flat probe rate bled utility in permanently degraded contexts in development run 1 of experiment 013. Exponential backoff, tried next, could not recover in time, so version 2 of the preregistration probes through canary-triggered bursts that collect exactly one fresh block.
 - Opportunity-level utility, not failure rate among executed actions, is the measure. A gate that refuses everything scores badly (experiment 013, which includes an always-refuse arm).
 - **Without confounding, the causal layer is not expected to beat a per-context detector on raw executions.** Experiment 013 only requires it not to lose to one.
 
