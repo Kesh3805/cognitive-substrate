@@ -1,6 +1,6 @@
 # ADR-0029: Bounded predictions, sequentially monitored, gated fail-closed
 
-- Status: Accepted (experiment 013 preregistered; adoption of the gate as a recommended decision path awaits its held-out result)
+- Status: Accepted, experimental. Experiment 013 part A: [not adopted](../../benchmarks/013-prediction-gating/RESULTS.md). Safe, but not better than the best per-context filter, so the gate is not a recommended decision path.
 - Date: 2026-11-25
 
 ## Context

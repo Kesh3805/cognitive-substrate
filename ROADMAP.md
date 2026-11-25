@@ -153,7 +153,7 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - Built as Tian–Pearl bounds on the probabilities of necessity and sufficiency for randomized units, with per-limit one-sided ratio intervals, typed refusals and stated assumptions.
   - Held out: coverage of the true value 99.8–99.9% (every family ≥ 99.6%), every refusal correct, nothing written. But the lower bound was informative in only 78% of well-powered contexts (gate 80%; rare outcomes 17% at 25 per arm). **The endpoint stays experimental** (ADR-0028, [results](benchmarks/012-counterfactual-bounds/RESULTS.md)).
 
-### M6.4 — Bounded predictions (implemented; experiment 013 preregistered, development runs recorded)
+### M6.4 — Bounded predictions (implemented, experimental; experiment 013: not adopted)
 
 - A supported hypothesis in one context is a **rule**, computed on read. It needs the context's own effect pointing the right way and at least 20 treated outcomes.
 - A prediction is recorded at an intervention's intent, with the rule frozen in it. No strong-tier outcome within an hour counts as unfavourable.
@@ -167,8 +167,9 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - Version 2 of the preregistration supersedes v1's infeasible G1, keeping it in the record.
   - Families: stationary, cliff, gradual, recovery, upward and global.
   - Scored on opportunity-level utility, with common random numbers.
-  - Development runs (seeds 1–3) are recorded in the preregistration; the held-out seeds have not been run, so there is no result yet.
-  - [Preregistration](benchmarks/013-prediction-gating/PREREGISTRATION.md).
+  - **Held-out result: not adopted in either part.** Part A is safe: 0/40 false demotions, every exposed collapse detected, and no cost against the detector without the causal layer. But it sits about 0.02–0.03 per opportunity below the best per-context filter, and missed the cliff-delay target by one opportunity and the recovery target by 1.3 points. Part B failed every criterion. Holdouts cost more than they returned, and pooled hypothesis support switched the gate off entirely in some runs.
+  - [Preregistration](benchmarks/013-prediction-gating/PREREGISTRATION.md) · [results](benchmarks/013-prediction-gating/RESULTS.md).
+  - Next: a redesign with per-context support, sparse scheduled control audits and canary-only probing, under a new preregistered experiment.
 
 ## M7 — Collective intelligence & interoperability
 

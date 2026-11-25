@@ -1,6 +1,6 @@
 # ADR-0030: Effect gates act on what acting changes
 
-- Status: Accepted (experiment 013, part B, preregistered; adoption awaits its held-out result)
+- Status: Accepted, experimental. Experiment 013 part B: [not adopted](../../benchmarks/013-prediction-gating/RESULTS.md). It failed every criterion; holdout cost and pooled support are the identified causes.
 - Date: 2026-11-25
 
 ## Context
