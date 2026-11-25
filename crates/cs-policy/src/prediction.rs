@@ -1130,4 +1130,266 @@ mod tests {
             .collect();
         assert!(monitor(&pairs).demotions.is_empty());
     }
+
+    // ---- Monitor: mixed arms, the folding watermark, epoch boundaries ----
+
+    /// Treated null 0.75, unfavourable: per-alternative LRs
+    /// `(1 − p1) / (1 − p0)` with `p1 = 0.65, 0.55, 0.45`.
+    const TREATED_MISS_LR: [f64; 3] = [1.4, 1.8, 2.2];
+    /// Control null 0.4 (complement 0.6), favourable (the outcome happened
+    /// anyway): `p1 = 0.5, 0.4, 0.3` on the complement, LRs `0.5/0.4`, ...
+    const CONTROL_HIT_LR: [f64; 3] = [1.25, 1.5, 1.75];
+
+    /// The mixture after `k` consecutive steps with these LRs, all above 1:
+    /// each CUSUM is then the plain product.
+    fn mixture(lrs: [f64; 3], k: i32) -> f64 {
+        lrs.iter().map(|l| l.powi(k)).sum::<f64>() / 3.0
+    }
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+    }
+
+    fn control_prediction(i: u128, null: f64, at: OffsetDateTime) -> Prediction {
+        let mut p = prediction(i, null, null - 0.1, at);
+        p.arm = Arm::Control;
+        p
+    }
+
+    fn seen(fav: bool, at: OffsetDateTime) -> Option<(Resolution, OffsetDateTime)> {
+        Some((Resolution::Observed { favourable: fav }, at))
+    }
+
+    #[test]
+    fn hand_checked_crossing_points() {
+        // The constants the tests below rely on.
+        assert!(mixture(TREATED_MISS_LR, 9) < 1000.0);
+        assert!(close(mixture(TREATED_MISS_LR, 10), 1_013.988_155_767_467));
+        assert!(mixture(CONTROL_HIT_LR, 14) < 1000.0);
+        assert!(close(mixture(CONTROL_HIT_LR, 15), 1_629.275_602_798_909));
+        let mut d = Detector::new();
+        assert!(close(d.update(0.75, false), 1.8));
+        let mut c = Detector::new();
+        assert!(close(c.update(1.0 - 0.4, false), 1.5));
+    }
+
+    #[test]
+    fn a_treated_collapse_in_a_mixed_lineage_demotes_and_resets_both_detectors() {
+        // Treated at even minutes (always unfavourable), control holdouts at
+        // odd minutes (always favourable: rising, but not yet alarming).
+        let mut preds: Vec<Prediction> = (0..19u128)
+            .map(|m| {
+                let at = T0 + Duration::minutes(m as i64);
+                if m % 2 == 0 {
+                    prediction(m + 1, 0.75, 0.85, at)
+                } else {
+                    control_prediction(m + 1, 0.4, at)
+                }
+            })
+            .collect();
+        // After the demotion: one control holdout that happens anyway.
+        preds.push(control_prediction(100, 0.4, T0 + Duration::minutes(30)));
+        let pairs: Vec<_> = preds
+            .iter()
+            .map(|p| (p, seen(p.arm == Arm::Control, p.recorded_at)))
+            .collect();
+        let m = monitor(&pairs);
+        assert_eq!(m.demotions.len(), 1, "{:?}", m.demotions);
+        let d = m.demotions[0];
+        // The 10th treated prediction is the 19th folded (minute 18).
+        assert_eq!(d.arm, Arm::Treated);
+        assert_eq!(d.prediction_id, PredictionId(uuid::Uuid::from_u128(19)));
+        assert_eq!(d.resolved, 19);
+        assert_eq!(d.at, T0 + Duration::minutes(18));
+        assert!(close(d.e_value, mixture(TREATED_MISS_LR, 10)), "{d:?}");
+        // Both detectors restarted: the treated one is empty and the control
+        // one holds a single step (not the nine before the demotion).
+        assert_eq!(m.current.e_value, 0.0);
+        assert!(close(m.current.control_e_value, 1.5), "{:?}", m.current);
+        assert_eq!((m.current.resolved, m.current.favourable), (1, 1));
+        assert_eq!((m.current.missed, m.current.pending), (0, 0));
+    }
+
+    #[test]
+    fn a_control_collapse_in_a_mixed_lineage_records_the_control_arm() {
+        // Three treated misses (treated mixture 6.408), then fifteen control
+        // holdouts that all happen anyway: the 15th crosses.
+        let mut preds: Vec<Prediction> = (0..3u128)
+            .map(|m| prediction(m + 1, 0.75, 0.85, T0 + Duration::minutes(m as i64)))
+            .collect();
+        preds.extend(
+            (3..18u128).map(|m| control_prediction(m + 1, 0.4, T0 + Duration::minutes(m as i64))),
+        );
+        // After the demotion: one treated miss.
+        preds.push(prediction(100, 0.75, 0.85, T0 + Duration::minutes(30)));
+        let pairs: Vec<_> = preds
+            .iter()
+            .map(|p| (p, seen(p.arm == Arm::Control, p.recorded_at)))
+            .collect();
+        let m = monitor(&pairs);
+        assert_eq!(m.demotions.len(), 1, "{:?}", m.demotions);
+        let d = m.demotions[0];
+        assert_eq!(d.arm, Arm::Control);
+        assert_eq!(d.prediction_id, PredictionId(uuid::Uuid::from_u128(18)));
+        assert_eq!(d.resolved, 18);
+        assert_eq!(d.at, T0 + Duration::minutes(17));
+        assert!(close(d.e_value, mixture(CONTROL_HIT_LR, 15)), "{d:?}");
+        // The treated detector restarted too: one miss is 1.8, not 6.4 · 1.8.
+        assert!(close(m.current.e_value, 1.8), "{:?}", m.current);
+        assert_eq!(m.current.control_e_value, 0.0);
+        assert_eq!((m.current.resolved, m.current.favourable), (1, 0));
+    }
+
+    /// Twelve treated predictions at null 0.75, recorded a minute apart; all
+    /// but the first resolve unfavourably a minute after their intent.
+    fn watermark_lineage() -> Vec<Prediction> {
+        (0..12u128)
+            .map(|m| prediction(m + 1, 0.75, 0.85, T0 + Duration::minutes(m as i64)))
+            .collect()
+    }
+
+    fn watermark_pairs(
+        preds: &[Prediction],
+        first: Option<(Resolution, OffsetDateTime)>,
+    ) -> Vec<(&Prediction, Option<(Resolution, OffsetDateTime)>)> {
+        preds
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let r = if i == 0 {
+                    first
+                } else {
+                    seen(false, p.recorded_at + Duration::minutes(1))
+                };
+                (p, r)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_pending_prediction_blocks_folding_the_resolved_ones_behind_it() {
+        let preds = watermark_lineage();
+        // The first is pending: eleven misses wait behind it.
+        let m = monitor(&watermark_pairs(&preds, None));
+        assert!(m.demotions.is_empty());
+        assert_eq!((m.current.resolved, m.current.pending), (0, 12));
+        assert_eq!(m.current.e_value, 0.0);
+        assert_eq!(m.current.brier, None);
+
+        // A pending prediction in the middle: the five before it fold.
+        let mut pairs = watermark_pairs(&preds, seen(false, T0 + Duration::minutes(1)));
+        pairs[5].1 = None;
+        let m = monitor(&pairs);
+        assert!(m.demotions.is_empty());
+        assert_eq!((m.current.resolved, m.current.pending), (5, 7));
+        assert!(close(m.current.e_value, mixture(TREATED_MISS_LR, 5)));
+        // Order of the input does not matter.
+        pairs.reverse();
+        assert_eq!(monitor(&pairs), m);
+    }
+
+    #[test]
+    fn once_the_watermark_moves_the_demotion_is_dated_at_the_latest_resolution() {
+        let preds = watermark_lineage();
+        // The first resolves late (minute 50): ten fold and cross at the
+        // 10th (id 10), whose own resolution was at minute 10.
+        let m = monitor(&watermark_pairs(
+            &preds,
+            seen(false, T0 + Duration::minutes(50)),
+        ));
+        assert_eq!(m.demotions.len(), 1);
+        let d = m.demotions[0];
+        assert_eq!(d.prediction_id, PredictionId(uuid::Uuid::from_u128(10)));
+        assert_eq!(d.resolved, 10);
+        assert_eq!(d.at, T0 + Duration::minutes(50));
+        // The two left were recorded before the demotion: not counted, not
+        // waiting.
+        assert_eq!((m.current.resolved, m.current.pending), (0, 0));
+
+        // The first misses: it resolves at its deadline.
+        let m = monitor(&watermark_pairs(
+            &preds,
+            Some((Resolution::Missed, preds[0].deadline)),
+        ));
+        assert_eq!(m.demotions[0].at, T0 + Duration::hours(1));
+        assert_eq!(m.demotions[0].resolved, 10);
+
+        // The first resolves early (minute 1): the prefix's latest
+        // resolution is the 10th's own (minute 10). The 11th, recorded at
+        // minute 10, is excluded; the 12th, at minute 11, opens the epoch.
+        let m = monitor(&watermark_pairs(
+            &preds,
+            seen(false, T0 + Duration::minutes(1)),
+        ));
+        assert_eq!(m.demotions.len(), 1);
+        assert_eq!(m.demotions[0].at, T0 + Duration::minutes(10));
+        assert_eq!((m.current.resolved, m.current.pending), (1, 0));
+        assert!(close(m.current.e_value, 1.8));
+    }
+
+    #[test]
+    fn a_new_epoch_excludes_the_demotion_instant_and_includes_the_next_microsecond() {
+        // Ten misses resolved at intent: demoted at minute 9.
+        let mut preds: Vec<Prediction> = (0..10u128)
+            .map(|m| prediction(m + 1, 0.75, 0.85, T0 + Duration::minutes(m as i64)))
+            .collect();
+        let demoted = T0 + Duration::minutes(9);
+        // Recorded exactly at the demotion instant, and still pending.
+        preds.push(prediction(11, 0.75, 0.85, demoted));
+        // One microsecond later, resolved unfavourably.
+        preds.push(prediction(
+            12,
+            0.75,
+            0.85,
+            demoted + Duration::microseconds(1),
+        ));
+        let pairs: Vec<_> = preds
+            .iter()
+            .map(|p| {
+                let r = match p.id.0.as_u128() {
+                    11 => None,
+                    12 => seen(false, T0 + Duration::minutes(20)),
+                    _ => seen(false, p.recorded_at),
+                };
+                (p, r)
+            })
+            .collect();
+        let m = monitor(&pairs);
+        assert_eq!(m.demotions.len(), 1);
+        assert_eq!(m.demotions[0].at, demoted);
+        // Had the boundary prediction been included, its pending status would
+        // have blocked the next one: (0 resolved, 2 pending).
+        assert_eq!((m.current.resolved, m.current.pending), (1, 0));
+        assert_eq!((m.current.favourable, m.current.missed), (0, 0));
+        assert!(close(m.current.e_value, 1.8));
+        // Brier of an estimate of 0.85 against an unfavourable outcome.
+        assert!(close(m.current.brier.unwrap(), 0.85 * 0.85));
+    }
+
+    #[test]
+    fn misses_count_as_unfavourable_and_are_tallied() {
+        let preds: Vec<Prediction> = (0..4u128)
+            .map(|m| prediction(m + 1, 0.75, 0.85, T0 + Duration::hours(2 * m as i64)))
+            .collect();
+        let pairs: Vec<_> = preds
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let r = if i % 2 == 0 {
+                    Some((Resolution::Missed, p.deadline))
+                } else {
+                    seen(true, p.recorded_at + Duration::minutes(5))
+                };
+                (p, r)
+            })
+            .collect();
+        let e = monitor(&pairs).current;
+        assert_eq!(
+            (e.resolved, e.favourable, e.missed, e.pending),
+            (4, 2, 2, 0)
+        );
+        // Brier: two of (0.85)² and two of (0.15)².
+        let brier = (2.0 * 0.85f64.powi(2) + 2.0 * 0.15f64.powi(2)) / 4.0;
+        assert!(close(e.brier.unwrap(), brier));
+    }
 }
