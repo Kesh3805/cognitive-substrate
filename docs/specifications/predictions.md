@@ -64,17 +64,18 @@ From the treated counts `n` and `k` favourable (taken from the evaluation plus a
 | Condition | Reason |
 |---|---|
 | The hypothesis is not supported | `not_supported` |
-| Another environment, treatment or scope | `unrelated` |
+| Another environment, treatment or scope, or a context outside the hypothesis's declared `contexts` | `unrelated` |
 | A control-arm intervention and no control estimate | `imprecise` |
 | Any rule refusal | that refusal |
 
 **Control holdouts.** A control-arm intervention is predicted from the control arm. Its `null` is the control arm's **upper** bound (capped at 0.98), and the monitor tests that the control's favourable rate stays at or below it.
 
-**Conflicts.** The outcome for the hypothesis's key is already recorded, or the intervention already has a prediction in the same lineage.
+**Conflicts (409).** The outcome for the hypothesis's key is already recorded, or the intervention already has a prediction in the same lineage.
 
 **What is recorded (status 201).** The rule's numbers, frozen, together with:
 - the hypothesis id and version;
 - the lineage;
+- the predicted `arm` (`treated_n` is that arm's count);
 - `recorded_at`;
 - `deadline = recorded_at + 1 hour`.
 
@@ -117,14 +118,15 @@ Self-assessed outcomes never resolve a prediction. An outcome that arrives after
 **Not stored.** Demotions are a deterministic function of immutable predictions and once-only outcomes. They are recomputed on every read.
 
 The monitor reports:
-- every demotion (`at`, the prediction, the e-value, and resolved predictions in the epoch);
-- for the current epoch: resolved, favourable, missed and waiting counts, the e-value, and the mean Brier score.
+- `threshold` (1000);
+- every demotion (`at`, `prediction_id`, `arm`, `e_value`, and `resolved` predictions in the epoch);
+- for the current epoch: `resolved`, `favourable`, `missed` and `pending` (waiting) counts, `e_value` (treated), `control_e_value`, and the mean Brier score (`brier`).
 
 ## Gate
 
 `GET /v1/hypotheses/{id}/rule?context=&threshold=&min_effect=` returns `{ kind: "inferred", version, hypothesis_id, hypothesis_version, context, result, monitor, gate, as_of }`, where `result` is either a rule or a refusal.
 
-With `threshold`, `gate` is `{ execute, reason, threshold, min_effect }`. `min_effect` needs `threshold`; a threshold of 0 leaves the treated rate unconstrained. The first row that applies decides:
+With `threshold`, `gate` is `{ execute, reason, threshold, min_effect }`. `min_effect` needs `threshold`; a threshold of 0 leaves the treated rate unconstrained. A `threshold` outside [0, 1], a `min_effect` outside [−1, 1], `min_effect` without `threshold`, or a `context` that is blank or over 200 characters is a validation error (422); a missing `context` is a 400. The first row that applies decides:
 
 | Condition | `execute` | `reason` |
 |---|---|---|
