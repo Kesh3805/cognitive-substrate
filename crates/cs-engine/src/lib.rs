@@ -17,6 +17,7 @@ mod embeddings;
 pub mod entities;
 pub mod extract;
 pub mod needs;
+pub mod predictions;
 mod processing;
 pub mod requests;
 pub mod worker;
