@@ -2,7 +2,7 @@
 
 ## Rules (computed on read, never stored)
 
-A **rule** is a supported hypothesis in one context. It predicts how often the **favourable** outcome follows the **treated** arm there: `true` for `raises`, `false` for `lowers`.
+A **rule** is a supported hypothesis in one context. It predicts how often the **favourable** outcome follows the **treated** arm there: `true` for `raises`, `false` for `lowers`. When the context's **control** arm has at least 20 outcomes, the rule also carries the control arm's rate and the **effect**: the treated-minus-control favourable rate, with Newcombe's 95% interval.
 
 ### Lineage
 
@@ -27,7 +27,7 @@ The first check that applies decides:
 
 After a demotion, the rule is re-earned from **fixed blocks** of 20 interventions.
 
-**Which interventions.** Randomized, treated, in the hypothesis's scope and context, and **recorded** after the demotion. They are taken in intent order (`recorded_at`, then id) and cut into consecutive blocks of 20.
+**Which interventions.** Randomized, in the hypothesis's scope and context, of the arm concerned, and **recorded** after the demotion. Each arm has its own blocks: they are taken in intent order (`recorded_at`, then id) and cut into consecutive blocks of 20. The treated arm re-earns the rule. The control arm re-earns the effect.
 
 **Each outcome** follows the monitor's own semantics:
 - a strong-tier outcome observed within an hour of the intervention's intent;
@@ -40,7 +40,7 @@ Passive evidence never re-earns a rule.
 
 ### Accumulating evidence before any demotion
 
-A never-demoted lineage counts the evaluation's treated outcomes, plus **complete blocks** of 20 fresh randomized treated outcomes recorded after the evaluation's `as_of`. The blocks use the same rules as above. No regime change has been detected, so the evidence accumulates, and a rule that started below the threshold can rise above it. It does so only at block boundaries.
+A never-demoted lineage counts, for each arm, the evaluation's outcomes plus **complete blocks** of 20 fresh randomized outcomes of that arm recorded after the evaluation's `as_of`. The blocks use the same rules as above. No regime change has been detected, so the evidence accumulates, and a rule that started below the threshold can rise above it. It does so only at block boundaries.
 
 ### Numbers
 
@@ -52,6 +52,8 @@ From the treated counts `n` and `k` favourable (taken from the evaluation plus a
 | `lower`, `upper` | Wilson 95% interval of `k / n` |
 | `null` | `max(lower, 0.02)`: the live rate is monitored against the rule's own lower bound |
 | `requalified` | the counts come from a re-earning block |
+| `control` | `{ n, favourable, estimate, lower, upper }` for the control arm, when it has at least 20 outcomes |
+| `effect` | `{ estimate, lower, upper }`: treated minus control, Newcombe's 95% interval, when `control` is present |
 
 ## Predictions (stored, immutable)
 
@@ -63,8 +65,10 @@ From the treated counts `n` and `k` favourable (taken from the evaluation plus a
 |---|---|
 | The hypothesis is not supported | `not_supported` |
 | Another environment, treatment or scope | `unrelated` |
-| A control-arm intervention | `not_treated` |
+| A control-arm intervention and no control estimate | `imprecise` |
 | Any rule refusal | that refusal |
+
+**Control holdouts.** A control-arm intervention is predicted from the control arm. Its `null` is the control arm's **upper** bound (capped at 0.98), and the monitor tests that the control's favourable rate stays at or below it.
 
 **Conflicts.** The outcome for the hypothesis's key is already recorded, or the intervention already has a prediction in the same lineage.
 
@@ -100,7 +104,9 @@ Self-assessed outcomes never resolve a prediction. An outcome that arrives after
 
 **Detector.** Each `Δ` keeps a CUSUM, `M ← max(M, 1) · LR`. The detector is the mean of the three.
 
-**Demotion.** The lineage is demoted when the detector reaches `1/α = 1000`.
+**Two arms.** Treated predictions feed one detector. Control predictions feed a second one on the complement: null `1 − p0`, outcome `not favourable`, so that it tests "the control's rate is at most `p0`". A control rate that rises, making the action redundant, is caught like a treated rate that falls.
+
+**Demotion.** The lineage is demoted when either detector reaches `1/α = 1000`. The demotion records which arm crossed. Both detectors reset.
 - The demotion is dated when it became knowable: the latest resolution time in the folded prefix.
 - The detector then resets, and a new epoch counts only predictions **recorded** after the demotion.
 
@@ -116,15 +122,19 @@ The monitor reports:
 
 ## Gate
 
-`GET /v1/hypotheses/{id}/rule?context=&threshold=` returns `{ kind: "inferred", version, hypothesis_id, hypothesis_version, context, result, monitor, gate, as_of }`, where `result` is either a rule or a refusal.
+`GET /v1/hypotheses/{id}/rule?context=&threshold=&min_effect=` returns `{ kind: "inferred", version, hypothesis_id, hypothesis_version, context, result, monitor, gate, as_of }`, where `result` is either a rule or a refusal.
 
-With `threshold`, `gate` is `{ execute, reason, threshold }`:
+With `threshold`, `gate` is `{ execute, reason, threshold, min_effect }`. `min_effect` needs `threshold`; a threshold of 0 leaves the treated rate unconstrained. The first row that applies decides:
 
 | Condition | `execute` | `reason` |
 |---|---|---|
-| A rule with `lower ≥ threshold` | true | `clear` |
-| A rule with `lower < threshold` | false | `below_threshold` |
 | No rule | false | `no_rule`, with `refusal` |
+| A rule with `lower < threshold` | false | `below_threshold` |
+| `min_effect` given, and the rule has no `effect` | false | `no_effect_estimate` |
+| `min_effect` given, and `effect.lower < min_effect` | false | `effect_below_threshold` |
+| Otherwise | true | `clear` |
+
+**An effect gate.** With `min_effect`, the gate acts on what acting **changes**. An action whose outcome happens anyway is refused however often it succeeds, and an action that rarely succeeds but helps a lot is allowed. For an action costing `C`, with an outcome worth `+R` and a failure `−P`, acting pays when `(R + P) · Δ > C`, so `min_effect = C / (R + P)`.
 
 **The gate fails closed.** No rule, including a demoted rule, never means "act".
 
@@ -141,3 +151,5 @@ With `threshold`, `gate` is `{ execute, reason, threshold }`:
 | Accumulating blocks are looked at once per block | A context just below the threshold gets one chance per block to cross it by noise. That is far fewer looks than checking after every outcome, but it is not none. |
 | Callers declare assignment and record predictions | The substrate cannot stop an agent from acting off the record. As with ADR-0027, it keeps the record for audit. |
 | Contexts are opaque | Padding a context with easy cases dilutes the monitor. Context taxonomy is the caller's responsibility. |
+| The effect is monitored arm by arm | The monitored contract is "treated ≥ its lower bound and control ≤ its upper bound", which implies an effect of at least their difference. That is more conservative than the Newcombe bound the gate uses. A drift that shrinks the effect while both arms stay inside their own bounds is not detected until it crosses one of them. |
+| Holdouts are the caller's policy | Without control holdouts, a rising control rate is invisible. The substrate monitors holdouts when they are recorded; it does not schedule them. |
