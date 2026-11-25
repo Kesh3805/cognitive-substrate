@@ -14,5 +14,6 @@ pub mod exp010;
 pub mod exp011;
 pub mod exp012;
 pub mod exp013;
+pub mod exp013b;
 pub mod metrics;
 pub mod rng;

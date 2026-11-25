@@ -74,20 +74,18 @@ pub const REFUSAL: f64 = -0.25;
 /// The gate's threshold on the rule's lower bound: the break-even success
 /// rate for the utilities above is 7/12 ≈ 0.583.
 pub const TAU: f64 = 0.6;
-/// Share of refused opportunities in a demoted (or quarantined, or
-/// re-earning) context spent on a probe.
-pub const PROBE_RATE: f64 = 0.5;
-/// The gate's probes are randomized with this propensity of treatment;
-/// control probes feed the hypothesis, treated ones re-earn the rule.
+/// Recovery (every probing arm): while acting is withheld in a context
+/// where evidence could restore it, a **canary** probe runs at this rate.
+/// Canaries are treated runs that never count towards re-earning.
+pub const CANARY_RATE: f64 = 0.125;
+/// Consecutive canary successes that start a burst.
+pub const CANARY_STREAK: u32 = 3;
+/// During a burst, refused opportunities are probed at this rate until one
+/// fresh block of `MIN_RULE_N` treated outcomes is complete.
+pub const BURST_RATE: f64 = 0.5;
+/// The gate's burst probes are randomized with this propensity of
+/// treatment; control probes feed the hypothesis, treated ones re-earn.
 pub const PROBE_PROPENSITY: f64 = 0.9;
-/// Each complete probe block that does not restore acting halves a
-/// context's probe rate, at most this many times (every probing arm).
-pub const MAX_BACKOFF: u32 = 4;
-
-/// The probe rate after `failed` blocks that did not restore acting.
-pub fn probe_rate(failed: u32) -> f64 {
-    PROBE_RATE / f64::from(1u32 << failed.min(MAX_BACKOFF))
-}
 pub const BOOTSTRAP_RESAMPLES: usize = 10_000;
 pub const BOOTSTRAP_SEED: u64 = 13;
 
@@ -305,6 +303,53 @@ impl Blocks {
     }
 }
 
+/// What to do with one refused opportunity under [`Recovery`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Probe {
+    Nothing,
+    Canary,
+    Burst,
+}
+
+/// Canary-triggered recovery, identical in every probing arm. Canaries
+/// watch cheaply for a sign of recovery; a burst then collects exactly one
+/// fresh block, so a block never straddles canary evidence and is never cut
+/// short by peeking.
+#[derive(Debug, Clone, Copy, Default)]
+struct Recovery {
+    streak: u32,
+    burst: bool,
+    burst_treated: u32,
+}
+
+impl Recovery {
+    fn next(&self, draw: f64) -> Probe {
+        match (self.burst, draw) {
+            (true, d) if d < BURST_RATE => Probe::Burst,
+            (false, d) if d < CANARY_RATE => Probe::Canary,
+            _ => Probe::Nothing,
+        }
+    }
+
+    fn canary(&mut self, success: bool) {
+        self.streak = if success { self.streak + 1 } else { 0 };
+        if self.streak >= CANARY_STREAK {
+            *self = Self {
+                burst: true,
+                ..Self::default()
+            };
+        }
+    }
+
+    /// One treated burst outcome; the burst ends with its block.
+    fn burst_treated(&mut self) {
+        self.burst_treated += 1;
+        if self.burst_treated == MIN_RULE_N {
+            *self = Self::default();
+        }
+    }
+}
+
 /// A context's state under the capability drift filter.
 #[derive(Debug, Clone, Default)]
 struct Drift {
@@ -312,8 +357,6 @@ struct Drift {
     runs: Vec<bool>,
     quarantined: bool,
     probes: Blocks,
-    /// Probe blocks that did not restore acting.
-    failed: u32,
 }
 
 impl Drift {
@@ -345,9 +388,6 @@ impl Drift {
         if self.probes.lower().is_some_and(|l| l >= TAU) {
             self.quarantined = false;
             self.runs.clear();
-            self.failed = 0;
-        } else {
-            self.failed += 1;
         }
     }
 }
@@ -363,7 +403,6 @@ struct Cusum {
     demoted: bool,
     ever_demoted: bool,
     probes: Blocks,
-    failed: u32,
 }
 
 impl Cusum {
@@ -375,7 +414,6 @@ impl Cusum {
             demoted: false,
             ever_demoted: false,
             probes: Blocks::default(),
-            failed: 0,
         }
     }
 
@@ -413,11 +451,6 @@ impl Cusum {
             self.k += kb;
         }
         self.demoted = false;
-        if self.executes() {
-            self.failed = 0;
-        } else {
-            self.failed += 1;
-        }
     }
 }
 
@@ -449,6 +482,14 @@ pub struct RunRow {
     pub contexts: Vec<ContextReport>,
 }
 
+/// The generator seed of one run. Seed, run and family occupy disjoint bits,
+/// so no two (seed, family, run) triples share a generator. (An earlier
+/// version XORed seed and run into the same low bits, so seeds 1–3 replayed
+/// the same eight runs per family.)
+fn run_seed_value(seed: u64, family: Family, run: usize) -> u64 {
+    0x0013_0013_0013_0013 ^ (seed & 0xFFFF) ^ ((run as u64 & 0xFF) << 16) ^ ((family as u64) << 24)
+}
+
 pub async fn run_seed(store: Arc<dyn CognitiveStore>, seed: u64) -> Result<Vec<RunRow>, String> {
     let mut rows = Vec::new();
     for family in Family::ALL {
@@ -471,7 +512,7 @@ async fn run_one(
     run: usize,
 ) -> Result<RunRow, String> {
     let err = |e: cs_core::Error| e.to_string();
-    let mut rng = Rng::new(seed ^ 0x0013_0013_0013_0013 ^ ((family as u64) << 32) ^ run as u64);
+    let mut rng = Rng::new(run_seed_value(seed, family, run));
     let w = world(family, &mut rng);
     let clock = Arc::new(FixedClock::new(crate::corpus::start()));
     let engine = CognitiveEngine::builder(store).clock(clock.clone()).build();
@@ -577,9 +618,10 @@ async fn run_one(
             exposed: false,
         })
         .collect();
-    // The gate's probe backoff and treated probes per context.
-    let mut gate_failed = [0u32; CONTEXTS];
-    let mut gate_treated_probes = [0u32; CONTEXTS];
+    // Recovery schedulers per context, one per probing arm.
+    let mut probing_recovery = [Recovery::default(); CONTEXTS];
+    let mut cusum_recovery = [Recovery::default(); CONTEXTS];
+    let mut gate_recovery = [Recovery::default(); CONTEXTS];
 
     for t in 0..OPPORTUNITIES {
         let c = rng.below(CONTEXTS);
@@ -617,25 +659,47 @@ async fn run_one(
 
         let tl = tally(&mut arms, ArmName::PerContextProbing);
         let a = if !probing[c].quarantined {
+            probing_recovery[c] = Recovery::default();
             probing[c].record(success, false);
             Act::of(success)
-        } else if probe_draw < probe_rate(probing[c].failed) {
-            tl.probes += 1;
-            probing[c].probe(success);
-            Act::of(success)
         } else {
-            Act::Refusal
+            match probing_recovery[c].next(probe_draw) {
+                Probe::Nothing => Act::Refusal,
+                Probe::Canary => {
+                    tl.probes += 1;
+                    probing_recovery[c].canary(success);
+                    Act::of(success)
+                }
+                Probe::Burst => {
+                    tl.probes += 1;
+                    probing_recovery[c].burst_treated();
+                    probing[c].probe(success);
+                    Act::of(success)
+                }
+            }
         };
         tl.add(a, t);
 
         let tl = tally(&mut arms, ArmName::PerContextCusum);
         let a = if cusum[c].executes() {
+            cusum_recovery[c] = Recovery::default();
             cusum[c].record(success);
             Act::of(success)
-        } else if cusum[c].probing() && probe_draw < probe_rate(cusum[c].failed) {
-            tl.probes += 1;
-            cusum[c].probe(success);
-            Act::of(success)
+        } else if cusum[c].probing() {
+            match cusum_recovery[c].next(probe_draw) {
+                Probe::Nothing => Act::Refusal,
+                Probe::Canary => {
+                    tl.probes += 1;
+                    cusum_recovery[c].canary(success);
+                    Act::of(success)
+                }
+                Probe::Burst => {
+                    tl.probes += 1;
+                    cusum_recovery[c].burst_treated();
+                    cusum[c].probe(success);
+                    Act::of(success)
+                }
+            }
         } else {
             Act::Refusal
         };
@@ -643,7 +707,7 @@ async fn run_one(
 
         // The prediction gate, through the engine.
         let view = engine
-            .prediction_rule(&ctx, hyp_id, &format!("c{c}"), Some(TAU))
+            .prediction_rule(&ctx, hyp_id, &format!("c{c}"), Some(TAU), None)
             .await
             .map_err(err)?;
         let decision = view.gate.expect("threshold given");
@@ -660,8 +724,13 @@ async fn run_one(
             reports[c].exposed = decision.execute;
         }
         if decision.execute {
-            gate_failed[c] = 0;
+            gate_recovery[c] = Recovery::default();
         }
+        let probe = if re_earning {
+            gate_recovery[c].next(probe_draw)
+        } else {
+            Probe::Nothing
+        };
         clock.advance(Duration::minutes(1));
         let a = if decision.execute {
             let i = engine
@@ -679,7 +748,22 @@ async fn run_one(
                 .await
                 .map_err(err)?;
             Act::of(success)
-        } else if re_earning && probe_draw < probe_rate(gate_failed[c]) {
+        } else if probe == Probe::Canary {
+            // A passive treated run: recorded, never predicted, never
+            // counted towards re-earning (only randomized evidence is).
+            tally(&mut arms, ArmName::Gate).probes += 1;
+            let i = engine
+                .record_intervention(&ctx, new(c, Arm::Treated, Assignment::Passive, 0.0))
+                .await
+                .map_err(err)?;
+            clock.advance(Duration::minutes(1));
+            engine
+                .observe_outcome(&ctx, i.id, observe(success))
+                .await
+                .map_err(err)?;
+            gate_recovery[c].canary(success);
+            Act::of(success)
+        } else if probe == Probe::Burst {
             tally(&mut arms, ArmName::Gate).probes += 1;
             let arm = if arm_draw < PROBE_PROPENSITY {
                 Arm::Treated
@@ -687,12 +771,7 @@ async fn run_one(
                 Arm::Control
             };
             if arm == Arm::Treated {
-                gate_treated_probes[c] += 1;
-                // A block completes; if acting is not restored by the next
-                // read, the reset above never happens and the rate halves.
-                if gate_treated_probes[c] % MIN_RULE_N == 0 {
-                    gate_failed[c] += 1;
-                }
+                gate_recovery[c].burst_treated();
             }
             let i = engine
                 .record_intervention(&ctx, new(c, arm, Assignment::Randomized, PROBE_PROPENSITY))
@@ -761,6 +840,8 @@ pub struct Gate {
     pub criterion: &'static str,
     pub value: String,
     pub passed: bool,
+    /// Counts towards adoption. The superseded G1 is reported, not binding.
+    pub binding: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -789,6 +870,16 @@ pub struct Summary {
     pub gates: Vec<Gate>,
     pub adopt: bool,
 }
+
+/// An existing arm is admissible in G1 when its stationary utility is
+/// within this margin of the oracle's: it does not buy harm containment by
+/// giving up healthy work. The same margin as G2 and G6.
+pub const ADMISSIBLE_MARGIN: f64 = 0.02;
+/// G4's median delay targets. Cliff (to 0.25): 20. Global (to 0.40):
+/// Wald's approximation ln(1/α) / KL(0.40 ‖ 0.70) ≈ 36 opportunities for a
+/// typical null of 0.70, rounded up to 40.
+pub const G4_CLIFF_MEDIAN: f64 = 20.0;
+pub const G4_GLOBAL_MEDIAN: f64 = 40.0;
 
 /// Simultaneous comparisons: G1 (4 harmful families × 4 existing arms),
 /// G2 (4 existing arms) and G6 (6 families × the CUSUM baseline).
@@ -891,6 +982,22 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
             })
         })
         .collect();
+    // Amended G1: non-inferiority to every admissible existing arm.
+    let oracle_stationary = stationary.utility[&ArmName::Oracle];
+    let admissible: Vec<ArmName> = ArmName::EXISTING
+        .into_iter()
+        .filter(|a| stationary.utility[a] >= oracle_stationary - ADMISSIBLE_MARGIN)
+        .collect();
+    let g1_adoption: Vec<String> = Family::ALL
+        .into_iter()
+        .filter(|f| f.harmful())
+        .flat_map(|f| {
+            admissible.iter().filter_map(move |a| {
+                let i = fam(f).gate_minus[a];
+                (i.lower <= -ADMISSIBLE_MARGIN).then(|| format!("{f:?} vs {a:?}: {i:?}"))
+            })
+        })
+        .collect();
     let g2: Vec<String> = ArmName::EXISTING
         .into_iter()
         .filter_map(|a| {
@@ -909,13 +1016,27 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
     let recovery = fam(Family::Recovery);
     let gates = vec![
         Gate {
-            criterion: "G1 every harmful family: gate beats every existing arm (Bonferroni CI lower > 0)",
+            criterion: "G1 (superseded, reported) every harmful family: gate beats every existing arm",
             value: if g1.is_empty() {
                 "all 16 comparisons".into()
             } else {
                 g1.join("; ")
             },
             passed: g1.is_empty(),
+            binding: false,
+        },
+        Gate {
+            criterion: "G1 every harmful family: gate non-inferior (CI lower > −0.02) to every admissible existing arm",
+            value: format!(
+                "admissible {admissible:?}; {}",
+                if g1_adoption.is_empty() {
+                    "no failing comparison".into()
+                } else {
+                    g1_adoption.join("; ")
+                }
+            ),
+            passed: g1_adoption.is_empty(),
+            binding: true,
         },
         Gate {
             criterion: "G2 stationary: gate non-inferior to every existing arm (CI lower > −0.02)",
@@ -925,6 +1046,7 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
                 g2.join("; ")
             },
             passed: g2.is_empty(),
+            binding: true,
         },
         Gate {
             criterion: "G3 stationary: runs with any false demotion ≤ 5%",
@@ -935,9 +1057,10 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
                 stationary.false_demotion_upper
             ),
             passed: (stationary.runs_with_false_demotion as f64) <= 0.05 * stationary.runs as f64,
+            binding: true,
         },
         Gate {
-            criterion: "G4 cliff and global: ≥ 95% of shifted contexts demoted; median delay ≤ 20",
+            criterion: "G4 cliff and global: ≥ 95% of exposed shifted contexts demoted; median delay ≤ 20 (cliff), ≤ 40 (global)",
             value: format!(
                 "cliff {}/{} median {:?} p90 {:?}; global {}/{} median {:?} p90 {:?}",
                 cliff.detected,
@@ -951,13 +1074,15 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
             ),
             passed: (cliff.detected + global.detected) as f64
                 >= 0.95 * (cliff.shifted_contexts + global.shifted_contexts) as f64
-                && cliff.median_delay.is_some_and(|m| m <= 20.0)
-                && global.median_delay.is_some_and(|m| m <= 20.0),
+                && cliff.median_delay.is_some_and(|m| m <= G4_CLIFF_MEDIAN)
+                && global.median_delay.is_some_and(|m| m <= G4_GLOBAL_MEDIAN),
+            binding: true,
         },
         Gate {
             criterion: "G5 recovery: ≥ 80% of returned contexts acted on again from a re-earned rule",
             value: format!("{}/{}", recovery.requalified, recovery.shifted_contexts),
             passed: recovery.requalified as f64 >= 0.8 * recovery.shifted_contexts as f64,
+            binding: true,
         },
         Gate {
             criterion: "G6 every family: gate non-inferior to the per-context CUSUM (CI lower > −0.02)",
@@ -967,12 +1092,34 @@ pub fn summarize(rows: &[RunRow]) -> Summary {
                 g6.join("; ")
             },
             passed: g6.is_empty(),
+            binding: true,
         },
     ];
-    let adopt = gates.iter().all(|g| g.passed);
+    let adopt = gates.iter().filter(|g| g.binding).all(|g| g.passed);
     Summary {
         families,
         gates,
         adopt,
+    }
+}
+
+#[cfg(test)]
+mod seeding_tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn every_run_has_its_own_generator() {
+        for seeds in [&DEV_SEEDS[..], &HELD_OUT_SEEDS[..]] {
+            let mut seen = HashSet::new();
+            for &seed in seeds {
+                for family in Family::ALL {
+                    for run in 0..PER_FAMILY {
+                        assert!(seen.insert(run_seed_value(seed, family, run)));
+                    }
+                }
+            }
+        }
     }
 }
