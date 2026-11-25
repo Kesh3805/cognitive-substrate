@@ -15,7 +15,7 @@ It is built on the official Rust SDK, [`rmcp`](https://crates.io/crates/rmcp) 3.
 cargo install --path crates/cs-mcp      # installs the `cs-mcp` binary
 ```
 
-The crate requires Rust 1.88, because `rmcp` 3.x does. The rest of the workspace builds with Rust 1.85.
+The crate needs Rust 1.88 (`rmcp` 3.x does), which is the workspace's MSRV.
 
 ## Configure
 
