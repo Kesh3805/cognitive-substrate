@@ -206,6 +206,62 @@ async fn memory_recall_replay_roundtrip() {
 }
 
 #[tokio::test]
+async fn recall_traces_belong_to_their_principal() {
+    let c = Client::new(None);
+    // A tenant-visible memory: Bob may read it, but not Alice's trace.
+    let (status, mem) = c
+        .send(
+            "POST",
+            "/v1/memories",
+            Some(json!({
+                "scope": { "tenant_id": c.tenant, "visibility": "tenant" },
+                "content": { "domain": "semantic", "data": {
+                    "proposition": "Incident reviews happen every Thursday."
+                }},
+                "provenance": { "source": { "type": "user_input" } }
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{mem}");
+    let (status, recall) = c
+        .send(
+            "POST",
+            "/v1/recall",
+            Some(json!({ "query": "when are incident reviews", "policy": { "max_results": 5 } })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{recall}");
+    let trace_id = recall["trace_id"].as_str().unwrap().to_owned();
+    let trace_path = format!("/v1/recall-traces/{trace_id}");
+    let replay_path = format!("/v1/recall-traces/{trace_id}/replay");
+
+    let bob = c.as_user(Uuid::now_v7());
+    let (status, _) = bob
+        .send(
+            "GET",
+            &format!("/v1/memories/{}", mem["id"].as_str().unwrap()),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = bob.send("GET", &trace_path, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"]["code"], "not_found");
+    let (status, body) = bob.send("POST", &replay_path, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"]["code"], "not_found");
+
+    let (status, trace) = c.send("GET", &trace_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{trace}");
+    assert_eq!(trace["owner_user_id"], c.user.to_string());
+    let (status, replay) = c.send("POST", &replay_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{replay}");
+    assert_eq!(replay["identical"], true);
+    assert_eq!(replay["fidelity"], "exact");
+    assert_eq!(replay["purged_candidates"], json!([]));
+}
+
+#[tokio::test]
 async fn beliefs_and_debt() {
     let c = Client::new(None);
     let (status, ev) = c
