@@ -1392,4 +1392,236 @@ mod tests {
         let brier = (2.0 * 0.85f64.powi(2) + 2.0 * 0.15f64.powi(2)) / 4.0;
         assert!(close(e.brier.unwrap(), brier));
     }
+
+    // ---- Rules: block boundaries and `lowers` ----
+
+    fn randomized(at: OffsetDateTime, value: bool, arm: Arm) -> Intervention {
+        let mut i = treated(at, value, Assignment::Randomized);
+        i.arm = arm;
+        i
+    }
+
+    fn raises_40_32() -> Hypothesis {
+        hypothesis(
+            ArmCounts {
+                n: 40,
+                positive: 32,
+            },
+            0.6,
+            Direction::Raises,
+        )
+    }
+
+    #[test]
+    fn requalification_happens_only_at_block_boundaries() {
+        let h = raises_40_32();
+        let demoted = T0 + Duration::days(1);
+        let at = |k: i64| demoted + Duration::minutes(k + 1);
+        // First block all favourable, second all unfavourable.
+        let v: Vec<_> = (0..40)
+            .map(|k| randomized(at(k), k < 20, Arm::Treated))
+            .collect();
+        let counts = |n: usize| {
+            rule(&h, "c", &v[..n], Some(demoted), LATER)
+                .map(|r| (r.treated_n, r.treated_favourable))
+        };
+        assert_eq!(counts(19), Err(RuleRefusal::Demoted));
+        assert_eq!(counts(20), Ok((20, 20)));
+        assert_eq!(counts(39), Ok((20, 20)), "still the first block");
+        assert_eq!(counts(40), Ok((20, 0)), "the second block replaces it");
+        let r = rule(&h, "c", &v[..20], Some(demoted), LATER).unwrap();
+        assert!(r.requalified);
+        assert!(close(r.estimate, 20.5 / 21.0));
+    }
+
+    #[test]
+    fn a_pending_outcome_leaves_its_block_incomplete() {
+        let h = raises_40_32();
+        let demoted = T0 + Duration::days(1);
+        let at = |k: i64| demoted + Duration::minutes(k + 1);
+        let mut v: Vec<_> = (0..40)
+            .map(|k| randomized(at(k), true, Arm::Treated))
+            .collect();
+        v[39].outcomes.clear();
+        // Half an hour after the last intent: still pending.
+        let now = at(39) + Duration::minutes(30);
+        let r = rule(&h, "c", &v, Some(demoted), now).unwrap();
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 20));
+        // Past its deadline it is a miss and completes the second block.
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 19));
+        // An outcome observed after `now` is not yet known.
+        let mut w: Vec<_> = (0..20)
+            .map(|k| randomized(at(k), true, Arm::Treated))
+            .collect();
+        w[19].outcomes.get_mut("y").unwrap().observed_at = at(19) + Duration::minutes(10);
+        assert_eq!(
+            rule(&h, "c", &w, Some(demoted), at(19) + Duration::minutes(5)),
+            Err(RuleRefusal::Demoted)
+        );
+        assert!(rule(&h, "c", &w, Some(demoted), at(19) + Duration::minutes(10)).is_ok());
+    }
+
+    #[test]
+    fn interventions_at_the_demotion_instant_do_not_requalify() {
+        let h = raises_40_32();
+        let demoted = T0 + Duration::days(1);
+        let exact: Vec<_> = (0..20)
+            .map(|_| randomized(demoted, true, Arm::Treated))
+            .collect();
+        assert_eq!(
+            rule(&h, "c", &exact, Some(demoted), LATER),
+            Err(RuleRefusal::Demoted)
+        );
+        let next: Vec<_> = (0..20)
+            .map(|_| randomized(demoted + Duration::microseconds(1), true, Arm::Treated))
+            .collect();
+        let r = rule(&h, "c", &next, Some(demoted), LATER).unwrap();
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 20));
+        // Before any demotion, the evaluation's `as_of` is the same strict
+        // boundary for accumulated blocks.
+        let at_eval: Vec<_> = (0..20)
+            .map(|_| randomized(T0, true, Arm::Treated))
+            .collect();
+        assert_eq!(rule(&h, "c", &at_eval, None, LATER).unwrap().treated_n, 40);
+    }
+
+    #[test]
+    fn control_blocks_are_independent_of_treated_blocks() {
+        let h = raises_40_32();
+        let demoted = T0 + Duration::days(1);
+        let at = |k: i64| demoted + Duration::minutes(k + 1);
+        // Ten of each arm, interleaved: twenty in all, but no complete block.
+        let mixed: Vec<_> = (0..20)
+            .map(|k| {
+                let arm = if k % 2 == 0 {
+                    Arm::Treated
+                } else {
+                    Arm::Control
+                };
+                randomized(at(k), true, arm)
+            })
+            .collect();
+        assert_eq!(
+            rule(&h, "c", &mixed, Some(demoted), LATER),
+            Err(RuleRefusal::Demoted)
+        );
+        // Twenty treated and 19 control: a rule without a control estimate.
+        let mut v: Vec<_> = (0..20)
+            .map(|k| randomized(at(k), true, Arm::Treated))
+            .collect();
+        v.extend((20..39).map(|k| randomized(at(k), k % 4 == 0, Arm::Control)));
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 20));
+        assert!(r.control.is_none() && r.effect.is_none());
+        // The 20th control completes its block; the treated block is unchanged.
+        v.push(randomized(at(39), false, Arm::Control));
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 20));
+        // Control favourable at k = 20, 24, ..., 36: five of twenty.
+        assert_eq!(r.control.map(|c| (c.n, c.favourable)), Some((20, 5)));
+        let e = r.effect.unwrap();
+        assert!(close(e.estimate, 1.0 - 0.25));
+        // Control blocks alone never make a rule.
+        let control_only: Vec<_> = (0..40)
+            .map(|k| randomized(at(k), true, Arm::Control))
+            .collect();
+        assert_eq!(
+            rule(&h, "c", &control_only, Some(demoted), LATER),
+            Err(RuleRefusal::Demoted)
+        );
+    }
+
+    #[test]
+    fn never_demoted_lineages_accumulate_each_arm_by_whole_blocks() {
+        let h = raises_40_32();
+        let at = |k: i64| T0 + Duration::minutes(k + 1);
+        let fresh = |n: i64, arm: Arm| -> Vec<Intervention> {
+            (0..n).map(|k| randomized(at(k), true, arm)).collect()
+        };
+        let treated_n = |v: &[Intervention]| rule(&h, "c", v, None, LATER).unwrap().treated_n;
+        assert_eq!(treated_n(&fresh(19, Arm::Treated)), 40);
+        assert_eq!(treated_n(&fresh(20, Arm::Treated)), 60);
+        assert_eq!(treated_n(&fresh(39, Arm::Treated)), 60);
+        assert_eq!(treated_n(&fresh(40, Arm::Treated)), 80);
+        // Evaluation control (20, 4) plus one complete block of 20 favourable.
+        let r = rule(&h, "c", &fresh(39, Arm::Control), None, LATER).unwrap();
+        assert_eq!(r.control.map(|c| (c.n, c.favourable)), Some((40, 24)));
+        assert_eq!(r.treated_n, 40, "control evidence does not touch treated");
+    }
+
+    fn lowers_40_8() -> Hypothesis {
+        hypothesis(ArmCounts { n: 40, positive: 8 }, 0.5, Direction::Lowers)
+    }
+
+    #[test]
+    fn lowers_counts_the_absent_outcome_as_favourable_on_both_arms() {
+        let h = lowers_40_8();
+        // Evaluation counts: treated 32 of 40 absent, control 16 of 20 absent.
+        let r = rule(&h, "c", &[], None, T0).unwrap();
+        assert!(!r.favourable);
+        assert_eq!((r.treated_n, r.treated_favourable), (40, 32));
+        assert_eq!(r.control.map(|c| (c.n, c.favourable)), Some((20, 16)));
+        assert!(r.effect.unwrap().estimate.abs() < 1e-12, "0.8 - 0.8");
+
+        // Re-earned blocks: the outcome being absent is favourable.
+        let demoted = T0 + Duration::days(1);
+        let at = |k: i64| demoted + Duration::minutes(k + 1);
+        let mut v: Vec<_> = (0..20)
+            .map(|k| randomized(at(k), k >= 3, Arm::Treated))
+            .collect();
+        v.extend((20..40).map(|k| randomized(at(k), k < 25, Arm::Control)));
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert!(!r.favourable && r.requalified);
+        assert_eq!((r.treated_n, r.treated_favourable), (20, 3));
+        assert_eq!(r.control.map(|c| (c.n, c.favourable)), Some((20, 15)));
+        assert!(close(r.effect.unwrap().estimate, 0.15 - 0.75));
+
+        // Silence is failure under `lowers` too: a missing outcome is not an
+        // absent one.
+        let mut silent: Vec<_> = (0..20)
+            .map(|k| randomized(at(k), false, Arm::Treated))
+            .collect();
+        for i in &mut silent {
+            i.outcomes.clear();
+        }
+        let r = rule(&h, "c", &silent, Some(demoted), LATER).unwrap();
+        assert_eq!(r.treated_favourable, 0);
+    }
+
+    #[test]
+    fn lowers_predictions_resolve_favourable_when_the_outcome_is_absent() {
+        let mut p = prediction(1, 0.6, 0.8, T0);
+        p.favourable = false;
+        let absent = treated(T0 + Duration::minutes(5), false, Assignment::Randomized);
+        let present = treated(T0 + Duration::minutes(5), true, Assignment::Randomized);
+        let now = T0 + Duration::minutes(10);
+        assert_eq!(
+            resolve(&p, "y", Some(&absent), now),
+            Some((
+                Resolution::Observed { favourable: true },
+                absent.recorded_at
+            ))
+        );
+        assert_eq!(
+            resolve(&p, "y", Some(&present), now),
+            Some((
+                Resolution::Observed { favourable: false },
+                present.recorded_at
+            ))
+        );
+        let missed = resolve(&p, "y", None, p.deadline).unwrap();
+        assert_eq!(missed, (Resolution::Missed, p.deadline));
+        assert!(!missed.0.favourable());
+        // Exactly at the deadline an observation still counts; a self-assessed
+        // one never does.
+        let at_deadline = treated(p.deadline, false, Assignment::Randomized);
+        assert_eq!(
+            resolve(&p, "y", Some(&at_deadline), p.deadline),
+            Some((Resolution::Observed { favourable: true }, p.deadline))
+        );
+        let mut weak = absent.clone();
+        weak.outcomes.get_mut("y").unwrap().tier = OracleTier::SelfAssessed;
+        assert_eq!(resolve(&p, "y", Some(&weak), now), None);
+    }
 }
