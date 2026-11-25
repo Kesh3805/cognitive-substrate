@@ -153,13 +153,17 @@ Bounded causal claims, predictions within declared conditions, measured predicti
   - Built as Tian–Pearl bounds on the probabilities of necessity and sufficiency for randomized units, with per-limit one-sided ratio intervals, typed refusals and stated assumptions.
   - Held out: coverage of the true value 99.8–99.9% (every family ≥ 99.6%), every refusal correct, nothing written. But the lower bound was informative in only 78% of well-powered contexts (gate 80%; rare outcomes 17% at 25 per arm). **The endpoint stays experimental** (ADR-0028, [results](benchmarks/012-counterfactual-bounds/RESULTS.md)).
 
-### M6.4 — Bounded predictions
+### M6.4 — Bounded predictions (implemented; experiment 013 preregistered)
 
-- Supported hypotheses act as explicit transition rules.
-- A prediction is recorded at an execution's intent and scored after verification. Rules that mispredict are demoted by a ratchet.
-- **Experiment 012:** prediction-gated execution against the existing capability reliability filter, not against nothing.
-  - Actions are paired, and the regime shifts partway through.
-  - Measured: failure rate, completion rate and how often a gate refuses to act.
+- A supported hypothesis in one context is a **rule**, computed on read. It needs the context's own effect pointing the right way and at least 20 treated outcomes.
+- A prediction is recorded at an intervention's intent, with the rule frozen in it. No strong-tier outcome within an hour counts as unfavourable.
+- A one-sided mixture CUSUM e-detector over each lineage demotes over-optimistic rules. A lineage is the claim (scope, environment, treatment, outcome, direction, context), not a hypothesis record. The detector folds predictions in intent order and is valid under continuous monitoring, with an average run length to a false alarm of at least 1000. Demotions are derived from append-only records, never stored, and survive re-evaluation and restatement. Only a fixed block of 20 fresh randomized treated outcomes re-earns a lineage.
+- The gate fails closed: no rule, a demoted rule, or a lower bound below the threshold all refuse (ADR-0029).
+- The design was reviewed externally twice, as a draft and as implemented. The window-versus-interval ratchet, the fall-through on "no rule", two-outcome rules, resolution-order folding, the slack on the null, id-keyed lineages and growing-sample requalification were replaced.
+- **Experiment 013** (the roadmap earlier called it 012, a number already used): prediction-gated execution against the existing capability filter, its per-context variants, always refusing, and the same detector run on raw executions.
+  - Families: stationary, cliff, gradual, recovery, upward and global.
+  - Scored on opportunity-level utility, with common random numbers.
+  - [Preregistration](benchmarks/013-prediction-gating/PREREGISTRATION.md).
 
 ## M7 — Collective intelligence & interoperability
 
