@@ -66,7 +66,10 @@ pub const MIN_EFFECT: f64 = 0.1;
 pub const TAU: f64 = 0.6;
 /// Share of the effect gate's cleared opportunities run as a randomized
 /// holdout (treated or control at 0.5), so both arms stay monitored.
-pub const HOLDOUT: f64 = 0.1;
+/// Frozen by the preregistered rule: the smallest of 0.3, 0.5 and 0.8
+/// passing B5 on development seeds, else 0.8. None passed (10/39, 22/39,
+/// 33/39 detected), so 0.8.
+pub const HOLDOUT: f64 = 0.8;
 /// Randomized probes (treated or control at 0.5) on refused opportunities:
 /// in a demoted lineage, and where a rule exists but its effect is short.
 pub const DEMOTED_PROBE_RATE: f64 = 0.25;
