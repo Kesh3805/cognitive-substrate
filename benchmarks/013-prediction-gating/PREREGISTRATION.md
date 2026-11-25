@@ -1,6 +1,6 @@
 # 013 — Prediction-gated execution under regime shifts
 
-- Status: **preregistered, version 2** (to be committed before any run on held-out seeds 901–905 for part A and 911–915 for part B)
+- Status: **done: not adopted** (version 2, committed at `5890149` before any held-out run; [results](RESULTS.md))
 - Date: 2026-11-25
 - Concerns: M6.4, prediction version 1 (ADR-0029, ADR-0030, [specification](../../docs/specifications/predictions.md)), over causal evaluation version 1.
 

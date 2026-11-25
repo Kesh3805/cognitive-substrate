@@ -1,0 +1,18 @@
+{
+  "commit": "e8ce42cc0b307f4e58f01c0429b742cbbdd22055",
+  "evaluation_version": 1,
+  "experiment": "013b-effect-gating",
+  "held_out": true,
+  "holdout": 0.8,
+  "per_family": 8,
+  "prediction_version": 1,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "seeds": [
+    911,
+    912,
+    913,
+    914,
+    915
+  ],
+  "store": "memory"
+}

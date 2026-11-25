@@ -1,0 +1,176 @@
+{
+  "families": [
+    {
+      "family": "stationary",
+      "runs": 40,
+      "supported": 39,
+      "utility": {
+        "oracle": 0.11403124999999972,
+        "refuse": -0.44937499999999997,
+        "always_act": -0.045749999999999486,
+        "success_filter": -0.1357187500000014,
+        "absolute_gate": -0.0931250000000001,
+        "effect_baseline": 0.053943749999999804,
+        "effect_gate": -0.16182500000000027
+      },
+      "effect_gate_minus": {
+        "oracle": {
+          "mean": -0.27585625,
+          "lower": -0.29935624999999955,
+          "upper": -0.2557125000000001
+        },
+        "refuse": {
+          "mean": 0.2875499999999998,
+          "lower": 0.2617812499999995,
+          "upper": 0.3107437499999999
+        },
+        "always_act": {
+          "mean": -0.11607500000000079,
+          "lower": -0.142112500000001,
+          "upper": -0.09251875000000083
+        },
+        "success_filter": {
+          "mean": -0.02610624999999886,
+          "lower": -0.05569374999999862,
+          "upper": 0.0008437500000014444
+        },
+        "absolute_gate": {
+          "mean": -0.06870000000000018,
+          "lower": -0.09581875000000069,
+          "upper": -0.040168749999999934
+        },
+        "effect_baseline": {
+          "mean": -0.21576875000000012,
+          "lower": -0.23957499999999995,
+          "upper": -0.19566250000000035
+        }
+      },
+      "exposed_shifted": 0,
+      "detected": 0
+    },
+    {
+      "family": "control_rise",
+      "runs": 40,
+      "supported": 35,
+      "utility": {
+        "oracle": 0.16536874999999968,
+        "refuse": -0.11893749999999999,
+        "always_act": -0.05837499999999941,
+        "success_filter": -0.13555000000000111,
+        "absolute_gate": -0.0903125,
+        "effect_baseline": 0.08267500000000003,
+        "effect_gate": 0.0005375000000001967
+      },
+      "effect_gate_minus": {
+        "oracle": {
+          "mean": -0.16483124999999949,
+          "lower": -0.1819812499999994,
+          "upper": -0.14936249999999945
+        },
+        "refuse": {
+          "mean": 0.11947500000000018,
+          "lower": 0.1011250000000002,
+          "upper": 0.13683125000000018
+        },
+        "always_act": {
+          "mean": 0.05891249999999963,
+          "lower": 0.03533124999999953,
+          "upper": 0.08119999999999952
+        },
+        "success_filter": {
+          "mean": 0.13608750000000128,
+          "lower": 0.11200625000000086,
+          "upper": 0.16053750000000117
+        },
+        "absolute_gate": {
+          "mean": 0.09085000000000024,
+          "lower": 0.07099375000000013,
+          "upper": 0.11172500000000045
+        },
+        "effect_baseline": {
+          "mean": -0.08213749999999984,
+          "lower": -0.09914999999999992,
+          "upper": -0.06624999999999984
+        }
+      },
+      "exposed_shifted": 69,
+      "detected": 56
+    },
+    {
+      "family": "effect_reversal",
+      "runs": 40,
+      "supported": 33,
+      "utility": {
+        "oracle": -0.1637812500000001,
+        "refuse": -0.44656250000000003,
+        "always_act": -0.380625000000005,
+        "success_filter": -0.40663125000000166,
+        "absolute_gate": -0.3854500000000006,
+        "effect_baseline": -0.23920000000000124,
+        "effect_gate": -0.32694375000000064
+      },
+      "effect_gate_minus": {
+        "oracle": {
+          "mean": -0.1631625000000005,
+          "lower": -0.18438125000000033,
+          "upper": -0.14424375000000061
+        },
+        "refuse": {
+          "mean": 0.11961874999999937,
+          "lower": 0.09888749999999943,
+          "upper": 0.1387374999999993
+        },
+        "always_act": {
+          "mean": 0.05368125000000438,
+          "lower": 0.028162500000004642,
+          "upper": 0.07688750000000417
+        },
+        "success_filter": {
+          "mean": 0.07968750000000102,
+          "lower": 0.04816875000000127,
+          "upper": 0.10961250000000093
+        },
+        "absolute_gate": {
+          "mean": 0.05850624999999991,
+          "lower": 0.04048125000000003,
+          "upper": 0.07705000000000002
+        },
+        "effect_baseline": {
+          "mean": -0.08774374999999933,
+          "lower": -0.11173749999999938,
+          "upper": -0.06657499999999927
+        }
+      },
+      "exposed_shifted": 64,
+      "detected": 62
+    }
+  ],
+  "gates": [
+    {
+      "criterion": "B1 stationary: effect gate beats always-act, refuse, the success filter and the absolute gate (Bonferroni CI lower > 0)",
+      "value": "Stationary vs AlwaysAct: Interval { mean: -0.11607500000000079, lower: -0.14901875000000092, upper: -0.08621250000000065 }; Stationary vs SuccessFilter: Interval { mean: -0.02610624999999886, lower: -0.06374999999999878, upper: 0.008493750000001632 }; Stationary vs AbsoluteGate: Interval { mean: -0.06870000000000018, lower: -0.10238125000000067, upper: -0.03010624999999941 }",
+      "passed": false
+    },
+    {
+      "criterion": "B2 every family: effect gate non-inferior to the static effect baseline (CI lower > −0.02)",
+      "value": "Stationary vs EffectBaseline: Interval { mean: -0.21576875000000012, lower: -0.24665624999999997, upper: -0.19186875000000023 }; ControlRise vs EffectBaseline: Interval { mean: -0.08213749999999984, lower: -0.10299999999999954, upper: -0.06317500000000018 }; EffectReversal vs EffectBaseline: Interval { mean: -0.08774374999999933, lower: -0.11776249999999915, upper: -0.06246249999999922 }",
+      "passed": false
+    },
+    {
+      "criterion": "B3 control rise: effect gate beats the static effect baseline and the absolute gate",
+      "value": "ControlRise vs EffectBaseline: Interval { mean: -0.08213749999999984, lower: -0.10159999999999977, upper: -0.06419374999999986 }",
+      "passed": false
+    },
+    {
+      "criterion": "B4 effect reversal: effect gate beats the static effect baseline",
+      "value": "EffectReversal vs EffectBaseline: Interval { mean: -0.08774374999999933, lower: -0.11173749999999938, upper: -0.06657499999999927 }",
+      "passed": false
+    },
+    {
+      "criterion": "B5 control rise: ≥ 90% of exposed shifted contexts demoted",
+      "value": "56/69",
+      "passed": false
+    }
+  ],
+  "adopt": false
+}
