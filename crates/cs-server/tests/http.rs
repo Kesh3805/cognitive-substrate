@@ -842,8 +842,31 @@ async fn predictions_over_http() {
             Some(json!({ "hypothesis_id": hyp })),
         )
         .await;
+    assert_eq!(status, StatusCode::CREATED, "a control holdout: {r}");
+    assert_eq!(r["prediction"]["arm"], "control");
+
+    let (status, view) = c
+        .send(
+            "GET",
+            &format!("/v1/hypotheses/{hyp}/rule?context=c0&threshold=0&min_effect=0.5"),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(r["reason"], "not_treated");
+    assert_eq!(view["gate"]["execute"], true, "{view}");
+    assert!(view["rule"]["effect"]["lower"].as_f64().unwrap() > 0.5);
+    let (status, _) = c
+        .send(
+            "GET",
+            &format!("/v1/hypotheses/{hyp}/rule?context=c0&min_effect=0.1"),
+            None,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "min_effect needs a threshold"
+    );
 
     let (status, _) = c
         .send("GET", &format!("/v1/hypotheses/{hyp}/rule"), None)

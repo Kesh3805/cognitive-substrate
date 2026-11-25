@@ -129,7 +129,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     let before = event_count(h).await;
     let view = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-0", Some(0.8))
+        .prediction_rule(&h.alice, hyp, "class-0", Some(0.8), None)
         .await
         .unwrap();
     assert_eq!(view.kind, "inferred");
@@ -140,7 +140,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     assert!(view.gate.unwrap().execute);
     let out = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-unseen", Some(0.0))
+        .prediction_rule(&h.alice, hyp, "class-unseen", Some(0.0), None)
         .await
         .unwrap();
     assert_eq!(
@@ -153,16 +153,35 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
 
     // Other users cannot read the rule.
     assert!(matches!(
-        h.engine.prediction_rule(&h.bob, hyp, "class-0", None).await,
+        h.engine
+            .prediction_rule(&h.bob, hyp, "class-0", None, None)
+            .await,
         Err(Error::NotFound { .. })
     ));
 
-    // Predictions: treated only, at intent, once.
+    // An effect gate acts on what acting changes: here everything.
+    let effect = h
+        .engine
+        .prediction_rule(&h.alice, hyp, "class-0", Some(0.0), Some(0.5))
+        .await
+        .unwrap();
+    assert!(effect.gate.unwrap().execute, "{effect:?}");
+    let RuleResult::Rule { rule: r } = effect.result else {
+        panic!("a rule")
+    };
+    assert!(r.effect.unwrap().lower > 0.5 && r.control.unwrap().n == 25);
+
+    // A control holdout is predicted from the control arm, with an upper
+    // bound as its null.
     let control = record(h, "class-0", Arm::Control, Assignment::Passive).await;
-    assert_eq!(
-        refused(&predict(h, &control, hyp).await),
-        Some(RuleRefusal::NotTreated)
-    );
+    let PredictionResult::Recorded { prediction: held } = predict(h, &control, hyp).await else {
+        panic!("a control prediction")
+    };
+    assert_eq!(held.arm, Arm::Control);
+    assert!((held.null - r.control.unwrap().upper).abs() < 1e-12);
+    observe(h, &control, false).await;
+
+    // Predictions are made at intent, once.
     let i = record(h, "class-0", Arm::Treated, Assignment::Passive).await;
     let PredictionResult::Recorded { prediction } = predict(h, &i, hyp).await else {
         panic!("expected a prediction")
@@ -198,7 +217,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     assert!(demoted_after <= 12, "demoted after {demoted_after}");
     let view = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-0", Some(0.0))
+        .prediction_rule(&h.alice, hyp, "class-0", Some(0.0), None)
         .await
         .unwrap();
     assert_eq!(view.monitor.demotions.len(), 1);
@@ -218,7 +237,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
         .unwrap();
     let view = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-0", None)
+        .prediction_rule(&h.alice, hyp, "class-0", None, None)
         .await
         .unwrap();
     assert!(matches!(
@@ -255,7 +274,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     assert_eq!(twin.status, HypothesisStatus::Supported);
     let view = h
         .engine
-        .prediction_rule(&h.alice, twin.id, "class-0", Some(0.0))
+        .prediction_rule(&h.alice, twin.id, "class-0", Some(0.0), None)
         .await
         .unwrap();
     assert!(matches!(
@@ -265,6 +284,28 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
         }
     ));
     assert_eq!(view.monitor.demotions.len(), 1);
+
+    // A rising control rate demotes too: holdouts in class-2 where the
+    // outcome now happens without the treatment.
+    let mut demoted = false;
+    for _ in 0..12 {
+        let i = record(h, "class-2", Arm::Control, Assignment::Passive).await;
+        if refused(&predict(h, &i, hyp).await).is_some() {
+            demoted = true;
+            break;
+        }
+        h.tick(1);
+        observe(h, &i, true).await;
+    }
+    assert!(demoted, "the control arm's detector demotes the lineage");
+    let view = h
+        .engine
+        .prediction_rule(&h.alice, hyp, "class-2", Some(0.0), Some(0.1))
+        .await
+        .unwrap();
+    assert_eq!(view.monitor.demotions.len(), 1);
+    assert_eq!(view.monitor.demotions[0].arm, Arm::Control);
+    assert!(!view.gate.unwrap().execute);
 
     // Silence is failure: predictions in class-1 whose outcomes never come.
     for _ in 0..12 {
@@ -276,7 +317,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     h.tick(61);
     let view = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-1", None)
+        .prediction_rule(&h.alice, hyp, "class-1", None, None)
         .await
         .unwrap();
     assert_eq!(view.monitor.demotions.len(), 1, "{:?}", view.monitor);
@@ -288,7 +329,7 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     }
     let view = h
         .engine
-        .prediction_rule(&h.alice, hyp, "class-0", None)
+        .prediction_rule(&h.alice, hyp, "class-0", None, None)
         .await
         .unwrap();
     assert!(matches!(
