@@ -51,3 +51,7 @@ Each experiment fixes its dataset, baselines, metrics and success criteria in `b
 ## Lessons carried forward
 
 The predecessor architecture reported 0.724 thread cohesion, an 18% lower full-pipeline P95 than baseline RAG, a 35% higher mean latency, **a 0% research-memory hit rate** over 47 queries, and no gain (and a regression with reranking) from hybrid retrieval over 40 queries. Structured extraction is not automatically useful. **No subsystem earns permanent inclusion without measured utility.**
+
+## Landscape
+
+For the competitive landscape, benchmark options, integration priorities and growth strategy as of November 2026, see [landscape-2026.md](landscape-2026.md).
