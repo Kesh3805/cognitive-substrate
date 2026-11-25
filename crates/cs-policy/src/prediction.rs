@@ -23,6 +23,13 @@
 //!   evidence recorded **after** the demotion.
 //! * **The gate fails closed.** No rule, a demoted rule, or a lower bound
 //!   below the threshold all refuse.
+//! * **An effect gate acts on what acting changes.** With `min_effect`, the
+//!   gate also needs the Newcombe lower bound of the treated-minus-control
+//!   favourable rate in the context to reach it: an action whose outcome
+//!   happens anyway is refused however often it "succeeds". Control
+//!   holdouts are predicted and monitored too, so a control rate that rises
+//!   (the action becoming redundant) demotes the lineage like a treated rate
+//!   that falls.
 
 use cs_memory::{
     causal::{Arm, Assignment, Direction, Hypothesis, HypothesisStatus, Intervention},
@@ -60,18 +67,54 @@ pub enum RuleRefusal {
     /// The intervention concerns another environment or treatment, or
     /// another scope.
     Unrelated,
-    /// Rules predict the treated arm only.
-    NotTreated,
     /// The context is not among the evaluation's `scope_contexts`.
     OutOfScope,
     /// The context's own effect estimate does not point the hypothesis's
     /// way, although the pooled effect does.
     LocallyUnsupported,
-    /// Fewer than [`MIN_RULE_N`] treated outcomes in the context (after a
-    /// demotion: recorded since the demotion).
+    /// Fewer than [`MIN_RULE_N`] outcomes of the arm in the context (after
+    /// a demotion: recorded since the demotion).
     Imprecise,
     /// The lineage was demoted and has not been re-earned.
     Demoted,
+}
+
+/// One arm's favourable rate in a context.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ArmEstimate {
+    pub n: u32,
+    pub favourable: u32,
+    /// Jeffreys estimate `(k + ½) / (n + 1)`.
+    pub estimate: f64,
+    pub lower: f64,
+    pub upper: f64,
+}
+
+impl ArmEstimate {
+    fn new(n: u32, k: u32) -> Self {
+        let (lower, upper) = wilson(f64::from(k), f64::from(n), Z).unwrap_or((0.0, 1.0));
+        Self {
+            n,
+            favourable: k,
+            estimate: (f64::from(k) + 0.5) / (f64::from(n) + 1.0),
+            lower,
+            upper,
+        }
+    }
+
+    /// The control arm's monitored null: its upper bound, capped.
+    pub fn control_null(&self) -> f64 {
+        self.upper.min(1.0 - NULL_FLOOR)
+    }
+}
+
+/// The treated-minus-control favourable rate in a context, with Newcombe's
+/// 95% interval.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct EffectBound {
+    pub estimate: f64,
+    pub lower: f64,
+    pub upper: f64,
 }
 
 /// A rule, computed on read.
@@ -91,23 +134,47 @@ pub struct Rule {
     pub null: f64,
     /// Computed from evidence recorded after the lineage's last demotion.
     pub requalified: bool,
+    /// The control arm, when it has at least [`MIN_RULE_N`] outcomes
+    /// (accumulated, or re-earned, by the same rules as the treated arm).
+    #[serde(default)]
+    pub control: Option<ArmEstimate>,
+    /// Treated minus control, when the control arm is present.
+    #[serde(default)]
+    pub effect: Option<EffectBound>,
 }
 
 pub const fn favourable_value(direction: Direction) -> bool {
     matches!(direction, Direction::Raises)
 }
 
-fn rule_from_counts(favourable: bool, n: u32, k: u32, requalified: bool) -> Rule {
-    let (lower, upper) = wilson(f64::from(k), f64::from(n), Z).unwrap_or((0.0, 1.0));
+fn rule_from_counts(
+    favourable: bool,
+    (n, k): (u32, u32),
+    control: Option<(u32, u32)>,
+    requalified: bool,
+) -> Rule {
+    let t = ArmEstimate::new(n, k);
+    let control = control
+        .filter(|&(n0, _)| n0 >= MIN_RULE_N)
+        .map(|(n0, k0)| ArmEstimate::new(n0, k0));
+    let effect = control.and_then(|c| {
+        crate::causal::difference_interval(k, n, c.favourable, c.n).map(|(d, l, u)| EffectBound {
+            estimate: d,
+            lower: l,
+            upper: u,
+        })
+    });
     Rule {
         favourable,
         treated_n: n,
         treated_favourable: k,
-        estimate: (f64::from(k) + 0.5) / (f64::from(n) + 1.0),
-        lower,
-        upper,
-        null: lower.max(NULL_FLOOR),
+        estimate: t.estimate,
+        lower: t.lower,
+        upper: t.upper,
+        null: t.lower.max(NULL_FLOOR),
         requalified,
+        control,
+        effect,
     }
 }
 
@@ -181,15 +248,15 @@ pub fn rule(
         return Err(RuleRefusal::LocallyUnsupported);
     }
     let favourable = favourable_value(h.direction);
-    // Complete blocks of fresh randomized treated outcomes recorded after
+    // Complete blocks of fresh randomized outcomes of one arm recorded after
     // `since`, in intent order; each block's favourable count.
-    let blocks = |since: OffsetDateTime| -> Vec<u32> {
+    let blocks = |since: OffsetDateTime, arm: Arm| -> Vec<u32> {
         let mut fresh: Vec<&Intervention> = interventions
             .iter()
             .filter(|i| {
                 i.recorded_at > since
                     && i.assignment == Assignment::Randomized
-                    && i.arm == Arm::Treated
+                    && i.arm == arm
                     && i.context == context
                     && i.scope == h.scope
                     && h.concerns(i)
@@ -209,31 +276,35 @@ pub fn rule(
         }
         out
     };
-    let (n, k, requalified) = match demoted_at {
-        // Never demoted: the evaluation's counts, plus complete blocks of
-        // randomized evidence recorded since that evaluation (no regime
-        // change has been detected, so the evidence accumulates).
-        None => {
-            let t = local.treated;
-            let k0 = if favourable {
-                t.positive
-            } else {
-                t.n - t.positive
-            };
-            let more = blocks(e.as_of);
-            (
-                t.n + MIN_RULE_N * more.len() as u32,
-                k0 + more.iter().sum::<u32>(),
-                false,
-            )
+    let counts = |arm: Arm| -> (u32, u32) {
+        match demoted_at {
+            // Never demoted: the evaluation's counts, plus complete blocks of
+            // randomized evidence recorded since that evaluation (no regime
+            // change has been detected, so the evidence accumulates).
+            None => {
+                let c = if arm == Arm::Treated {
+                    local.treated
+                } else {
+                    local.control
+                };
+                let k0 = if favourable {
+                    c.positive
+                } else {
+                    c.n - c.positive
+                };
+                let more = blocks(e.as_of, arm);
+                (
+                    c.n + MIN_RULE_N * more.len() as u32,
+                    k0 + more.iter().sum::<u32>(),
+                )
+            }
+            // Demoted: only the latest complete block after the demotion,
+            // so evidence from the degraded regime cannot dilute a recovery.
+            Some(at) => blocks(at, arm).last().map_or((0, 0), |&k| (MIN_RULE_N, k)),
         }
-        // Demoted: only the latest complete block after the demotion, so
-        // evidence from the degraded regime cannot dilute a recovery.
-        Some(at) => match blocks(at).last() {
-            Some(&k) => (MIN_RULE_N, k, true),
-            None => (0, 0, true),
-        },
     };
+    let (n, k) = counts(Arm::Treated);
+    let requalified = demoted_at.is_some();
     if n < MIN_RULE_N {
         return Err(if demoted_at.is_some() {
             RuleRefusal::Demoted
@@ -241,7 +312,12 @@ pub fn rule(
             RuleRefusal::Imprecise
         });
     }
-    Ok(rule_from_counts(favourable, n, k, requalified))
+    Ok(rule_from_counts(
+        favourable,
+        (n, k),
+        Some(counts(Arm::Control)),
+        requalified,
+    ))
 }
 
 /// Can `h`'s rules be applied to intervention `i` at all? Checked before
@@ -252,9 +328,6 @@ pub fn applicable(h: &Hypothesis, i: &Intervention) -> Result<(), RuleRefusal> {
     }
     if i.scope != h.scope || !h.concerns(i) {
         return Err(RuleRefusal::Unrelated);
-    }
-    if i.arm != Arm::Treated {
-        return Err(RuleRefusal::NotTreated);
     }
     Ok(())
 }
@@ -290,6 +363,8 @@ pub struct Demotion {
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
     pub prediction_id: cs_core::PredictionId,
+    /// The arm whose detector crossed.
+    pub arm: Arm,
     pub e_value: f64,
     /// Resolved predictions in the epoch that ended.
     pub resolved: u32,
@@ -304,8 +379,13 @@ pub struct Epoch {
     pub missed: u32,
     /// Not yet folded: pending, or resolved but behind a pending one.
     pub pending: u32,
-    /// Mixture e-detector value; demotion at `1/ALPHA`.
+    /// Mixture e-detector value over treated predictions; demotion at
+    /// `1/ALPHA`.
     pub e_value: f64,
+    /// The same over control (holdout) predictions, testing that the
+    /// control's favourable rate is at most each prediction's null.
+    #[serde(default)]
+    pub control_e_value: f64,
     /// Mean Brier score of the resolved predictions.
     pub brier: Option<f64>,
 }
@@ -380,6 +460,7 @@ pub fn monitor(resolved: &[(&Prediction, Option<(Resolution, OffsetDateTime)>)])
     let mut epoch_start: Option<OffsetDateTime> = None;
     let mut known: Option<OffsetDateTime> = None;
     let mut detector = Detector::new();
+    let mut control = Detector::new();
     let mut epoch = Epoch::default();
     let mut brier_sum = 0.0;
     let mut blocked = false;
@@ -399,21 +480,29 @@ pub fn monitor(resolved: &[(&Prediction, Option<(Resolution, OffsetDateTime)>)])
         epoch.favourable += u32::from(fav);
         epoch.missed += u32::from(res == Resolution::Missed);
         brier_sum += (p.estimate - f64::from(u8::from(fav))).powi(2);
-        let e = detector.update(p.null, fav);
+        // A control prediction tests "rate ≤ null": the same detector on
+        // the complement.
+        let e = match p.arm {
+            Arm::Treated => detector.update(p.null, fav),
+            Arm::Control => control.update(1.0 - p.null, !fav),
+        };
         if e >= threshold {
             demotions.push(Demotion {
                 at,
                 prediction_id: p.id,
+                arm: p.arm,
                 e_value: e,
                 resolved: epoch.resolved,
             });
             epoch_start = Some(at);
             detector = Detector::new();
+            control = Detector::new();
             epoch = Epoch::default();
             brier_sum = 0.0;
         }
     }
     epoch.e_value = detector.value();
+    epoch.control_e_value = control.value();
     epoch.brier = (epoch.resolved > 0).then(|| brier_sum / f64::from(epoch.resolved));
     Monitor {
         threshold,
@@ -430,6 +519,11 @@ pub enum GateReason {
     Clear,
     /// A rule exists, but its lower bound is below the threshold.
     BelowThreshold,
+    /// An effect threshold was asked for, and the context has no control
+    /// estimate to compute the effect from.
+    NoEffectEstimate,
+    /// The effect's lower bound is below the effect threshold.
+    EffectBelowThreshold,
     /// No rule: the gate fails closed.
     NoRule(RuleRefusal),
 }
@@ -440,19 +534,28 @@ pub struct GateDecision {
     #[serde(flatten)]
     pub reason: GateReason,
     pub threshold: f64,
+    #[serde(default)]
+    pub min_effect: Option<f64>,
 }
 
-/// Execute only when a rule exists and its lower bound is at least `tau`.
-pub fn gate(rule: &Result<Rule, RuleRefusal>, tau: f64) -> GateDecision {
+/// Execute only when a rule exists, its lower bound is at least `tau` and,
+/// with `min_effect`, its effect's lower bound is at least that.
+pub fn gate(rule: &Result<Rule, RuleRefusal>, tau: f64, min_effect: Option<f64>) -> GateDecision {
     let reason = match rule {
         Err(r) => GateReason::NoRule(*r),
-        Ok(r) if r.lower >= tau => GateReason::Clear,
-        Ok(_) => GateReason::BelowThreshold,
+        Ok(r) if r.lower < tau => GateReason::BelowThreshold,
+        Ok(r) => match (min_effect, r.effect) {
+            (None, _) => GateReason::Clear,
+            (Some(_), None) => GateReason::NoEffectEstimate,
+            (Some(m), Some(e)) if e.lower < m => GateReason::EffectBelowThreshold,
+            (Some(_), Some(_)) => GateReason::Clear,
+        },
     };
     GateDecision {
         execute: reason == GateReason::Clear,
         reason,
         threshold: tau,
+        min_effect,
     }
 }
 
@@ -523,6 +626,7 @@ mod tests {
             hypothesis_version: 2,
             context: "c".into(),
             lineage: "l".into(),
+            arm: Arm::Treated,
             favourable: true,
             estimate,
             lower: null,
@@ -909,11 +1013,121 @@ mod tests {
 
     #[test]
     fn the_gate_fails_closed() {
-        let r = rule_from_counts(true, 40, 36, false);
-        assert!(gate(&Ok(r), 0.7).execute);
-        assert_eq!(gate(&Ok(r), 0.9).reason, GateReason::BelowThreshold);
-        let refused = gate(&Err(RuleRefusal::Demoted), 0.0);
+        let r = rule_from_counts(true, (40, 36), None, false);
+        assert!(gate(&Ok(r), 0.7, None).execute);
+        assert_eq!(gate(&Ok(r), 0.9, None).reason, GateReason::BelowThreshold);
+        let refused = gate(&Err(RuleRefusal::Demoted), 0.0, None);
         assert!(!refused.execute);
         assert_eq!(refused.reason, GateReason::NoRule(RuleRefusal::Demoted));
+    }
+
+    #[test]
+    fn the_effect_gate_refuses_what_happens_anyway() {
+        // Succeeds 85% when treated, but 85% without treatment too.
+        let anyway = rule_from_counts(true, (40, 34), Some((40, 34)), false);
+        assert!(
+            gate(&Ok(anyway), 0.6, None).execute,
+            "the absolute gate acts"
+        );
+        assert_eq!(
+            gate(&Ok(anyway), 0.0, Some(0.1)).reason,
+            GateReason::EffectBelowThreshold
+        );
+        // Succeeds only 55% when treated, against 15% without: worth it.
+        let useful = rule_from_counts(true, (40, 22), Some((40, 6)), false);
+        assert!(
+            !gate(&Ok(useful), 0.6, None).execute,
+            "the absolute gate refuses"
+        );
+        let d = gate(&Ok(useful), 0.0, Some(0.1));
+        assert!(d.execute, "{d:?}");
+        assert!(useful.effect.unwrap().lower > 0.1);
+        // No control estimate: an effect threshold cannot be met.
+        let alone = rule_from_counts(true, (40, 34), Some((5, 1)), false);
+        assert!(alone.control.is_none() && alone.effect.is_none());
+        assert_eq!(
+            gate(&Ok(alone), 0.0, Some(0.1)).reason,
+            GateReason::NoEffectEstimate
+        );
+    }
+
+    #[test]
+    fn the_rule_carries_both_arms_and_requalifies_each_from_its_own_blocks() {
+        let h = hypothesis(
+            ArmCounts {
+                n: 40,
+                positive: 32,
+            },
+            0.6,
+            Direction::Raises,
+        );
+        let r = rule(&h, "c", &[], None, T0).unwrap();
+        let c = r.control.expect("the evaluation's control arm");
+        assert_eq!((c.n, c.favourable), (20, 4));
+        let e = r.effect.unwrap();
+        assert!((e.estimate - (32.0 / 40.0 - 4.0 / 20.0)).abs() < 1e-12);
+        assert!(e.lower > 0.3 && e.upper < 1.0);
+
+        // After a demotion, each arm needs its own fresh block.
+        let demoted = T0 + Duration::days(1);
+        let at = |k: i64| demoted + Duration::minutes(k + 1);
+        let mut v: Vec<_> = (0..20)
+            .map(|k| treated(at(k), true, Assignment::Randomized))
+            .collect();
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert!(r.requalified && r.control.is_none() && r.effect.is_none());
+        v.extend((20..40).map(|k| {
+            let mut i = treated(at(k), k % 2 == 0, Assignment::Randomized);
+            i.arm = Arm::Control;
+            i
+        }));
+        let r = rule(&h, "c", &v, Some(demoted), LATER).unwrap();
+        assert_eq!(r.control.map(|c| (c.n, c.favourable)), Some((20, 10)));
+    }
+
+    #[test]
+    fn a_rising_control_rate_demotes_the_lineage() {
+        // Control holdouts were predicted at most 0.4 favourable; the
+        // outcome now happens anyway.
+        let preds: Vec<Prediction> = (0..40)
+            .map(|i| {
+                let mut p = prediction(i + 1, 0.4, 0.3, T0 + Duration::minutes(i as i64));
+                p.arm = Arm::Control;
+                p
+            })
+            .collect();
+        let pairs: Vec<_> = preds
+            .iter()
+            .map(|p| {
+                (
+                    p,
+                    Some((Resolution::Observed { favourable: true }, p.recorded_at)),
+                )
+            })
+            .collect();
+        let m = monitor(&pairs);
+        let d = m.demotions.first().expect("demoted on the control arm");
+        assert_eq!(d.arm, Arm::Control);
+        // Complement null 0.6, alternative 0.3: LR 1.75 per holdout, so
+        // 1.75^k / 3 crosses 1000 at k = 15.
+        assert!(d.resolved <= 15, "after {}", d.resolved);
+
+        // A control arm doing as predicted (rarely favourable) never does.
+        let pairs: Vec<_> = preds
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                (
+                    p,
+                    Some((
+                        Resolution::Observed {
+                            favourable: i % 4 == 0,
+                        },
+                        p.recorded_at,
+                    )),
+                )
+            })
+            .collect();
+        assert!(monitor(&pairs).demotions.is_empty());
     }
 }

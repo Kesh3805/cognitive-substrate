@@ -16,6 +16,8 @@
 //! replays them.
 
 use cs_core::{HypothesisId, InterventionId, PredictionId, Scope};
+
+use crate::causal::Arm;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -34,6 +36,12 @@ pub struct Prediction {
     /// The hypothesis version whose evaluation the rule came from.
     pub hypothesis_version: u64,
     pub context: String,
+    /// The arm predicted. A treated prediction monitors "the favourable
+    /// rate is at least `null`"; a control prediction (a holdout under an
+    /// effect gate) monitors "the control's favourable rate is at most
+    /// `null`", so a rising control rate is caught too.
+    #[serde(default = "treated")]
+    pub arm: Arm,
     /// The lineage (scope, environment, treatment, outcome, direction,
     /// context) that demotions attach to; shared by every hypothesis that
     /// states the same claim.
@@ -41,15 +49,16 @@ pub struct Prediction {
     /// The value of the hypothesis's outcome key that counts as favourable:
     /// `true` for `raises`, `false` for `lowers`.
     pub favourable: bool,
-    /// Jeffreys estimate of P(favourable | treated, context).
+    /// Jeffreys estimate of P(favourable | arm, context).
     pub estimate: f64,
     /// 95% Wilson interval of the same proportion.
     pub lower: f64,
     pub upper: f64,
-    /// The monitored null: the live favourable rate is at least this.
-    /// The rule's lower bound, floored.
+    /// The monitored null. Treated: the live favourable rate is at least
+    /// this (the arm's lower bound, floored). Control: at most this (the
+    /// arm's upper bound, capped).
     pub null: f64,
-    /// Treated outcomes the rule was computed from.
+    /// Outcomes of the predicted arm the rule was computed from.
     pub treated_n: u32,
     /// The rule was re-earned from evidence recorded after a demotion.
     pub requalified: bool,
@@ -58,6 +67,10 @@ pub struct Prediction {
     /// No strong-tier outcome by then: scored as unfavourable.
     #[serde(with = "time::serde::rfc3339")]
     pub deadline: OffsetDateTime,
+}
+
+const fn treated() -> Arm {
+    Arm::Treated
 }
 
 /// How a prediction resolved.
