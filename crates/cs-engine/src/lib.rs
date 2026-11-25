@@ -927,6 +927,8 @@ impl CognitiveEngine {
         RecallTrace {
             id,
             tenant_id: ctx.tenant_id,
+            owner_user_id: ctx.user_id,
+            owner_agent_id: ctx.agent_id,
             data_snapshot: self.snapshot(&policy, &run.dense),
             query_text: policy.retain_query_text.then(|| query.to_owned()),
             // The query vector encodes the query: retained only with it.
@@ -1161,9 +1163,13 @@ impl CognitiveEngine {
         })
     }
 
+    /// A recall trace, readable only by the principal that ran the recall
+    /// (same tenant, user and agent; see [`RecallTrace::readable_by`]).
+    /// Anything else, including legacy traces without an owner, is
+    /// `not_found`.
     pub async fn get_trace(&self, ctx: &AccessContext, id: RecallTraceId) -> Result<RecallTrace> {
         match self.store.get_trace(id).await? {
-            Some(t) if t.tenant_id == ctx.tenant_id => Ok(t),
+            Some(t) if t.readable_by(ctx) => Ok(t),
             _ => Err(Error::not_found("recall trace", id)),
         }
     }

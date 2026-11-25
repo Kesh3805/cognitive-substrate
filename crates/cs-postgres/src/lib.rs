@@ -1228,8 +1228,10 @@ impl CognitiveStore for PgStore {
         sqlx::query(
             "INSERT INTO recall_traces (id, tenant_id, policy, scoring_version, query_hash, \
              query_text, embedding_model, embedding_version, data_snapshot, executed_at, \
-             belief_candidates, dense, query_embedding, budget, metacognition) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+             belief_candidates, dense, query_embedding, budget, metacognition, \
+             owner_user_id, owner_agent_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+             $16, $17)",
         )
         .bind(t.id.0)
         .bind(t.tenant_id.0)
@@ -1246,6 +1248,8 @@ impl CognitiveStore for PgStore {
         .bind(t.query_embedding.clone().map(pgvector::Vector::from))
         .bind(t.budget.map(Json))
         .bind(t.metacognition.as_ref().map(Json))
+        .bind(t.owner_user_id.map(|u| u.0))
+        .bind(t.owner_agent_id.map(|a| a.0))
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1337,6 +1341,14 @@ impl CognitiveStore for PgStore {
         Ok(Some(RecallTrace {
             id,
             tenant_id: TenantId(row.try_get("tenant_id").map_err(db_err)?),
+            owner_user_id: row
+                .try_get::<Option<Uuid>, _>("owner_user_id")
+                .map_err(db_err)?
+                .map(cs_core::UserId),
+            owner_agent_id: row
+                .try_get::<Option<Uuid>, _>("owner_agent_id")
+                .map_err(db_err)?
+                .map(cs_core::AgentId),
             policy,
             scoring_version: u32::try_from(
                 row.try_get::<i32, _>("scoring_version").map_err(db_err)?,
