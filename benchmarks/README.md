@@ -28,6 +28,6 @@ benchmarks/
 | 010 | [Answer, investigate or abstain](010-selective-answering/PREREGISTRATION.md) | **Done: adopted** (0 wrong answers among 423; [results](010-selective-answering/RESULTS.md)) |
 | 011 | [Causal hypotheses under confounding](011-causal-evidence/PREREGISTRATION.md) | **Done: adopted** (0.4% false support vs 45% naive; [results](011-causal-evidence/RESULTS.md)) |
 | 012 | [Read-time counterfactual bounds](012-counterfactual-bounds/PREREGISTRATION.md) | **Done: not adopted** (sharpness 0.78 < 0.80; coverage 99.8%; [results](012-counterfactual-bounds/RESULTS.md)) |
-| 013 | [Prediction-gated execution under regime shifts](013-prediction-gating/PREREGISTRATION.md) | Preregistered; development runs recorded (held-out seeds 901–905 not yet run) |
+| 013 | [Prediction-gated execution under regime shifts](013-prediction-gating/PREREGISTRATION.md) | Preregistered, version 2 (part A predictive governance, part B causal decision value); development runs recorded (held-out seeds not yet run) |
 
 See [the research program](../docs/research/research-program.md).
