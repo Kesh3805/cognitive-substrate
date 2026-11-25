@@ -924,5 +924,8 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
     use m62::*;
     scenario!(hypotheses_follow_randomized_evidence);
     use m64::*;
-    scenario!(predictions_are_scored_and_demote_their_rules);
+    scenario!(
+        predictions_are_scored_and_demote_their_rules,
+        lineages_read_their_own_scope_and_context,
+    );
 }

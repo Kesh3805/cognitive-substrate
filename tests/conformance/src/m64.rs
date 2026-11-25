@@ -348,3 +348,113 @@ pub async fn predictions_are_scored_and_demote_their_rules(h: &Harness) {
     };
     assert!(prediction.requalified && prediction.treated_n == 20);
 }
+
+/// A lineage reads exactly its own scope and context, untruncated by the
+/// rest of the environment: a prediction whose intervention an
+/// environment-wide read would cut off at the same limit still resolves
+/// from its observed outcome, and other readable scopes (another user's
+/// tenant-wide records, a conversation-scoped record of the same owner)
+/// neither count nor take up room.
+pub async fn lineages_read_their_own_scope_and_context(h: &Harness) {
+    let hyp = supported(h).await;
+    let store = h.engine.store();
+
+    // Readable by Alice, same environment, treatment and context, but not
+    // the hypothesis's scope.
+    for _ in 0..3 {
+        h.tick(1);
+        let mut shared = intervention(h, "class-0", Arm::Treated, Assignment::Passive);
+        shared.scope = cs_core::Scope::tenant(h.tenant);
+        h.engine.record_intervention(&h.bob, shared).await.unwrap();
+    }
+    h.tick(1);
+    let mut threaded = intervention(h, "class-0", Arm::Treated, Assignment::Passive);
+    threaded.scope = h
+        .alice_scope()
+        .with_conversation(cs_core::ConversationId::new_v7());
+    h.engine
+        .record_intervention(&h.alice, threaded)
+        .await
+        .unwrap();
+
+    let i = record(h, "class-0", Arm::Treated, Assignment::Passive).await;
+    let PredictionResult::Recorded { prediction } = predict(h, &i, hyp).await else {
+        panic!("expected a prediction")
+    };
+    assert_eq!(prediction.intervention_id, i.id);
+
+    let lineage = store
+        .interventions_in_context(&h.alice, &h.alice_scope(), ENV, TREATMENT, "class-0", 1000)
+        .await
+        .unwrap();
+    assert_eq!(lineage.len(), 51, "25 per arm, then the predicted one");
+    assert!(
+        lineage
+            .iter()
+            .all(|x| x.scope == h.alice_scope() && x.context == "class-0")
+    );
+    assert!(
+        lineage
+            .windows(2)
+            .all(|w| (w[0].recorded_at, w[0].id) < (w[1].recorded_at, w[1].id))
+    );
+    assert_eq!(lineage.last().unwrap().id, i.id);
+    // At the same limit, the environment-wide read is filled by older
+    // interventions of other contexts and scopes and drops the predicted
+    // intervention; the lineage read keeps it.
+    let wide = store
+        .interventions_for(&h.alice, ENV, TREATMENT, lineage.len() as u32)
+        .await
+        .unwrap();
+    assert!(wide.iter().all(|x| x.id != i.id));
+    // A limit still bounds the lineage read, oldest first.
+    let first = store
+        .interventions_in_context(&h.alice, &h.alice_scope(), ENV, TREATMENT, "class-0", 5)
+        .await
+        .unwrap();
+    assert_eq!(
+        first.iter().map(|x| x.id).collect::<Vec<_>>(),
+        lineage[..5].iter().map(|x| x.id).collect::<Vec<_>>()
+    );
+    // Authorization is enforced by the read: Bob cannot read Alice's scope.
+    assert!(
+        store
+            .interventions_in_context(&h.bob, &h.alice_scope(), ENV, TREATMENT, "class-0", 1000)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // A scope every reader can read gives every reader the same rows.
+    let tenant = cs_core::Scope::tenant(h.tenant);
+    for reader in [&h.alice, &h.bob] {
+        let rows = store
+            .interventions_in_context(reader, &tenant, ENV, TREATMENT, "class-0", 1000)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+    }
+
+    // The prediction resolves from its observed outcome, before and after
+    // its deadline: never a miss.
+    observe(h, &i, true).await;
+    for minutes in [1, 2 * 60] {
+        h.tick(minutes);
+        let view = h
+            .engine
+            .prediction_rule(&h.alice, hyp, "class-0", None, None)
+            .await
+            .unwrap();
+        let epoch = view.monitor.current;
+        assert_eq!(
+            (
+                epoch.resolved,
+                epoch.favourable,
+                epoch.missed,
+                epoch.pending
+            ),
+            (1, 1, 0, 0),
+            "{view:?}"
+        );
+        assert!(view.monitor.demotions.is_empty());
+    }
+}
