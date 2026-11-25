@@ -707,3 +707,155 @@ async fn capabilities_over_http() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn predictions_over_http() {
+    let c = Client::new(None);
+    let (status, hyp) = c
+        .send(
+            "POST",
+            "/v1/hypotheses",
+            Some(json!({
+                "scope": c.private_scope(),
+                "environment": "deploy@1",
+                "treatment": "warm-cache",
+                "outcome": "fast",
+                "direction": "raises",
+                "min_effect": 0.1
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let hyp = hyp["id"].as_str().unwrap().to_owned();
+
+    let intervention = |context: &str, arm: &str, randomized: bool| {
+        let mut body = json!({
+            "scope": c.private_scope(),
+            "environment": "deploy@1",
+            "treatment": "warm-cache",
+            "arm": arm,
+            "assignment": if randomized { "randomized" } else { "passive" },
+            "context": context
+        });
+        if randomized {
+            body["assignment_detail"] = json!("seed 3");
+            body["propensity"] = json!(0.5);
+        }
+        body
+    };
+    for k in 0..5 {
+        for _ in 0..20 {
+            for (arm, value) in [("treated", true), ("control", false)] {
+                let (_, i) = c
+                    .send(
+                        "POST",
+                        "/v1/interventions",
+                        Some(intervention(&format!("c{k}"), arm, true)),
+                    )
+                    .await;
+                let id = i["id"].as_str().unwrap();
+                let (status, _) = c
+                    .send(
+                        "POST",
+                        &format!("/v1/interventions/{id}/outcomes"),
+                        Some(json!({ "outcome": "fast", "value": value, "tier": "deterministic" })),
+                    )
+                    .await;
+                assert_eq!(status, StatusCode::OK);
+            }
+        }
+    }
+    let (status, h) = c
+        .send(
+            "POST",
+            &format!("/v1/hypotheses/{hyp}/evaluate"),
+            Some(json!({ "expected_version": 1 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(h["status"], "supported");
+
+    let (status, view) = c
+        .send(
+            "GET",
+            &format!("/v1/hypotheses/{hyp}/rule?context=c0&threshold=0.8"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["kind"], "inferred");
+    assert_eq!(view["result"], "rule");
+    assert_eq!(view["gate"]["execute"], true);
+
+    let (status, view) = c
+        .send(
+            "GET",
+            &format!("/v1/hypotheses/{hyp}/rule?context=elsewhere&threshold=0"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["result"], "refused");
+    assert_eq!(view["gate"]["execute"], false);
+    assert_eq!(view["gate"]["refusal"], "out_of_scope");
+
+    let (_, i) = c
+        .send(
+            "POST",
+            "/v1/interventions",
+            Some(intervention("c0", "treated", false)),
+        )
+        .await;
+    let id = i["id"].as_str().unwrap().to_owned();
+    let (status, p) = c
+        .send(
+            "POST",
+            &format!("/v1/interventions/{id}/predictions"),
+            Some(json!({ "hypothesis_id": hyp })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(p["result"], "recorded");
+    let (status, _) = c
+        .send(
+            "POST",
+            &format!("/v1/interventions/{id}/predictions"),
+            Some(json!({ "hypothesis_id": hyp })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (_, ctl) = c
+        .send(
+            "POST",
+            "/v1/interventions",
+            Some(intervention("c0", "control", false)),
+        )
+        .await;
+    let (status, r) = c
+        .send(
+            "POST",
+            &format!(
+                "/v1/interventions/{}/predictions",
+                ctl["id"].as_str().unwrap()
+            ),
+            Some(json!({ "hypothesis_id": hyp })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(r["reason"], "not_treated");
+
+    let (status, _) = c
+        .send("GET", &format!("/v1/hypotheses/{hyp}/rule"), None)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "context is required");
+    let (status, _) = c
+        .as_user(Uuid::now_v7())
+        .send(
+            "GET",
+            &format!("/v1/hypotheses/{hyp}/rule?context=c0"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
