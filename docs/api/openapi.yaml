@@ -1,0 +1,4347 @@
+# OpenAPI 3.1 description of the Cognitive Substrate HTTP API.
+# Hand-maintained: update it together with crates/cs-server/src/lib.rs.
+# crates/cs-server/tests/openapi.rs checks it against the router.
+openapi: 3.1.0
+info:
+  title: Cognitive Substrate HTTP API
+  version: 0.1.0
+  summary: Governed memory, beliefs, recall and causal evidence for AI agents.
+  description: |-
+    Machine-readable description of every route served by `cs-server` (`crates/cs-server/src/lib.rs`). The test `crates/cs-server/tests/openapi.rs` fails when a route is added to the router but not to this document, or vice versa.
+
+    **Authentication.** Every `/v1` route except `/v1/health` and `/v1/ready` identifies the caller with the `x-cs-tenant` header (required) plus the optional `x-cs-user`, `x-cs-agent` and `x-cs-projects` headers. When the server runs with `CS_API_KEY`, those routes also require `Authorization: Bearer <key>`. Production deployments are expected to set the principal headers from a verified token in an identity-aware proxy.
+
+    **Errors.** Every error body is `{"error": {"code": "...", "message": "..."}}`. Unknown routes return 404 `not_found`.
+  license: {name: Apache-2.0, identifier: Apache-2.0}
+servers:
+- {url: 'http://localhost:8080', description: Default `CS_BIND`}
+security:
+- {tenantHeader: [], bearerAuth: []}
+- {tenantHeader: []}
+tags:
+- name: system
+  description: Liveness and readiness (no authentication).
+- {name: memories, description: 'Bitemporal, revisioned memories.'}
+- {name: recall, description: Policy-controlled recall and replay.}
+- {name: beliefs, description: 'Evidence, beliefs and dependencies.'}
+- {name: inspection, description: Event log and cognitive debt.}
+- name: processing
+  description: Observations, resolution proposals, jobs and embeddings.
+- {name: entities, description: Entities and the knowledge graph.}
+- {name: derivations, description: Compiled knowledge.}
+- name: capabilities
+  description: Procedural capabilities, executions and verification.
+- name: information-needs
+  description: Information needs and knowledge gaps.
+- {name: causal, description: Causal hypotheses and interventions.}
+- {name: predictions, description: Bounded predictions (experimental).}
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      operationId: health
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+  /v1/ready:
+    get:
+      tags: [system]
+      operationId: ready
+      summary: Storage readiness
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ready'}
+        '503': {$ref: '#/components/responses/NotReady'}
+  /v1/memories:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: createMemory
+      summary: Create a memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewMemory'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [memories]
+      operationId: getMemory
+      summary: Current revision of a memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/history:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [memories]
+      operationId: getMemoryHistory
+      summary: All revisions of a memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryHistory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/revisions:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: reviseMemory
+      summary: Revise a memory
+      description: Supports optimistic concurrency through `expected_revision` (409 on mismatch).
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviseMemory'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/promote:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: promoteMemory
+      summary: Validate a candidate memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StatusChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/reject:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: rejectMemory
+      summary: Reject a candidate memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StatusChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/tombstone:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: tombstoneMemory
+      summary: Logically delete a memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StatusChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/purge:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: purgeMemory
+      summary: Governance hard delete of a memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StatusChange'}
+      responses:
+        '200':
+          description: The `memory_purged` event
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CognitiveEvent'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/memories/{id}/resolve:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [memories]
+      operationId: resolveMemory
+      summary: Queue resolution for a memory
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '202':
+          description: 'Accepted: the queued job'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/recall:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [recall]
+      operationId: recall
+      summary: Policy-controlled recall
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecallRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RecallResponse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/recall-traces/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [recall]
+      operationId: getRecallTrace
+      summary: Inspect a recall decision
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RecallTrace'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/recall-traces/{id}/replay:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [recall]
+      operationId: replayRecall
+      summary: Exact or counterfactual replay
+      description: 'The body is optional: an empty body means exact replay.'
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplayRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReplayReport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/evidence:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: recordEvidence
+      summary: Record evidence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewEvidence'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Evidence'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/evidence/{id}/purge:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: purgeEvidence
+      summary: Governed purge of evidence (idempotent)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Decision'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PurgeReport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: createBelief
+      summary: Create a belief
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewBelief'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Belief'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [beliefs]
+      operationId: getBelief
+      summary: Belief with evidence and dependencies
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BeliefView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs/{id}/history:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [beliefs]
+      operationId: getBeliefHistory
+      summary: Every revision in the belief's lineage
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Belief'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs/{id}/revisions:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: reviseBelief
+      summary: Revise a belief
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviseBelief'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BeliefRevisionOutcome'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs/{id}/retract:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: retractBelief
+      summary: Retract a belief
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StatusChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BeliefRevisionOutcome'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/beliefs/{id}/resolve:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: resolveBelief
+      summary: Queue resolution for a belief
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '202':
+          description: 'Accepted: the queued job'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/dependencies:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [beliefs]
+      operationId: addDependency
+      summary: Add or re-affirm a dependency edge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewDependency'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BeliefDependency'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/events:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [inspection]
+      operationId: listEvents
+      summary: Cognitive event log (scope-filtered)
+      parameters:
+      - name: stream_id
+        in: query
+        required: false
+        schema: {type: string, format: uuid}
+      - name: event_type
+        in: query
+        required: false
+        schema: {$ref: '#/components/schemas/CognitiveEventType'}
+      - name: after_sequence
+        in: query
+        required: false
+        schema: {type: integer, format: int64, minimum: 0}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/CognitiveEvent'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/debt:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [inspection]
+      operationId: getCognitiveDebt
+      summary: Cognitive Debt Index report
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CognitiveDebtReport'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/observations:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [processing]
+      operationId: submitObservation
+      summary: Store raw input and queue perception
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewObservation'}
+      responses:
+        '202':
+          description: 'Accepted: stored; perception runs in the background'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObservationView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/observations/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: getObservation
+      summary: Observation, its job and extraction runs
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObservationView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/observations/{id}/purge:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [processing]
+      operationId: purgeObservation
+      summary: Governed purge of an observation (idempotent)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Decision'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PurgeReport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/proposals:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: listProposals
+      summary: List resolution proposals
+      description: '`status` is one of `pending`, `accepted`, `rejected`, `stale`.'
+      parameters:
+      - {$ref: '#/components/parameters/Status'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ResolutionProposal'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/proposals/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: getProposal
+      summary: One resolution proposal
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolutionProposal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/proposals/{id}/accept:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [processing]
+      operationId: acceptProposal
+      summary: Accept a proposal
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Decision'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolutionProposal'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/proposals/{id}/reject:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [processing]
+      operationId: rejectProposal
+      summary: Reject a proposal
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Decision'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolutionProposal'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/jobs:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: listJobs
+      summary: Background job state
+      description: '`status` is one of `queued`, `leased`, `succeeded`, `dead_lettered`.'
+      parameters:
+      - {$ref: '#/components/parameters/Status'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Job'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/jobs/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: getJob
+      summary: One background job
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/processing/status:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [processing]
+      operationId: getProcessingStatus
+      summary: Embedding coverage per space and queue counts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessingStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/embeddings/reindex:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [processing]
+      operationId: reindexEmbeddings
+      summary: Backfill an embedding space
+      description: 'The body is optional: an empty body backfills the shadow space.'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReindexRequest'}
+      responses:
+        '202':
+          description: 'Accepted: embedding jobs enqueued'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReindexReport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [entities]
+      operationId: findEntities
+      summary: Find entities by name
+      parameters:
+      - name: name
+        in: query
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Entity'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [entities]
+      operationId: getEntity
+      summary: Entity with aliases and mentions
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EntityView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities/{id}/aliases:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [entities]
+      operationId: addEntityAlias
+      summary: Add an alias (version-checked)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddAlias'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Entity'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities/{id}/kind:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [entities]
+      operationId: setEntityKind
+      summary: Set the kind (version-checked)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetEntityKind'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Entity'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities/{id}/neighborhood:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [entities]
+      operationId: getEntityNeighborhood
+      summary: Bounded, as-of graph traversal with paths
+      description: 'The body is optional: an empty body uses the defaults.'
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NeighborhoodRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Neighborhood'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entities/{id}/merge-candidates:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [entities]
+      operationId: detectEntityMerges
+      summary: Detect merge candidates
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ResolutionProposal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/entity-merges:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [entities]
+      operationId: proposeEntityMerge
+      summary: Propose an explicit entity merge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProposeEntityMerge'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolutionProposal'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/derivations:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [derivations]
+      operationId: listDerivations
+      summary: Compiled knowledge
+      description: '`status` is one of `active`, `revalidation_required`, `invalidated`.'
+      parameters:
+      - {$ref: '#/components/parameters/Status'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Derivation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/derivations/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [derivations]
+      operationId: getDerivation
+      summary: A derivation and the support behind it
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Derivation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/derivations/{id}/revalidate:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [derivations]
+      operationId: revalidateDerivation
+      summary: Queue a recompilation
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '202':
+          description: 'Accepted: the queued job'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/capabilities/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [capabilities]
+      operationId: getCapability
+      summary: Capability with its suite and evaluation
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilityView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/capabilities/{id}/stage:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [capabilities]
+      operationId: changeCapabilityStage
+      summary: Lifecycle transition
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeStage'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/capabilities/{id}/cases:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [capabilities]
+      operationId: addEvaluationCase
+      summary: Add an evaluation case
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewCase'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvaluationCase'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/capabilities/{id}/executions:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [capabilities]
+      operationId: startExecution
+      summary: Start an execution
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StartExecution'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Execution'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+    get:
+      tags: [capabilities]
+      operationId: listExecutions
+      summary: List a capability's executions
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Execution'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/executions/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [capabilities]
+      operationId: getExecution
+      summary: Execution with its verifications
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Execution'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/executions/{id}/finish:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [capabilities]
+      operationId: finishExecution
+      summary: Finish an execution once
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FinishExecution'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Execution'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/executions/{id}/verifications:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [capabilities]
+      operationId: verifyExecution
+      summary: Record a verifier's verdict
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VerifyExecution'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Execution'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [information-needs]
+      operationId: listInformationNeeds
+      summary: List needs by priority
+      description: '`status` is one of `retrieval_failure`, `unresolved`, `pending_promotion`, `candidate_gap`,
+        `validated_gap`, `satisfied`, `dismissed`.'
+      parameters:
+      - {$ref: '#/components/parameters/Status'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/NeedView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+    post:
+      tags: [information-needs]
+      operationId: askQuestion
+      summary: Ask a question explicitly
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AskQuestion'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [information-needs]
+      operationId: getInformationNeed
+      summary: One need with its priority
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}/validate:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [information-needs]
+      operationId: validateInformationNeed
+      summary: Run the complete gap search
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}/confirm:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [information-needs]
+      operationId: confirmGap
+      summary: Confirm a gap
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NeedChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}/dismiss:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [information-needs]
+      operationId: dismissInformationNeed
+      summary: Dismiss a need
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NeedChange'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}/weights:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [information-needs]
+      operationId: weighInformationNeed
+      summary: Reweigh impact and cost (version-checked)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NeedWeights'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NeedView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/information-needs/{id}/purge:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [information-needs]
+      operationId: purgeInformationNeed
+      summary: Erase a need
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '204': {description: Erased}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [causal]
+      operationId: listHypotheses
+      summary: List hypotheses
+      description: '`status` is one of `proposed`, `supported`, `refuted`, `inconclusive`, `retired`. `limit` defaults
+        to 100.'
+      parameters:
+      - {$ref: '#/components/parameters/Status'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Hypothesis'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+    post:
+      tags: [causal]
+      operationId: createHypothesis
+      summary: Create a hypothesis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewHypothesis'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Hypothesis'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [causal]
+      operationId: getHypothesis
+      summary: Current version of a hypothesis
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Hypothesis'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses/{id}/history:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [causal]
+      operationId: getHypothesisHistory
+      summary: Every version of a hypothesis
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Hypothesis'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses/{id}/evaluate:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [causal]
+      operationId: evaluateHypothesis
+      summary: Version-checked evaluation
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExpectedVersion'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Hypothesis'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses/{id}/retire:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [causal]
+      operationId: retireHypothesis
+      summary: Version-checked retirement
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExpectedVersion'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Hypothesis'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/hypotheses/{id}/rule:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [predictions]
+      operationId: getPredictionRule
+      summary: Rule, lineage monitor and gate decision
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - name: context
+        in: query
+        required: true
+        schema: {type: string}
+      - name: threshold
+        in: query
+        required: false
+        schema: {type: number, format: double}
+        description: Gate threshold on the rule's lower bound.
+      - name: min_effect
+        in: query
+        required: false
+        schema: {type: number, format: double}
+        description: Gate threshold on the effect's lower bound.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RuleView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/interventions:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [causal]
+      operationId: recordIntervention
+      summary: Record an intervention at intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewIntervention'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Intervention'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/interventions/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [causal]
+      operationId: getIntervention
+      summary: Intervention with its outcomes
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Intervention'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/interventions/{id}/outcomes:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [causal]
+      operationId: observeOutcome
+      summary: Observe an outcome once
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ObserveOutcome'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Intervention'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/interventions/{id}/counterfactual:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    get:
+      tags: [causal]
+      operationId: getCounterfactual
+      summary: Read-time counterfactual bounds (experimental)
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - name: hypothesis
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CounterfactualView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+  /v1/interventions/{id}/predictions:
+    parameters:
+    - {$ref: '#/components/parameters/XCsUser'}
+    - {$ref: '#/components/parameters/XCsAgent'}
+    - {$ref: '#/components/parameters/XCsProjects'}
+    post:
+      tags: [predictions]
+      operationId: predict
+      summary: Record a prediction at intent, or a refusal
+      parameters:
+      - {$ref: '#/components/parameters/Id'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PredictRequest'}
+      responses:
+        '200':
+          description: 'No prediction was made (`result: refused`)'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PredictionResult'}
+        '201':
+          description: 'A prediction was recorded (`result: recorded`)'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PredictionResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/StorageFailure'}
+components:
+  securitySchemes:
+    tenantHeader:
+      type: apiKey
+      in: header
+      name: x-cs-tenant
+      description: Tenant UUID. Required on every authenticated route.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Shared API key; required only when the server sets `CS_API_KEY`.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Status:
+      name: status
+      in: query
+      required: false
+      schema: {type: string}
+      description: Filter by status (snake_case); an unknown value is a 400.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, format: int32, minimum: 0}
+    XCsUser:
+      name: x-cs-user
+      in: header
+      required: false
+      schema: {type: string, format: uuid}
+      description: Calling user UUID.
+    XCsAgent:
+      name: x-cs-agent
+      in: header
+      required: false
+      schema: {type: string, format: uuid}
+      description: Calling agent UUID.
+    XCsProjects:
+      name: x-cs-projects
+      in: header
+      required: false
+      schema: {type: string}
+      description: Comma-separated UUIDs of the projects the caller may access.
+      example: 0190a8f2-0000-7000-8000-000000000001,0190a8f2-0000-7000-8000-000000000002
+  responses:
+    BadRequest:
+      description: Malformed JSON body, query string, or unknown enum value (`invalid_request`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: invalid_request, message: unknown status}
+    Unauthorized:
+      description: Missing or invalid principal headers or API key (`unauthorized`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: unauthorized, message: x-cs-tenant header is required}
+    Forbidden:
+      description: The caller may not read or write this scope (`forbidden`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: forbidden, message: write access denied}
+    NotFound:
+      description: No such record visible to the caller (`not_found`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: not_found, message: memory 0190a8f2-... not found}
+    Conflict:
+      description: Optimistic-concurrency or state conflict (`conflict`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: conflict, message: expected revision is not current}
+    ValidationFailed:
+      description: The request is well-formed but invalid (`validation_failed`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: validation_failed, message: reason must not be empty}
+    StorageFailure:
+      description: Storage failure; details are never returned (`storage_failure`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: storage_failure, message: internal storage failure}
+    NotReady:
+      description: Storage is unavailable (`not_ready`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example:
+            error: {code: not_ready, message: storage is unavailable}
+  schemas:
+    Error:
+      type: object
+      description: 'Every error response: `{"error": {"code": "...", "message": "..."}}` (crates/cs-server/src/error.rs).'
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code.
+              examples: [not_found]
+              enum:
+              - invalid_request
+              - unauthorized
+              - forbidden
+              - not_found
+              - conflict
+              - validation_failed
+              - storage_failure
+              - not_ready
+            message:
+              type: string
+              description: Human-readable detail. Never contains storage internals.
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status: {const: ok}
+        version: {type: string}
+    Ready:
+      type: object
+      required: [status]
+      properties:
+        status: {const: ready}
+    Visibility: {type: string, enum: [private, agent, project, tenant]}
+    Scope:
+      type: object
+      description: Ownership and visibility of a record. See docs/specifications/scope-and-access.md.
+      required: [tenant_id, visibility]
+      properties:
+        tenant_id: {type: string, format: uuid}
+        owner_user_id: {type: [string, 'null'], format: uuid}
+        agent_id: {type: [string, 'null'], format: uuid}
+        project_id: {type: [string, 'null'], format: uuid}
+        conversation_id: {type: [string, 'null'], format: uuid}
+        visibility: {$ref: '#/components/schemas/Visibility'}
+    ScopeFilter:
+      type: object
+      properties:
+        project_id: {type: [string, 'null'], format: uuid}
+        conversation_id: {type: [string, 'null'], format: uuid}
+        agent_id: {type: [string, 'null'], format: uuid}
+    AccessContext:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id: {type: string, format: uuid}
+        user_id: {type: [string, 'null'], format: uuid}
+        agent_id: {type: [string, 'null'], format: uuid}
+        project_ids:
+          type: array
+          items: {type: string, format: uuid}
+    SourceRef:
+      oneOf:
+      - type: object
+        required: [type]
+        properties:
+          type: {const: user_input}
+          message_id: {type: [string, 'null']}
+      - type: object
+        required: [type, run_id]
+        properties:
+          type: {const: agent_output}
+          run_id: {type: string}
+      - type: object
+        required: [type, tool, execution_id]
+        properties:
+          type: {const: tool_output}
+          tool: {type: string}
+          execution_id: {type: string}
+      - type: object
+        required: [type, uri, content_hash]
+        properties:
+          type: {const: external_document}
+          uri: {type: string}
+          content_hash: {type: string}
+      - type: object
+        required: [type, annotation_id]
+        properties:
+          type: {const: human_annotation}
+          annotation_id: {type: string}
+      - type: object
+        required: [type, derivation]
+        properties:
+          type: {const: system_derived}
+          derivation: {type: string}
+      - type: object
+        required: [type, observation_id]
+        properties:
+          type: {const: observation}
+          observation_id: {type: string, format: uuid}
+      description: Where information came from, tagged by `type`.
+    ActorRef:
+      oneOf:
+      - type: object
+        required: [type, user_id]
+        properties:
+          type: {const: user}
+          user_id: {type: string, format: uuid}
+      - type: object
+        required: [type, agent_id]
+        properties:
+          type: {const: agent}
+          agent_id: {type: string, format: uuid}
+      - type: object
+        required: [type, component]
+        properties:
+          type: {const: system}
+          component: {type: string}
+      description: Who recorded something, tagged by `type`.
+    ExtractionInfo:
+      type: object
+      required: [extractor_version]
+      properties:
+        model: {type: [string, 'null']}
+        model_version: {type: [string, 'null']}
+        prompt_version: {type: [string, 'null']}
+        extractor_version: {type: string}
+    TimeInterval:
+      type: object
+      description: Half-open interval `[start, end)`.
+      required: [start]
+      properties:
+        start: {type: string, format: date-time}
+        end:
+          type: [string, 'null']
+          format: date-time
+          description: Exclusive end; `null` means open-ended.
+    Bitemporal:
+      type: object
+      required: [valid_time, transaction_time]
+      properties:
+        valid_time: {$ref: '#/components/schemas/TimeInterval'}
+        transaction_time: {$ref: '#/components/schemas/TimeInterval'}
+    Provenance:
+      type: object
+      required: [source, actor, observed_at, recorded_at]
+      properties:
+        source: {$ref: '#/components/schemas/SourceRef'}
+        actor: {$ref: '#/components/schemas/ActorRef'}
+        observed_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        extraction:
+          oneOf:
+          - {$ref: '#/components/schemas/ExtractionInfo'}
+          - {type: 'null'}
+        parent_evidence:
+          type: array
+          items: {type: string, format: uuid}
+        corroborations:
+          type: array
+          items: {$ref: '#/components/schemas/SourceRef'}
+    CognitiveEventType:
+      type: string
+      enum:
+      - memory_created
+      - memory_revised
+      - memory_promoted
+      - memory_rejected
+      - memory_tombstoned
+      - memory_purged
+      - belief_created
+      - belief_revised
+      - belief_disputed
+      - belief_retracted
+      - belief_reevaluation_requested
+      - evidence_recorded
+      - dependency_created
+      - recall_executed
+      - observation_recorded
+      - observation_purged
+      - extraction_completed
+      - evidence_purged
+      - proposal_created
+      - proposal_accepted
+      - proposal_rejected
+      - proposal_stale
+      - job_dead_lettered
+      - entity_created
+      - entity_alias_added
+      - entity_kind_changed
+      - entities_merged
+      - projection_updated
+      - derivation_recorded
+      - derivation_updated
+      - execution_started
+      - execution_finished
+      - execution_verified
+      - evaluation_case_added
+      - capability_stage_changed
+      - information_need_observed
+      - information_need_validated
+      - information_need_changed
+      - hypothesis_changed
+      - intervention_recorded
+      - intervention_observed
+      - prediction_recorded
+    CognitiveEvent:
+      type: object
+      required:
+      - id
+      - stream_id
+      - sequence
+      - scope
+      - actor
+      - event_type
+      - payload
+      - occurred_at
+      - recorded_at
+      - schema_version
+      properties:
+        id: {type: string, format: uuid}
+        stream_id: {type: string, format: uuid}
+        sequence: {type: integer, format: int64, minimum: 0}
+        scope: {$ref: '#/components/schemas/Scope'}
+        actor: {$ref: '#/components/schemas/ActorRef'}
+        event_type: {$ref: '#/components/schemas/CognitiveEventType'}
+        payload: {description: Event-type specific JSON payload.}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        causation_id: {type: [string, 'null'], format: uuid}
+        correlation_id: {type: [string, 'null'], format: uuid}
+        schema_version: {type: integer, format: int32, minimum: 0}
+    MemoryDomain:
+      type: string
+      enum: [episodic, semantic, procedural, relational, temporal, working]
+    MemoryStatus: {type: string, enum: [candidate, active, rejected, tombstoned]}
+    CapabilityStage:
+      type: string
+      enum: [observed, candidate, evaluated, trusted, deprecated, quarantined]
+    EpisodicMemory:
+      type: object
+      required: [description]
+      properties:
+        description: {type: string}
+        event_id: {type: [string, 'null'], format: uuid}
+        participants:
+          type: array
+          items: {type: string}
+        subject: {type: string}
+        predicate: {type: string}
+        object: {type: string}
+    SemanticMemory:
+      type: object
+      required: [proposition]
+      properties:
+        proposition: {type: string}
+        subject: {type: [string, 'null']}
+        predicate: {type: [string, 'null']}
+        object: {type: [string, 'null']}
+    ProceduralMemory:
+      type: object
+      required: [name, steps]
+      properties:
+        capability_id: {type: [string, 'null'], format: uuid}
+        name: {type: string}
+        preconditions:
+          type: array
+          items: {type: string}
+        steps:
+          type: array
+          items: {type: string}
+        expected_outcome: {type: [string, 'null']}
+        stage: {$ref: '#/components/schemas/CapabilityStage', default: observed}
+    RelationalMemory:
+      type: object
+      required: [subject, predicate, object]
+      properties:
+        subject: {type: string}
+        predicate: {type: string}
+        object: {type: string}
+        directed: {type: boolean, default: true}
+    TemporalMemory:
+      type: object
+      required: [subject, predicate, value, change_kind]
+      properties:
+        subject: {type: string}
+        predicate: {type: string}
+        value: {type: string}
+        change_kind: {type: string, enum: [created, updated, invalidated, superseded]}
+    WorkingMemory:
+      type: object
+      properties:
+        objective: {type: [string, 'null']}
+        active_context:
+          type: array
+          items: {type: string}
+        unresolved_questions:
+          type: array
+          items: {type: string}
+        priority: {type: integer, minimum: 0, maximum: 255}
+    MemoryContent:
+      description: 'Domain-specific content, adjacently tagged: `{"domain": "semantic", "data": {...}}`.'
+      oneOf:
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: episodic}
+          data: {$ref: '#/components/schemas/EpisodicMemory'}
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: semantic}
+          data: {$ref: '#/components/schemas/SemanticMemory'}
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: procedural}
+          data: {$ref: '#/components/schemas/ProceduralMemory'}
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: relational}
+          data: {$ref: '#/components/schemas/RelationalMemory'}
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: temporal}
+          data: {$ref: '#/components/schemas/TemporalMemory'}
+      - type: object
+        required: [domain, data]
+        properties:
+          domain: {const: working}
+          data: {$ref: '#/components/schemas/WorkingMemory'}
+    MemoryRecord:
+      type: object
+      description: One immutable revision of a memory.
+      required:
+      - id
+      - revision_id
+      - revision_number
+      - scope
+      - content
+      - provenance
+      - temporal
+      - status
+      - created_at
+      properties:
+        id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+        revision_number: {type: integer, format: int32, minimum: 0}
+        scope: {$ref: '#/components/schemas/Scope'}
+        content: {$ref: '#/components/schemas/MemoryContent'}
+        provenance: {$ref: '#/components/schemas/Provenance'}
+        temporal: {$ref: '#/components/schemas/Bitemporal'}
+        status: {$ref: '#/components/schemas/MemoryStatus'}
+        status_reason: {type: [string, 'null']}
+        supersedes: {type: [string, 'null'], format: uuid}
+        superseded_by: {type: [string, 'null'], format: uuid}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: [string, 'null'], format: date-time}
+    ProvenanceInput:
+      type: object
+      required: [source]
+      properties:
+        source: {$ref: '#/components/schemas/SourceRef'}
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+          description: Defaults to now.
+        extraction:
+          oneOf:
+          - {$ref: '#/components/schemas/ExtractionInfo'}
+          - {type: 'null'}
+        parent_evidence:
+          type: array
+          items: {type: string, format: uuid}
+    NewMemory:
+      type: object
+      required: [scope, content, provenance]
+      properties:
+        scope: {$ref: '#/components/schemas/Scope'}
+        content: {$ref: '#/components/schemas/MemoryContent'}
+        provenance: {$ref: '#/components/schemas/ProvenanceInput'}
+        valid_time:
+          oneOf:
+          - {$ref: '#/components/schemas/TimeInterval'}
+          - {type: 'null'}
+          description: Defaults to `[now, ∞)`.
+        expires_at: {type: [string, 'null'], format: date-time}
+        idempotency_key: {type: [string, 'null']}
+    ReviseMemory:
+      type: object
+      required: [reason]
+      properties:
+        content:
+          oneOf:
+          - {$ref: '#/components/schemas/MemoryContent'}
+          - {type: 'null'}
+        valid_time:
+          oneOf:
+          - {$ref: '#/components/schemas/TimeInterval'}
+          - {type: 'null'}
+        expires_at: {type: [string, 'null'], format: date-time}
+        provenance:
+          oneOf:
+          - {$ref: '#/components/schemas/ProvenanceInput'}
+          - {type: 'null'}
+        reason: {type: string}
+        expected_revision:
+          type: [string, 'null']
+          format: uuid
+          description: 'Optimistic concurrency: fail with 409 unless this is the current revision.'
+    StatusChange:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string}
+    MemoryHistory:
+      type: object
+      required: [memory_id, revisions]
+      properties:
+        memory_id: {type: string, format: uuid}
+        revisions:
+          type: array
+          items: {$ref: '#/components/schemas/MemoryRecord'}
+    MetacognitivePolicy:
+      type: object
+      properties:
+        min_margin: {type: [number, 'null'], format: double}
+    CandidateGeneration:
+      oneOf:
+      - type: object
+        required: [strategy]
+        properties:
+          strategy: {const: recency_v1}
+      - type: object
+        required: [strategy, lexical, dense]
+        properties:
+          strategy: {const: channels}
+          lexical: {type: integer, format: int32, minimum: 0}
+          dense: {type: integer, format: int32, minimum: 0}
+    CandidateBudget:
+      oneOf:
+      - type: object
+        required: [mode]
+        properties:
+          mode: {const: fixed}
+      - type: object
+        required: [mode, initial, initial_lexical]
+        properties:
+          mode: {const: adaptive}
+          initial: {type: integer, format: int32, minimum: 0}
+          initial_lexical: {type: integer, format: int32, minimum: 0}
+    RecallPolicy:
+      type: object
+      description: Every field is optional and defaults to the adopted policy. See docs/specifications/recall-scoring.md.
+      properties:
+        version: {type: integer, format: int32, minimum: 0, default: 1}
+        allowed_domains:
+          type: array
+          items: {$ref: '#/components/schemas/MemoryDomain'}
+        scope_filter:
+          oneOf:
+          - {$ref: '#/components/schemas/ScopeFilter'}
+          - {type: 'null'}
+        as_of_valid_time: {type: [string, 'null'], format: date-time}
+        as_of_transaction_time: {type: [string, 'null'], format: date-time}
+        max_candidates:
+          type: integer
+          format: int32
+          minimum: 0
+          default: 200
+          maximum: 10000
+        max_results: {type: integer, format: int32, minimum: 0, default: 10}
+        max_context_tokens: {type: [integer, 'null'], format: int32, minimum: 0}
+        dense_weight: {type: number, format: double, default: 0.55}
+        lexical_weight: {type: number, format: double, default: 0.3}
+        recency_weight: {type: number, format: double, default: 0.15}
+        recency_half_life_days: {type: number, format: double, default: 30.0}
+        min_score: {type: number, format: double, default: 0.0}
+        include_superseded: {type: boolean, default: false}
+        include_candidates: {type: boolean, default: false}
+        retain_query_text: {type: boolean, default: true}
+        include_beliefs: {type: boolean, default: true}
+        max_belief_results: {type: integer, format: int32, minimum: 0, default: 5}
+        include_disputed_beliefs: {type: boolean, default: true}
+        include_retracted_beliefs: {type: boolean, default: false}
+        candidates: {$ref: '#/components/schemas/CandidateGeneration'}
+        record_information_needs: {type: boolean, default: false}
+        budget: {$ref: '#/components/schemas/CandidateBudget'}
+        metacognition:
+          oneOf:
+          - {$ref: '#/components/schemas/MetacognitivePolicy'}
+          - {type: 'null'}
+    RecallRequest:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string}
+        policy: {$ref: '#/components/schemas/RecallPolicy'}
+        session:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 128
+          description: Opaque key used only to count demand for information needs. Defaults to the UTC day.
+    DenseStatus:
+      oneOf:
+      - type: object
+        required: [status, space]
+        properties:
+          status: {const: used}
+          space: {type: string}
+      - type: object
+        required: [status, space, reason]
+        properties:
+          status: {const: unavailable}
+          space: {type: string}
+          reason: {type: string}
+      - type: object
+        required: [status]
+        properties:
+          status: {const: disabled}
+    RecallSummary:
+      type: object
+      required:
+      - policy_version
+      - scoring_version
+      - candidates_considered
+      - selected_count
+      - data_snapshot
+      properties:
+        policy_version: {type: integer, format: int32, minimum: 0}
+        scoring_version: {type: integer, format: int32, minimum: 0}
+        candidates_considered: {type: integer, format: int64, minimum: 0}
+        selected_count: {type: integer, format: int64, minimum: 0}
+        belief_candidates_considered: {type: integer, format: int64, minimum: 0}
+        beliefs_selected: {type: integer, format: int64, minimum: 0}
+        dense: {$ref: '#/components/schemas/DenseStatus'}
+        dense_coverage: {type: [number, 'null'], format: double}
+        data_snapshot: {type: string}
+    RecalledMemory:
+      type: object
+      required: [rank, score, memory]
+      properties:
+        rank: {type: integer, format: int32, minimum: 0}
+        score: {type: number, format: double}
+        memory: {$ref: '#/components/schemas/MemoryRecord'}
+    RecalledBelief:
+      type: object
+      required: [rank, relevance, belief, supporting_evidence, refuting_evidence]
+      properties:
+        rank: {type: integer, format: int32, minimum: 0}
+        relevance: {type: number, format: double}
+        belief: {$ref: '#/components/schemas/Belief'}
+        supporting_evidence:
+          type: array
+          items: {type: string, format: uuid}
+        refuting_evidence:
+          type: array
+          items: {type: string, format: uuid}
+    NeedOutcome:
+      type: object
+      required: [need_id, status, missed]
+      properties:
+        need_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/NeedStatus'}
+        missed: {type: boolean}
+    MetacognitiveDecision:
+      type: object
+      description: See docs/specifications/metacognition.md.
+      required: [version, policy, decision, reasons, signals]
+      properties:
+        version: {type: integer, format: int32, minimum: 0}
+        policy: {$ref: '#/components/schemas/MetacognitivePolicy'}
+        decision: {type: string, enum: [answer, investigate, abstain]}
+        reasons:
+          type: array
+          items:
+            type: string
+            enum:
+            - no_evidence
+            - not_covered
+            - aspect_unmatched
+            - only_unvalidated
+            - contradiction
+            - narrow_margin
+        signals:
+          type: object
+          required: [selected, covering_active, covering_candidate, contradictions]
+          properties:
+            selected: {type: integer, format: int32, minimum: 0}
+            covering_active: {type: integer, format: int32, minimum: 0}
+            covering_candidate: {type: integer, format: int32, minimum: 0}
+            question_terms:
+              type: array
+              items: {type: string}
+            ignored_terms:
+              type: array
+              items: {type: string}
+            unaccounted:
+              type: array
+              items: {type: string}
+            anchored: {type: integer, format: int32, minimum: 0}
+            contradictions:
+              type: array
+              items:
+                type: array
+                prefixItems:
+                - {type: string, format: uuid}
+                - {type: string, format: uuid}
+                minItems: 2
+                maxItems: 2
+            covering:
+              type: array
+              items: {type: string, format: uuid}
+            top_score: {type: [number, 'null'], format: double}
+            margin: {type: [number, 'null'], format: double}
+    RecallResponse:
+      type: object
+      required: [trace_id, results, trace]
+      properties:
+        trace_id: {type: string, format: uuid}
+        results:
+          type: array
+          items: {$ref: '#/components/schemas/RecalledMemory'}
+        beliefs:
+          type: array
+          items: {$ref: '#/components/schemas/RecalledBelief'}
+        trace: {$ref: '#/components/schemas/RecallSummary'}
+        information_need: {$ref: '#/components/schemas/NeedOutcome'}
+        metacognition: {$ref: '#/components/schemas/MetacognitiveDecision'}
+    RecallCandidate:
+      type: object
+      required: [memory_id, revision_id, rank, score, selected, reason]
+      properties:
+        memory_id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+        rank: {type: integer, format: int32, minimum: 0}
+        score: {type: number, format: double}
+        dense_score: {type: [number, 'null'], format: double}
+        lexical_score: {type: [number, 'null'], format: double}
+        recency_score: {type: [number, 'null'], format: double}
+        selected: {type: boolean}
+        reason: {type: string}
+        channels:
+          type: array
+          items: {type: string, enum: [recent, lexical, dense]}
+    RecallBeliefCandidate:
+      type: object
+      required: [belief_id, lineage_id, rank, score, selected, reason]
+      properties:
+        belief_id: {type: string, format: uuid}
+        lineage_id: {type: string, format: uuid}
+        rank: {type: integer, format: int32, minimum: 0}
+        score: {type: number, format: double}
+        dense_score: {type: [number, 'null'], format: double}
+        lexical_score: {type: [number, 'null'], format: double}
+        recency_score: {type: [number, 'null'], format: double}
+        selected: {type: boolean}
+        reason: {type: string}
+    BudgetDecision:
+      type: object
+      required:
+      - initial
+      - initial_lexical
+      - lexical_found
+      - best_overlap
+      - cut_overlap
+      - lexical_saturated
+      properties:
+        initial: {type: integer, format: int32, minimum: 0}
+        initial_lexical: {type: integer, format: int32, minimum: 0}
+        lexical_found: {type: integer, format: int32, minimum: 0}
+        best_overlap: {type: integer, format: int32, minimum: 0}
+        cut_overlap: {type: integer, format: int32, minimum: 0}
+        lexical_saturated: {type: boolean}
+    RecallTrace:
+      type: object
+      description: The full, replayable record of one recall decision.
+      required:
+      - id
+      - tenant_id
+      - policy
+      - scoring_version
+      - query_hash
+      - candidates
+      - data_snapshot
+      - executed_at
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        policy: {$ref: '#/components/schemas/RecallPolicy'}
+        scoring_version: {type: integer, format: int32, minimum: 0}
+        query_hash: {type: string}
+        query_text: {type: [string, 'null']}
+        embedding_model: {type: [string, 'null']}
+        embedding_version: {type: [string, 'null']}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/RecallCandidate'}
+        belief_candidates:
+          type: array
+          items: {$ref: '#/components/schemas/RecallBeliefCandidate'}
+        dense: {$ref: '#/components/schemas/DenseStatus'}
+        query_embedding:
+          type: [array, 'null']
+          items: {type: number, format: float}
+        data_snapshot: {type: string}
+        executed_at: {type: string, format: date-time}
+        budget:
+          oneOf:
+          - {$ref: '#/components/schemas/BudgetDecision'}
+          - {type: 'null'}
+        metacognition:
+          oneOf:
+          - {$ref: '#/components/schemas/MetacognitiveDecision'}
+          - {type: 'null'}
+    ReplayRequest:
+      type: object
+      properties:
+        policy_override:
+          oneOf:
+          - {$ref: '#/components/schemas/RecallPolicy'}
+          - {type: 'null'}
+          description: Counterfactual replay; omit (or send no body) for exact replay.
+    ReplayReport:
+      type: object
+      required:
+      - trace_id
+      - counterfactual
+      - identical
+      - original_selected
+      - replayed_selected
+      - added
+      - removed
+      - replay
+      properties:
+        trace_id: {type: string, format: uuid}
+        counterfactual: {type: boolean}
+        identical:
+          type: boolean
+          description: Same revisions selected in the same order.
+        original_selected:
+          type: array
+          items:
+            type: array
+            prefixItems:
+            - {type: string, format: uuid}
+            - {type: string, format: uuid}
+            minItems: 2
+            maxItems: 2
+          description: '`[memory_id, revision_id]` pairs.'
+        replayed_selected:
+          type: array
+          items:
+            type: array
+            prefixItems:
+            - {type: string, format: uuid}
+            - {type: string, format: uuid}
+            minItems: 2
+            maxItems: 2
+          description: '`[memory_id, revision_id]` pairs.'
+        added:
+          type: array
+          items: {type: string, format: uuid}
+        removed:
+          type: array
+          items: {type: string, format: uuid}
+        original_beliefs:
+          type: array
+          items: {type: string, format: uuid}
+        replayed_beliefs:
+          type: array
+          items: {type: string, format: uuid}
+        replay: {$ref: '#/components/schemas/RecallTrace'}
+    ConfidenceInterpretation:
+      type: string
+      enum: [calibrated_probability, heuristic_score, human_assessment, model_estimate]
+    Confidence:
+      type: object
+      required: [value, interpretation, method]
+      properties:
+        value: {type: number, format: double, minimum: 0, maximum: 1}
+        interpretation: {$ref: '#/components/schemas/ConfidenceInterpretation'}
+        method: {type: string}
+    BeliefPolarity: {type: string, enum: [supports, refutes]}
+    BeliefStatus: {type: string, enum: [active, disputed, retracted]}
+    EvidenceDirection: {type: string, enum: [supports, refutes, contextual]}
+    DependencyRelation:
+      type: string
+      enum: [supports, requires, derived_from, contradicts, generalizes, specializes]
+    Evidence:
+      type: object
+      required: [id, tenant_id, source, actor, observed_at, recorded_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        source: {$ref: '#/components/schemas/SourceRef'}
+        actor: {$ref: '#/components/schemas/ActorRef'}
+        observed_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        extraction:
+          oneOf:
+          - {$ref: '#/components/schemas/ExtractionInfo'}
+          - {type: 'null'}
+        content_hash: {type: [string, 'null']}
+        summary: {type: [string, 'null']}
+    NewEvidence:
+      type: object
+      required: [source]
+      properties:
+        source: {$ref: '#/components/schemas/SourceRef'}
+        observed_at: {type: [string, 'null'], format: date-time}
+        extraction:
+          oneOf:
+          - {$ref: '#/components/schemas/ExtractionInfo'}
+          - {type: 'null'}
+        content_hash: {type: [string, 'null']}
+        summary: {type: [string, 'null']}
+    BeliefEvidence:
+      type: object
+      required: [evidence_id, direction]
+      properties:
+        evidence_id: {type: string, format: uuid}
+        direction: {$ref: '#/components/schemas/EvidenceDirection'}
+        strength: {type: [number, 'null'], format: double}
+    DependencyInput:
+      type: object
+      required: [belief_id, relation]
+      properties:
+        belief_id:
+          type: string
+          format: uuid
+          description: Any revision; resolved to the current one.
+        relation: {$ref: '#/components/schemas/DependencyRelation'}
+        strength: {type: [number, 'null'], format: double}
+    Belief:
+      type: object
+      description: One immutable revision of a belief; `lineage_id` identifies the belief across revisions.
+      required:
+      - id
+      - lineage_id
+      - scope
+      - proposition
+      - polarity
+      - confidence
+      - revision_number
+      - revision_reason
+      - status
+      - temporal
+      - created_at
+      properties:
+        id: {type: string, format: uuid}
+        lineage_id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        proposition: {type: string}
+        polarity: {$ref: '#/components/schemas/BeliefPolarity'}
+        confidence: {$ref: '#/components/schemas/Confidence'}
+        revision_number: {type: integer, format: int32, minimum: 0}
+        supersedes: {type: [string, 'null'], format: uuid}
+        superseded_by: {type: [string, 'null'], format: uuid}
+        revision_reason: {type: string}
+        status: {$ref: '#/components/schemas/BeliefStatus'}
+        revalidation_interval_days: {type: [integer, 'null'], format: int32, minimum: 0}
+        temporal: {$ref: '#/components/schemas/Bitemporal'}
+        created_at: {type: string, format: date-time}
+    NewBelief:
+      type: object
+      required: [scope, proposition, confidence]
+      properties:
+        scope: {$ref: '#/components/schemas/Scope'}
+        proposition: {type: string}
+        polarity: {$ref: '#/components/schemas/BeliefPolarity', default: supports}
+        confidence: {$ref: '#/components/schemas/Confidence'}
+        evidence:
+          type: array
+          items: {$ref: '#/components/schemas/BeliefEvidence'}
+        depends_on:
+          type: array
+          items: {$ref: '#/components/schemas/DependencyInput'}
+        valid_time:
+          oneOf:
+          - {$ref: '#/components/schemas/TimeInterval'}
+          - {type: 'null'}
+        revalidation_interval_days: {type: [integer, 'null'], format: int32, minimum: 0}
+        reason: {type: [string, 'null']}
+        idempotency_key: {type: [string, 'null']}
+    ReviseBelief:
+      type: object
+      required: [reason]
+      properties:
+        proposition: {type: [string, 'null']}
+        polarity:
+          oneOf:
+          - {$ref: '#/components/schemas/BeliefPolarity'}
+          - {type: 'null'}
+        confidence:
+          oneOf:
+          - {$ref: '#/components/schemas/Confidence'}
+          - {type: 'null'}
+        add_evidence:
+          type: array
+          items: {$ref: '#/components/schemas/BeliefEvidence'}
+        valid_time:
+          oneOf:
+          - {$ref: '#/components/schemas/TimeInterval'}
+          - {type: 'null'}
+        status:
+          oneOf:
+          - {$ref: '#/components/schemas/BeliefStatus'}
+          - {type: 'null'}
+          description: Without it, refuting evidence yields `disputed`.
+        revalidation_interval_days: {type: [integer, 'null'], format: int32, minimum: 0}
+        reason: {type: string}
+        expected_revision: {type: [string, 'null'], format: uuid}
+    NewDependency:
+      type: object
+      required: [from, to, relation]
+      properties:
+        from: {type: string, format: uuid}
+        to: {type: string, format: uuid}
+        relation: {$ref: '#/components/schemas/DependencyRelation'}
+        strength: {type: [number, 'null'], format: double}
+    BeliefDependency:
+      type: object
+      required: [from, to, relation, created_at]
+      properties:
+        from: {type: string, format: uuid}
+        to: {type: string, format: uuid}
+        relation: {$ref: '#/components/schemas/DependencyRelation'}
+        strength: {type: [number, 'null'], format: double}
+        created_at: {type: string, format: date-time}
+    EvidenceView:
+      type: object
+      required: [link, evidence]
+      properties:
+        link: {$ref: '#/components/schemas/BeliefEvidence'}
+        evidence:
+          oneOf:
+          - {$ref: '#/components/schemas/Evidence'}
+          - {type: 'null'}
+    BeliefView:
+      type: object
+      required: [belief, current_revision_id, evidence, depends_on, dependents]
+      properties:
+        belief: {$ref: '#/components/schemas/Belief'}
+        current_revision_id: {type: [string, 'null'], format: uuid}
+        evidence:
+          type: array
+          items: {$ref: '#/components/schemas/EvidenceView'}
+        depends_on:
+          type: array
+          items: {$ref: '#/components/schemas/BeliefDependency'}
+          description: What this revision relies on.
+        dependents:
+          type: array
+          items: {$ref: '#/components/schemas/BeliefDependency'}
+          description: What relies on this revision.
+    BeliefRevisionOutcome:
+      type: object
+      required: [belief, needs_reevaluation]
+      properties:
+        belief: {$ref: '#/components/schemas/Belief'}
+        needs_reevaluation:
+          type: array
+          items: {type: string, format: uuid}
+          description: Live beliefs relying on the previous revision; flagged, never retracted.
+    DebtCategory:
+      type: string
+      enum:
+      - unsupported_belief
+      - unresolved_contradiction
+      - stale_belief
+      - invalidated_dependency
+      - unverified_procedure
+    CognitiveDebtReport:
+      type: object
+      description: See docs/specifications/cognitive-debt.md.
+      required:
+      - model_version
+      - evaluated_at
+      - active_assets
+      - debt_items
+      - total_debt_points
+      - debt_index_per_1000
+      - categories
+      - items
+      properties:
+        model_version: {type: integer, format: int32, minimum: 0}
+        evaluated_at: {type: string, format: date-time}
+        active_assets: {type: integer, format: int64, minimum: 0}
+        debt_items: {type: integer, format: int64, minimum: 0}
+        total_debt_points: {type: number, format: double}
+        debt_index_per_1000: {type: number, format: double}
+        categories:
+          type: array
+          items:
+            type: object
+            required: [category, item_count, total_points]
+            properties:
+              category: {$ref: '#/components/schemas/DebtCategory'}
+              item_count: {type: integer, format: int64, minimum: 0}
+              total_points: {type: number, format: double}
+        items:
+          type: array
+          items:
+            type: object
+            required:
+            - category
+            - subject_ids
+            - reason
+            - impact
+            - issue_confidence
+            - age_days
+            - half_life_days
+            - exposure_count
+            - points
+            properties:
+              category: {$ref: '#/components/schemas/DebtCategory'}
+              subject_ids:
+                type: array
+                items: {type: string}
+              reason: {type: string}
+              impact: {type: number, format: double}
+              issue_confidence: {type: number, format: double}
+              age_days: {type: number, format: double}
+              half_life_days: {type: number, format: double}
+              exposure_count: {type: number, format: double}
+              points: {type: number, format: double}
+    NewObservation:
+      type: object
+      required: [scope, content, source]
+      properties:
+        scope: {$ref: '#/components/schemas/Scope'}
+        content: {type: string}
+        media_type: {type: [string, 'null']}
+        source: {$ref: '#/components/schemas/SourceRef'}
+        observed_at: {type: [string, 'null'], format: date-time}
+        idempotency_key:
+          type: [string, 'null']
+          description: Resubmitting the same key returns the original observation.
+    Observation:
+      type: object
+      required: [id, scope, content_hash, source, actor, observed_at, recorded_at]
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        content: {type: [string, 'null'], description: '`null` once purged.'}
+        content_hash: {type: string}
+        media_type: {type: [string, 'null']}
+        source: {$ref: '#/components/schemas/SourceRef'}
+        actor: {$ref: '#/components/schemas/ActorRef'}
+        observed_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        purged_at: {type: [string, 'null'], format: date-time}
+    ExtractionRun:
+      type: object
+      required: [observation_id, extractor, extractor_version, candidate_ids, completed_at]
+      properties:
+        observation_id: {type: string, format: uuid}
+        extractor: {type: string}
+        extractor_version: {type: string}
+        candidate_ids:
+          type: array
+          items: {type: string, format: uuid}
+        completed_at: {type: string, format: date-time}
+    JobKind:
+      type: string
+      enum: [perceive, resolve, embed, project, compile]
+    JobStatus: {type: string, enum: [queued, leased, succeeded, dead_lettered]}
+    Job:
+      type: object
+      required:
+      - id
+      - tenant_id
+      - kind
+      - principal
+      - payload
+      - dedupe_key
+      - status
+      - attempts
+      - max_attempts
+      - available_at
+      - lease_generation
+      - created_at
+      - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/JobKind'}
+        principal: {$ref: '#/components/schemas/AccessContext'}
+        payload: {description: Kind-specific JSON payload.}
+        dedupe_key: {type: string}
+        status: {$ref: '#/components/schemas/JobStatus'}
+        attempts: {type: integer, format: int32, minimum: 0}
+        max_attempts: {type: integer, format: int32, minimum: 0}
+        available_at: {type: string, format: date-time}
+        lease_owner: {type: [string, 'null']}
+        lease_until: {type: [string, 'null'], format: date-time}
+        lease_generation: {type: integer, format: int64, minimum: 0}
+        last_error:
+          type: [object, 'null']
+          required: [permanent, message, attempt]
+          properties:
+            permanent: {type: boolean}
+            message: {type: string}
+            attempt: {type: integer, format: int32, minimum: 0}
+        result: {description: 'Kind-specific JSON result, or `null`.'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ObservationView:
+      type: object
+      required: [observation, job, extraction_runs]
+      properties:
+        observation: {$ref: '#/components/schemas/Observation'}
+        job:
+          oneOf:
+          - {$ref: '#/components/schemas/Job'}
+          - {type: 'null'}
+        extraction_runs:
+          type: array
+          items: {$ref: '#/components/schemas/ExtractionRun'}
+    Decision:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string}
+    PurgeReport:
+      type: object
+      required: [id, already_purged, purged_at]
+      properties:
+        id: {type: string, format: uuid}
+        already_purged: {type: boolean}
+        purged_at: {type: string, format: date-time}
+        purged_memories:
+          type: array
+          items: {type: string, format: uuid}
+          description: Memories erased because they derived from the purged source.
+        beliefs_needing_reevaluation:
+          type: array
+          items: {type: string, format: uuid}
+    ResolutionProposal:
+      type: object
+      description: See docs/specifications/resolution.md.
+      required:
+      - id
+      - scope
+      - kind
+      - status
+      - operation
+      - rationale
+      - detection
+      - based_on
+      - fingerprint
+      - created_at
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        kind:
+          type: string
+          enum: [duplicate, supersession, contradiction, entity_merge]
+        status: {$ref: '#/components/schemas/ProposalStatus'}
+        operation:
+          oneOf:
+          - type: object
+            required: [type, canonical, duplicate]
+            properties:
+              type: {const: merge}
+              canonical: {type: string, format: uuid}
+              duplicate: {type: string, format: uuid}
+          - type: object
+            required: [type, older, newer]
+            properties:
+              type: {const: supersede}
+              older: {type: string, format: uuid}
+              newer: {type: string, format: uuid}
+          - type: object
+            required: [type, memories]
+            properties:
+              type: {const: quarantine}
+              memories:
+                type: array
+                items: {type: string, format: uuid}
+          - type: object
+            required: [type, beliefs]
+            properties:
+              type: {const: dispute}
+              beliefs:
+                type: array
+                items: {type: string, format: uuid}
+          - type: object
+            required: [type, survivor, merged]
+            properties:
+              type: {const: merge_entities}
+              survivor: {type: string, format: uuid}
+              merged: {type: string, format: uuid}
+        rationale:
+          type: object
+          required: [explanation, signals]
+          properties:
+            explanation: {type: string}
+            signals:
+              type: array
+              items:
+                oneOf:
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: normalized_text_exact}
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: structured_fields_exact}
+                - type: object
+                  required: [type, cosine, threshold]
+                  properties:
+                    type: {const: dense_similarity}
+                    cosine: {type: number, format: double}
+                    threshold: {type: number, format: double}
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: temporal_overlap}
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: scope_compatible}
+                - type: object
+                  required: [type, field, left, right]
+                  properties:
+                    type: {const: predicate_conflict}
+                    field: {type: string}
+                    left: {type: string}
+                    right: {type: string}
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: opposite_polarity}
+                - type: object
+                  required: [type]
+                  properties:
+                    type: {const: valid_time_ordered}
+        detection:
+          type: object
+          required: [detector_version, detected_at]
+          properties:
+            detector_version: {type: string}
+            score: {type: [number, 'null'], format: double}
+            detected_at: {type: string, format: date-time}
+        based_on:
+          type: array
+          items:
+            oneOf:
+            - type: object
+              required: [type, id, revision_id]
+              properties:
+                type: {const: memory}
+                id: {type: string, format: uuid}
+                revision_id: {type: string, format: uuid}
+            - type: object
+              required: [type, lineage_id, revision_id]
+              properties:
+                type: {const: belief}
+                lineage_id: {type: string, format: uuid}
+                revision_id: {type: string, format: uuid}
+            - type: object
+              required: [type, id, version]
+              properties:
+                type: {const: entity}
+                id: {type: string, format: uuid}
+                version: {type: integer, format: int32, minimum: 0}
+          description: Record versions the proposal was computed from; a change makes it stale.
+        fingerprint: {type: string}
+        created_at: {type: string, format: date-time}
+        decided_at: {type: [string, 'null'], format: date-time}
+        decided_by:
+          oneOf:
+          - {$ref: '#/components/schemas/ActorRef'}
+          - {type: 'null'}
+        decision_reason: {type: [string, 'null']}
+    ProposalStatus: {type: string, enum: [pending, accepted, rejected, stale]}
+    ProcessingStatus:
+      type: object
+      required: [spaces, jobs]
+      properties:
+        spaces:
+          type: array
+          items:
+            type: object
+            required: [space, role, coverage, ratio]
+            properties:
+              space: {type: string}
+              role: {type: string, enum: [active, shadow]}
+              coverage:
+                type: object
+                required: [memories_total, memories_embedded, beliefs_total, beliefs_embedded]
+                properties:
+                  memories_total: {type: integer, format: int64, minimum: 0}
+                  memories_embedded: {type: integer, format: int64, minimum: 0}
+                  beliefs_total: {type: integer, format: int64, minimum: 0}
+                  beliefs_embedded: {type: integer, format: int64, minimum: 0}
+              ratio: {type: number, format: double}
+        jobs:
+          type: array
+          items:
+            type: object
+            required: [kind, status, count]
+            properties:
+              kind: {$ref: '#/components/schemas/JobKind'}
+              status: {$ref: '#/components/schemas/JobStatus'}
+              count: {type: integer, format: int64, minimum: 0}
+              oldest_available_at: {type: [string, 'null'], format: date-time}
+    ReindexRequest:
+      type: object
+      properties:
+        space:
+          type: [string, 'null']
+          description: Embedding space to backfill; defaults to the shadow space.
+    ReindexReport:
+      type: object
+      required: [space, selected, already_embedded, enqueued]
+      properties:
+        space: {type: string}
+        selected: {type: integer, format: int64, minimum: 0}
+        already_embedded: {type: integer, format: int64, minimum: 0}
+        enqueued: {type: integer, format: int64, minimum: 0}
+    EntityKind:
+      type: string
+      enum:
+      - unknown
+      - person
+      - organization
+      - team
+      - service
+      - component
+      - technology
+      - project
+      - document
+      - concept
+      - location
+    Entity:
+      type: object
+      required:
+      - id
+      - scope
+      - partition
+      - kind
+      - canonical_name
+      - key
+      - status
+      - version
+      - created_at
+      - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        partition: {type: string}
+        kind: {$ref: '#/components/schemas/EntityKind'}
+        canonical_name: {type: string}
+        key: {type: string}
+        status:
+          oneOf:
+          - type: object
+            required: [state]
+            properties:
+              state: {const: active}
+          - type: object
+            required: [state, into, at]
+            properties:
+              state: {const: merged}
+              into: {type: string, format: uuid}
+              at: {type: string, format: date-time}
+        version: {type: integer, format: int32, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EntityAlias:
+      type: object
+      required: [entity_id, surface, key, normalization_version, source, created_at]
+      properties:
+        entity_id: {type: string, format: uuid}
+        surface: {type: string}
+        key: {type: string}
+        normalization_version: {type: integer, format: int32, minimum: 0}
+        source: {type: string, enum: [canonical, explicit, merge]}
+        created_at: {type: string, format: date-time}
+    MentionRole: {type: string, enum: [subject, object, participant]}
+    EntityMention:
+      type: object
+      required: [id, entity_id, surface, key, role, memory_id, revision_id]
+      properties:
+        id: {type: string, format: uuid}
+        entity_id: {type: string, format: uuid}
+        surface: {type: string}
+        key: {type: string}
+        role: {$ref: '#/components/schemas/MentionRole'}
+        memory_id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+    EntityView:
+      type: object
+      required: [entity, aliases, mentions]
+      properties:
+        entity: {$ref: '#/components/schemas/Entity'}
+        aliases:
+          type: array
+          items: {$ref: '#/components/schemas/EntityAlias'}
+        mentions:
+          type: array
+          items: {$ref: '#/components/schemas/EntityMention'}
+    AddAlias:
+      type: object
+      required: [name, expected_version]
+      properties:
+        name: {type: string}
+        expected_version: {type: integer, format: int32, minimum: 0}
+    SetEntityKind:
+      type: object
+      required: [kind, expected_version]
+      properties:
+        kind: {$ref: '#/components/schemas/EntityKind'}
+        expected_version: {type: integer, format: int32, minimum: 0}
+    ProposeEntityMerge:
+      type: object
+      required: [survivor, merged, reason]
+      properties:
+        survivor: {type: string, format: uuid}
+        merged: {type: string, format: uuid}
+        reason: {type: string}
+    EdgeDirection: {type: string, enum: [out, in, both]}
+    NeighborhoodRequest:
+      type: object
+      properties:
+        depth:
+          type: [integer, 'null']
+          format: int32
+          minimum: 1
+          maximum: 3
+          description: Default 2, clamped to 1..=3.
+        direction: {$ref: '#/components/schemas/EdgeDirection', default: out}
+        relations:
+          type: [array, 'null']
+          items: {type: string}
+        as_of:
+          type: [string, 'null']
+          format: date-time
+          description: Transaction-time point; defaults to now.
+        valid_at:
+          type: [string, 'null']
+          format: date-time
+          description: Valid-time point; defaults to now.
+        include_candidates: {type: boolean, default: false}
+        max_nodes:
+          type: [integer, 'null']
+          format: int32
+          minimum: 0
+          description: Default 200, clamped to 1..=1000.
+        max_edges:
+          type: [integer, 'null']
+          format: int32
+          minimum: 0
+          description: Default 1000, clamped to 1..=5000.
+        max_paths:
+          type: [integer, 'null']
+          format: int32
+          minimum: 0
+          description: Default 100, clamped to 1..=1000.
+    KnowledgeEdge:
+      type: object
+      required: [id, scope, from, relation, to, memory_id, revision_id, valid_time]
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        from: {type: string, format: uuid}
+        relation: {type: string}
+        to: {type: string, format: uuid}
+        memory_id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+        valid_time: {$ref: '#/components/schemas/TimeInterval'}
+    Neighborhood:
+      type: object
+      description: See docs/specifications/entities-and-graph.md.
+      required:
+      - root
+      - depth
+      - direction
+      - as_of
+      - valid_at
+      - nodes
+      - edges
+      - paths
+      - truncated_by
+      properties:
+        root: {type: string, format: uuid}
+        depth: {type: integer, format: int32, minimum: 0}
+        direction: {$ref: '#/components/schemas/EdgeDirection'}
+        as_of: {type: string, format: date-time}
+        valid_at: {type: string, format: date-time}
+        nodes:
+          type: array
+          items: {$ref: '#/components/schemas/Entity'}
+        edges:
+          type: array
+          items: {$ref: '#/components/schemas/KnowledgeEdge'}
+        paths:
+          type: array
+          items:
+            type: object
+            required: [entities, edges]
+            properties:
+              entities:
+                type: array
+                items: {type: string, format: uuid}
+              edges:
+                type: array
+                items: {type: string, format: uuid}
+        truncated_by:
+          type: array
+          items: {type: string, enum: [max_nodes, max_edges, max_paths]}
+    DerivationStatus: {type: string, enum: [active, revalidation_required, invalidated]}
+    Derivation:
+      type: object
+      description: See docs/specifications/compilation.md.
+      required:
+      - id
+      - scope
+      - partition
+      - operator
+      - signature
+      - subject
+      - relation
+      - object
+      - derived_memory_id
+      - thresholds
+      - support
+      - witnesses
+      - roots
+      - status
+      - version
+      - created_at
+      - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        partition: {type: string}
+        operator: {type: string}
+        signature: {type: string}
+        subject: {type: string, format: uuid}
+        relation: {type: string}
+        object: {type: string, format: uuid}
+        derived_memory_id: {type: string, format: uuid}
+        thresholds:
+          type: object
+          required: [min_units, min_origins, min_buckets, bucket_seconds, max_counter_ratio]
+          properties:
+            min_units: {type: integer, format: int32, minimum: 0}
+            min_origins: {type: integer, format: int32, minimum: 0}
+            min_buckets: {type: integer, format: int32, minimum: 0}
+            bucket_seconds: {type: integer, format: int64}
+            max_counter_ratio: {type: number, format: double}
+        support:
+          type: object
+          required: [units, origins, buckets, counter_units]
+          properties:
+            units: {type: integer, format: int32, minimum: 0}
+            origins: {type: integer, format: int32, minimum: 0}
+            buckets: {type: integer, format: int32, minimum: 0}
+            counter_units: {type: integer, format: int32, minimum: 0}
+        witnesses:
+          type: array
+          items:
+            type: object
+            required: [root_memory_id, root_revision_id, unit_key, origin_key, bucket]
+            properties:
+              root_memory_id: {type: string, format: uuid}
+              root_revision_id: {type: string, format: uuid}
+              unit_key: {type: string, format: uuid}
+              origin_key: {type: string, format: uuid}
+              bucket: {type: integer, format: int64}
+        roots:
+          type: array
+          items: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/DerivationStatus'}
+        status_reason: {type: [string, 'null']}
+        version: {type: integer, format: int32, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CaseKind: {type: string, enum: [positive, negative, boundary, regression]}
+    OracleTier: {type: string, enum: [deterministic, independent, self_assessed]}
+    Verdict: {type: string, enum: [passed, failed]}
+    ExecutionStatus: {type: string, enum: [started, completed, aborted]}
+    AbortReason:
+      type: string
+      enum: [precondition_failed, timeout, cancelled, error]
+    EvaluationCase:
+      type: object
+      required: [id, capability_id, scope, kind, input_class, locked, origin, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        capability_id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        kind: {$ref: '#/components/schemas/CaseKind'}
+        input_class: {type: string}
+        description: {type: [string, 'null']}
+        locked: {type: boolean}
+        origin:
+          oneOf:
+          - type: object
+            required: [type]
+            properties:
+              type: {const: authored}
+          - type: object
+            required: [type, execution_id]
+            properties:
+              type: {const: ratchet}
+              execution_id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+    Verification:
+      type: object
+      required: [id, execution_id, tier, verdict, verifier, recorded_at]
+      properties:
+        id: {type: string, format: uuid}
+        execution_id: {type: string, format: uuid}
+        tier: {$ref: '#/components/schemas/OracleTier'}
+        verdict: {$ref: '#/components/schemas/Verdict'}
+        verifier: {$ref: '#/components/schemas/ActorRef'}
+        detail: {type: [string, 'null']}
+        recorded_at: {type: string, format: date-time}
+    Execution:
+      type: object
+      required:
+      - id
+      - capability_id
+      - capability_revision
+      - procedure_fingerprint
+      - scope
+      - input_class
+      - actor
+      - status
+      - started_at
+      properties:
+        id: {type: string, format: uuid}
+        capability_id: {type: string, format: uuid}
+        capability_revision: {type: string, format: uuid}
+        procedure_fingerprint: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        case_id: {type: [string, 'null'], format: uuid}
+        input_class: {type: string}
+        actor: {$ref: '#/components/schemas/ActorRef'}
+        status: {$ref: '#/components/schemas/ExecutionStatus'}
+        abort_reason:
+          oneOf:
+          - {$ref: '#/components/schemas/AbortReason'}
+          - {type: 'null'}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+        verifications:
+          type: array
+          items: {$ref: '#/components/schemas/Verification'}
+    CapabilityEvaluation:
+      type: object
+      description: Computed on read. See docs/specifications/capabilities.md.
+      required:
+      - stage
+      - policy
+      - field
+      - window
+      - consecutive_failures
+      - suite
+      - missing_kinds
+      - eligible
+      - blockers
+      - quarantine
+      properties:
+        stage: {$ref: '#/components/schemas/CapabilityStage'}
+        policy:
+          type: object
+          required:
+          - z
+          - min_classes_evaluated
+          - evaluated_lower_bound
+          - min_classes_trusted
+          - trusted_lower_bound
+          - required_kinds
+          - window
+          - window_min
+          - quarantine_upper_bound
+          - consecutive_failures
+          - run_timeout_seconds
+          properties:
+            z: {type: number, format: double}
+            min_classes_evaluated: {type: integer, format: int32, minimum: 0}
+            evaluated_lower_bound: {type: number, format: double}
+            min_classes_trusted: {type: integer, format: int32, minimum: 0}
+            trusted_lower_bound: {type: number, format: double}
+            required_kinds:
+              type: array
+              items: {$ref: '#/components/schemas/CaseKind'}
+            window: {type: integer, format: int32, minimum: 0}
+            window_min: {type: integer, format: int32, minimum: 0}
+            quarantine_upper_bound: {type: number, format: double}
+            consecutive_failures: {type: integer, format: int32, minimum: 0}
+            run_timeout_seconds: {type: integer, format: int64}
+        field:
+          type: object
+          required:
+          - runs
+          - successes
+          - failures
+          - aborted
+          - unverified
+          - pending
+          - input_classes
+          - success_rate
+          - wilson_lower
+          properties:
+            runs: {type: integer, format: int32, minimum: 0}
+            successes: {type: integer, format: int32, minimum: 0}
+            failures: {type: integer, format: int32, minimum: 0}
+            aborted: {type: integer, format: int32, minimum: 0}
+            unverified: {type: integer, format: int32, minimum: 0}
+            pending: {type: integer, format: int32, minimum: 0}
+            input_classes: {type: integer, format: int32, minimum: 0}
+            success_rate: {type: [number, 'null'], format: double}
+            wilson_lower: {type: [number, 'null'], format: double}
+        window:
+          type: object
+          required: [runs, successes, wilson_upper]
+          properties:
+            runs: {type: integer, format: int32, minimum: 0}
+            successes: {type: integer, format: int32, minimum: 0}
+            wilson_upper: {type: [number, 'null'], format: double}
+        consecutive_failures: {type: integer, format: int32, minimum: 0}
+        suite:
+          type: array
+          items:
+            type: object
+            required: [case_id, kind, locked, latest, passing]
+            properties:
+              case_id: {type: string, format: uuid}
+              kind: {$ref: '#/components/schemas/CaseKind'}
+              locked: {type: boolean}
+              latest:
+                type: [string, 'null']
+                enum: [success, failure, unverified, pending]
+              passing: {type: boolean}
+        missing_kinds:
+          type: array
+          items: {$ref: '#/components/schemas/CaseKind'}
+        eligible:
+          oneOf:
+          - {$ref: '#/components/schemas/CapabilityStage'}
+          - {type: 'null'}
+        blockers:
+          type: array
+          items: {type: string}
+        quarantine: {type: [string, 'null']}
+    CapabilityView:
+      type: object
+      required: [memory, cases, evaluation]
+      properties:
+        memory: {$ref: '#/components/schemas/MemoryRecord'}
+        cases:
+          type: array
+          items: {$ref: '#/components/schemas/EvaluationCase'}
+        evaluation: {$ref: '#/components/schemas/CapabilityEvaluation'}
+    ChangeStage:
+      type: object
+      required: [stage, reason]
+      properties:
+        stage: {$ref: '#/components/schemas/CapabilityStage'}
+        reason: {type: string}
+    NewCase:
+      type: object
+      required: [kind, input_class]
+      properties:
+        kind: {$ref: '#/components/schemas/CaseKind'}
+        input_class: {type: string}
+        description: {type: [string, 'null']}
+    StartExecution:
+      type: object
+      required: [input_class]
+      properties:
+        input_class: {type: string}
+        case_id: {type: [string, 'null'], format: uuid}
+    FinishExecution:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/ExecutionStatus'
+          description: '`completed` or `aborted`.'
+        abort_reason:
+          oneOf:
+          - {$ref: '#/components/schemas/AbortReason'}
+          - {type: 'null'}
+    VerifyExecution:
+      type: object
+      required: [tier, verdict]
+      properties:
+        tier: {$ref: '#/components/schemas/OracleTier'}
+        verdict: {$ref: '#/components/schemas/Verdict'}
+        detail: {type: [string, 'null']}
+    NeedStatus:
+      type: string
+      enum:
+      - retrieval_failure
+      - unresolved
+      - pending_promotion
+      - candidate_gap
+      - validated_gap
+      - satisfied
+      - dismissed
+    EvidenceRef:
+      type: object
+      required: [memory_id, revision_id]
+      properties:
+        memory_id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+    InformationNeed:
+      type: object
+      required:
+      - id
+      - scope
+      - partition
+      - signature
+      - query_hash
+      - origin
+      - status
+      - sessions
+      - occurrences
+      - first_seen
+      - last_seen
+      - impact
+      - cost
+      - version
+      - created_at
+      - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        partition: {type: string}
+        signature:
+          type: object
+          required: [version, terms]
+          properties:
+            version: {type: integer, format: int32, minimum: 0}
+            terms:
+              type: array
+              items: {type: string}
+        query_hash: {type: string}
+        question: {type: [string, 'null']}
+        origin: {type: string, enum: [observed, explicit]}
+        status: {$ref: '#/components/schemas/NeedStatus'}
+        sessions: {type: integer, format: int32, minimum: 0}
+        occurrences: {type: integer, format: int32, minimum: 0}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        last_trace: {type: [string, 'null'], format: uuid}
+        validation:
+          type: [object, 'null']
+          required: [outcome, detector, as_of, candidates_examined]
+          properties:
+            outcome:
+              oneOf:
+              - type: object
+                required: [outcome]
+                properties:
+                  outcome: {const: complete_no_evidence}
+              - type: object
+                required: [outcome, evidence, unvalidated_only]
+                properties:
+                  outcome: {const: complete_evidence_found}
+                  evidence:
+                    type: array
+                    items: {$ref: '#/components/schemas/EvidenceRef'}
+                  unvalidated_only: {type: boolean}
+              - type: object
+                required: [outcome, reason]
+                properties:
+                  outcome: {const: incomplete}
+                  reason: {type: string}
+            detector: {type: string}
+            as_of: {type: string, format: date-time}
+            candidates_examined: {type: integer, format: int32, minimum: 0}
+        resolved_by:
+          type: array
+          items: {$ref: '#/components/schemas/EvidenceRef'}
+        impact: {type: integer, minimum: 1, maximum: 5}
+        cost: {type: integer, minimum: 1, maximum: 5}
+        version: {type: integer, format: int32, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AcquisitionPriority:
+      type: object
+      required: [version, sessions, recency, status_weight, impact, cost, priority]
+      properties:
+        version: {type: integer, format: int32, minimum: 0}
+        sessions: {type: number, format: double}
+        recency: {type: number, format: double}
+        status_weight: {type: number, format: double}
+        impact: {type: number, format: double}
+        cost: {type: number, format: double}
+        priority: {type: number, format: double}
+    NeedView:
+      type: object
+      description: See docs/specifications/information-needs.md.
+      required: [need, priority]
+      properties:
+        need: {$ref: '#/components/schemas/InformationNeed'}
+        priority: {$ref: '#/components/schemas/AcquisitionPriority'}
+    AskQuestion:
+      type: object
+      required: [question]
+      properties:
+        question: {type: string}
+        impact: {type: integer, minimum: 1, maximum: 5, default: 1}
+        cost: {type: integer, minimum: 1, maximum: 5, default: 1}
+    NeedChange:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string}
+    NeedWeights:
+      type: object
+      required: [impact, cost, expected_version]
+      properties:
+        impact: {type: integer, minimum: 1, maximum: 5}
+        cost: {type: integer, minimum: 1, maximum: 5}
+        expected_version: {type: integer, format: int32, minimum: 0}
+    Direction: {type: string, enum: [raises, lowers]}
+    Arm: {type: string, enum: [treated, control]}
+    HypothesisStatus:
+      type: string
+      enum: [proposed, supported, refuted, inconclusive, retired]
+    ArmCounts:
+      type: object
+      required: [n, positive]
+      properties:
+        n: {type: integer, format: int32, minimum: 0}
+        positive: {type: integer, format: int32, minimum: 0}
+    ContextEffect:
+      type: object
+      required: [context, treated, control, effect, lower, upper, eligible]
+      properties:
+        context: {type: string}
+        treated: {$ref: '#/components/schemas/ArmCounts'}
+        control: {$ref: '#/components/schemas/ArmCounts'}
+        effect: {type: [number, 'null'], format: double}
+        lower: {type: [number, 'null'], format: double}
+        upper: {type: [number, 'null'], format: double}
+        eligible: {type: boolean}
+    PooledEffect:
+      type: object
+      required: [estimate, lower, upper, weight]
+      properties:
+        estimate: {type: number, format: double}
+        lower: {type: number, format: double}
+        upper: {type: number, format: double}
+        weight: {type: number, format: double}
+    Hypothesis:
+      type: object
+      description: See docs/specifications/causal-evidence.md.
+      required:
+      - id
+      - version
+      - scope
+      - environment
+      - treatment
+      - outcome
+      - direction
+      - min_effect
+      - status
+      - created_at
+      - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        version: {type: integer, format: int64, minimum: 0}
+        scope: {$ref: '#/components/schemas/Scope'}
+        environment: {type: string}
+        treatment: {type: string}
+        outcome: {type: string}
+        direction: {$ref: '#/components/schemas/Direction'}
+        min_effect: {type: number, format: double}
+        contexts:
+          type: array
+          items: {type: string}
+        statement: {type: [string, 'null']}
+        status: {$ref: '#/components/schemas/HypothesisStatus'}
+        evaluation:
+          type: [object, 'null']
+          required:
+          - version
+          - as_of
+          - interventions
+          - contexts
+          - eligible_contexts
+          - effect
+          - opposite_context
+          - scope_contexts
+          - observational
+          - status
+          properties:
+            version: {type: integer, format: int32, minimum: 0}
+            as_of: {type: string, format: date-time}
+            interventions:
+              type: array
+              items: {type: string, format: uuid}
+            contexts:
+              type: array
+              items: {$ref: '#/components/schemas/ContextEffect'}
+            eligible_contexts: {type: integer, format: int32, minimum: 0}
+            effect:
+              oneOf:
+              - {$ref: '#/components/schemas/PooledEffect'}
+              - {type: 'null'}
+            opposite_context: {type: boolean}
+            scope_contexts:
+              type: array
+              items: {type: string}
+            observational:
+              oneOf:
+              - {$ref: '#/components/schemas/PooledEffect'}
+              - {type: 'null'}
+            status: {$ref: '#/components/schemas/HypothesisStatus'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    NewHypothesis:
+      type: object
+      required: [scope, environment, treatment, outcome, direction]
+      properties:
+        scope: {$ref: '#/components/schemas/Scope'}
+        environment: {type: string}
+        treatment: {type: string}
+        outcome: {type: string}
+        direction: {$ref: '#/components/schemas/Direction'}
+        min_effect: {type: number, format: double, default: 0.0}
+        contexts:
+          type: array
+          items: {type: string}
+        statement: {type: [string, 'null']}
+    ExpectedVersion:
+      type: object
+      required: [expected_version]
+      properties:
+        expected_version: {type: integer, format: int64, minimum: 0}
+    Intervention:
+      type: object
+      required:
+      - id
+      - scope
+      - environment
+      - treatment
+      - arm
+      - assignment
+      - context
+      - recorded_at
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        environment: {type: string}
+        treatment: {type: string}
+        arm: {$ref: '#/components/schemas/Arm'}
+        assignment: {type: string, enum: [randomized, passive]}
+        assignment_detail: {type: [string, 'null']}
+        propensity: {type: [number, 'null'], format: double}
+        context: {type: string}
+        state:
+          type: object
+          additionalProperties: {type: string}
+        execution_id: {type: [string, 'null'], format: uuid}
+        recorded_at: {type: string, format: date-time}
+        outcomes:
+          type: object
+          additionalProperties:
+            type: object
+            required: [value, tier, observed_at]
+            properties:
+              value: {type: boolean}
+              tier: {$ref: '#/components/schemas/OracleTier'}
+              observed_at: {type: string, format: date-time}
+    NewIntervention:
+      type: object
+      required: [scope, environment, treatment, arm, assignment, context]
+      properties:
+        scope: {$ref: '#/components/schemas/Scope'}
+        environment: {type: string}
+        treatment: {type: string}
+        arm: {$ref: '#/components/schemas/Arm'}
+        assignment: {type: string, enum: [randomized, passive]}
+        assignment_detail: {type: [string, 'null']}
+        propensity: {type: [number, 'null'], format: double}
+        context: {type: string}
+        state:
+          type: object
+          additionalProperties: {type: string}
+        execution_id: {type: [string, 'null'], format: uuid}
+    ObserveOutcome:
+      type: object
+      required: [outcome, value, tier]
+      properties:
+        outcome: {type: string}
+        value: {type: boolean}
+        tier: {$ref: '#/components/schemas/OracleTier'}
+    CounterfactualView:
+      description: Read-time counterfactual bounds (experimental), or a refusal. Tagged by `result`.
+      allOf:
+      - type: object
+        required: [kind, version, hypothesis_id, hypothesis_version, intervention_id]
+        properties:
+          kind: {type: string}
+          version: {type: integer, format: int32, minimum: 0}
+          hypothesis_id: {type: string, format: uuid}
+          hypothesis_version: {type: integer, format: int64, minimum: 0}
+          intervention_id: {type: string, format: uuid}
+      - oneOf:
+        - type: object
+          required: [result, bounds]
+          properties:
+            result: {const: bounds}
+            bounds:
+              type: object
+              required: [query, lower, upper, context, assumptions, informative]
+              properties:
+                query: {type: string, enum: [necessity, sufficiency]}
+                lower: {type: number, format: double}
+                upper: {type: number, format: double}
+                context: {$ref: '#/components/schemas/ContextEffect'}
+                assumptions:
+                  type: array
+                  items:
+                    type: string
+                    enum: [exogeneity, consistency, no_interference, context_population]
+                informative: {type: boolean}
+        - type: object
+          required: [result, reason]
+          properties:
+            result: {const: refused}
+            reason:
+              type: string
+              enum:
+              - not_supported
+              - not_randomized
+              - unrelated
+              - out_of_scope
+              - no_eligible_outcome
+              - outcome_mismatch
+              - insufficient_evidence
+    RuleRefusal:
+      type: string
+      enum:
+      - not_supported
+      - unrelated
+      - out_of_scope
+      - locally_unsupported
+      - imprecise
+      - demoted
+    Prediction:
+      type: object
+      required:
+      - id
+      - scope
+      - intervention_id
+      - hypothesis_id
+      - hypothesis_version
+      - context
+      - arm
+      - lineage
+      - favourable
+      - estimate
+      - lower
+      - upper
+      - 'null'
+      - treated_n
+      - requalified
+      - recorded_at
+      - deadline
+      properties:
+        id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/Scope'}
+        intervention_id: {type: string, format: uuid}
+        hypothesis_id: {type: string, format: uuid}
+        hypothesis_version: {type: integer, format: int64, minimum: 0}
+        context: {type: string}
+        arm: {$ref: '#/components/schemas/Arm', default: treated}
+        lineage: {type: string}
+        favourable: {type: boolean}
+        estimate: {type: number, format: double}
+        lower: {type: number, format: double}
+        upper: {type: number, format: double}
+        'null': {type: number, format: double}
+        treated_n: {type: integer, format: int32, minimum: 0}
+        requalified: {type: boolean}
+        recorded_at: {type: string, format: date-time}
+        deadline: {type: string, format: date-time}
+    PredictRequest:
+      type: object
+      required: [hypothesis_id]
+      properties:
+        hypothesis_id: {type: string, format: uuid}
+    PredictionResult:
+      oneOf:
+      - type: object
+        required: [result, prediction]
+        properties:
+          result: {const: recorded}
+          prediction: {$ref: '#/components/schemas/Prediction'}
+      - type: object
+        required: [result, reason]
+        properties:
+          result: {const: refused}
+          reason: {$ref: '#/components/schemas/RuleRefusal'}
+      description: '`recorded` (201) or `refused` (200).'
+    Rule:
+      type: object
+      required:
+      - favourable
+      - treated_n
+      - treated_favourable
+      - estimate
+      - lower
+      - upper
+      - 'null'
+      - requalified
+      properties:
+        favourable: {type: boolean}
+        treated_n: {type: integer, format: int32, minimum: 0}
+        treated_favourable: {type: integer, format: int32, minimum: 0}
+        estimate: {type: number, format: double}
+        lower: {type: number, format: double}
+        upper: {type: number, format: double}
+        'null': {type: number, format: double}
+        requalified: {type: boolean}
+        control:
+          type: [object, 'null']
+          required: [n, favourable, estimate, lower, upper]
+          properties:
+            n: {type: integer, format: int32, minimum: 0}
+            favourable: {type: integer, format: int32, minimum: 0}
+            estimate: {type: number, format: double}
+            lower: {type: number, format: double}
+            upper: {type: number, format: double}
+        effect:
+          type: [object, 'null']
+          required: [estimate, lower, upper]
+          properties:
+            estimate: {type: number, format: double}
+            lower: {type: number, format: double}
+            upper: {type: number, format: double}
+    Monitor:
+      type: object
+      required: [threshold, demotions, current]
+      properties:
+        threshold: {type: number, format: double}
+        demotions:
+          type: array
+          items:
+            type: object
+            required: [at, prediction_id, arm, e_value, resolved]
+            properties:
+              at: {type: string, format: date-time}
+              prediction_id: {type: string, format: uuid}
+              arm: {$ref: '#/components/schemas/Arm'}
+              e_value: {type: number, format: double}
+              resolved: {type: integer, format: int32, minimum: 0}
+        current:
+          type: object
+          required: [resolved, favourable, missed, pending, e_value]
+          properties:
+            resolved: {type: integer, format: int32, minimum: 0}
+            favourable: {type: integer, format: int32, minimum: 0}
+            missed: {type: integer, format: int32, minimum: 0}
+            pending: {type: integer, format: int32, minimum: 0}
+            e_value: {type: number, format: double}
+            control_e_value: {type: number, format: double}
+            brier: {type: [number, 'null'], format: double}
+    GateDecision:
+      type: object
+      required: [execute, reason, threshold]
+      properties:
+        execute: {type: boolean}
+        reason:
+          type: string
+          enum: [clear, below_threshold, no_effect_estimate, effect_below_threshold, no_rule]
+        refusal:
+          $ref: '#/components/schemas/RuleRefusal'
+          description: Present only when `reason` is `no_rule`.
+        threshold: {type: number, format: double}
+        min_effect: {type: [number, 'null'], format: double}
+    RuleView:
+      description: A rule with its lineage monitor and gate decision, or a refusal. Tagged by `result`. See docs/specifications/predictions.md.
+      allOf:
+      - type: object
+        required: [kind, version, hypothesis_id, hypothesis_version, context, monitor, as_of]
+        properties:
+          kind: {type: string}
+          version: {type: integer, format: int32, minimum: 0}
+          hypothesis_id: {type: string, format: uuid}
+          hypothesis_version: {type: integer, format: int64, minimum: 0}
+          context: {type: string}
+          monitor: {$ref: '#/components/schemas/Monitor'}
+          gate:
+            oneOf:
+            - {$ref: '#/components/schemas/GateDecision'}
+            - {type: 'null'}
+          as_of: {type: string, format: date-time}
+      - oneOf:
+        - type: object
+          required: [result, rule]
+          properties:
+            result: {const: rule}
+            rule: {$ref: '#/components/schemas/Rule'}
+        - type: object
+          required: [result, reason]
+          properties:
+            result: {const: refused}
+            reason: {$ref: '#/components/schemas/RuleRefusal'}
