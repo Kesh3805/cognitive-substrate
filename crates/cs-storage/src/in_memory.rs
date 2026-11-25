@@ -14,7 +14,7 @@ use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
     Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, HypothesisId,
     InformationNeedId, InterventionId, JobId, MemoryId, MemoryRevisionId, ObservationId,
-    PredictionId, ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
+    PredictionId, ProposalId, RecallTraceId, Result, Scope, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -1621,6 +1621,33 @@ impl CognitiveStore for InMemoryStore {
             .filter(|i| {
                 i.environment == environment
                     && i.treatment == treatment
+                    && access.can_read(&i.scope)
+            })
+            .cloned()
+            .collect();
+        v.sort_by_key(|i| (i.recorded_at, i.id));
+        v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>> {
+        let s = self.lock();
+        let mut v: Vec<Intervention> = s
+            .interventions
+            .values()
+            .filter(|i| {
+                i.environment == environment
+                    && i.treatment == treatment
+                    && i.context == context
+                    && i.scope == *scope
                     && access.can_read(&i.scope)
             })
             .cloned()

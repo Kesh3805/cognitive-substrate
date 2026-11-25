@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
     EvidenceId, ExecutionId, HypothesisId, InformationNeedId, InterventionId, JobId, MemoryId,
-    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
+    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, Scope, ScopeFilter,
+    TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -657,6 +658,22 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         access: &AccessContext,
         environment: &str,
         treatment: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>>;
+
+    /// [`interventions_for`](Self::interventions_for) narrowed to one
+    /// lineage: interventions in exactly `scope` (all of its fields, not
+    /// merely readable) for one environment, treatment and context, by
+    /// `recorded_at`, then id; at most `limit`. Empty when the caller
+    /// cannot read `scope`. Because the scope is exact, every caller who
+    /// can read it gets the same rows.
+    async fn interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
         limit: u32,
     ) -> Result<Vec<Intervention>>;
 

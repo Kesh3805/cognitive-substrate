@@ -1680,6 +1680,19 @@ impl CognitiveStore for PgStore {
             .await
     }
 
+    async fn interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::causal::Intervention>> {
+        self.m62_interventions_in_context(access, scope, environment, treatment, context, limit)
+            .await
+    }
+
     async fn insert_prediction(
         &self,
         p: &cs_memory::prediction::Prediction,
