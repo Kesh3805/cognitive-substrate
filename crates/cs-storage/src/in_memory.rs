@@ -1806,6 +1806,15 @@ impl CognitiveStore for InMemoryStore {
         Ok(self.lock().purges.get(&(kind.as_str(), id)).copied())
     }
 
+    async fn purged_among(&self, kind: PurgeKind, ids: &[Uuid]) -> Result<BTreeSet<Uuid>> {
+        let s = self.lock();
+        Ok(ids
+            .iter()
+            .copied()
+            .filter(|id| s.purges.contains_key(&(kind.as_str(), *id)))
+            .collect())
+    }
+
     async fn purge_evidence(
         &self,
         id: EvidenceId,

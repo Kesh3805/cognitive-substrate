@@ -1836,6 +1836,14 @@ impl CognitiveStore for PgStore {
         self.m3_purged_at(kind, id).await
     }
 
+    async fn purged_among(
+        &self,
+        kind: cs_storage::PurgeKind,
+        ids: &[Uuid],
+    ) -> Result<std::collections::BTreeSet<Uuid>> {
+        self.m3_purged_among(kind, ids).await
+    }
+
     async fn purge_evidence(
         &self,
         id: EvidenceId,

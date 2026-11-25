@@ -1220,11 +1220,44 @@ impl CognitiveEngine {
         let replayed_beliefs = pick_beliefs(&replay);
         let before: BTreeSet<MemoryId> = original_selected.iter().map(|(m, _)| *m).collect();
         let after: BTreeSet<MemoryId> = replayed_selected.iter().map(|(m, _)| *m).collect();
+        let identical =
+            original_selected == replayed_selected && original_beliefs == replayed_beliefs;
+
+        // Classify the original candidate set against the purge ledger in
+        // one lookup (bounded by `max_candidates`). Only ids the trace
+        // already holds are reported.
+        let mut seen = BTreeSet::new();
+        let candidate_ids: Vec<MemoryId> = original
+            .candidates
+            .iter()
+            .map(|c| c.memory_id)
+            .filter(|m| seen.insert(*m))
+            .collect();
+        let raw: Vec<uuid::Uuid> = candidate_ids.iter().map(|m| m.0).collect();
+        let purged = self
+            .store
+            .purged_among(cs_storage::PurgeKind::Memory, &raw)
+            .await?;
+        let purged_candidates: Vec<MemoryId> = candidate_ids
+            .into_iter()
+            .filter(|m| purged.contains(&m.0))
+            .collect();
+        let purged_selected: Vec<MemoryId> = purged_candidates
+            .iter()
+            .copied()
+            .filter(|m| before.contains(m))
+            .collect();
+        let fidelity = if !purged_candidates.is_empty() {
+            ReplayFidelity::DegradedByPurge
+        } else if identical {
+            ReplayFidelity::Exact
+        } else {
+            ReplayFidelity::Diverged
+        };
         Ok(ReplayReport {
             trace_id: id,
             counterfactual,
-            identical: original_selected == replayed_selected
-                && original_beliefs == replayed_beliefs,
+            identical,
             added: after.difference(&before).copied().collect(),
             removed: before.difference(&after).copied().collect(),
             original_selected,
@@ -1232,6 +1265,9 @@ impl CognitiveEngine {
             original_beliefs,
             replayed_beliefs,
             replay,
+            purged_candidates,
+            purged_selected,
+            fidelity,
         })
     }
 

@@ -525,6 +525,14 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// When (if ever) a record was purged.
     async fn purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>>;
 
+    /// The subset of `ids` that the purge ledger records as purged with
+    /// `kind`, in one lookup (replay classifies a whole candidate set).
+    async fn purged_among(
+        &self,
+        kind: PurgeKind,
+        ids: &[Uuid],
+    ) -> Result<std::collections::BTreeSet<Uuid>>;
+
     // ---- entities & graph (M4) ---------------------------------------------
 
     async fn get_entity(&self, id: EntityId) -> Result<Option<Entity>>;
