@@ -50,7 +50,7 @@ From the treated counts `n` and `k` favourable (taken from the evaluation plus a
 |---|---|
 | `estimate` | `(k + ½) / (n + 1)` (Jeffreys) |
 | `lower`, `upper` | Wilson 95% interval of `k / n` |
-| `null` | `max(lower, 0.02)`: the live rate is monitored against the rule's own lower bound |
+| `null` | `lower` clamped to [0.02, 0.98]: the live rate is monitored against the rule's own lower bound. The cap stops near-perfect evidence from making one or two late outcomes decisive. |
 | `requalified` | the counts come from a re-earning block |
 | `control` | `{ n, favourable, estimate, lower, upper }` for the control arm, when it has at least 20 outcomes |
 | `effect` | `{ estimate, lower, upper }`: treated minus control, Newcombe's 95% interval, when `control` is present |
@@ -68,7 +68,7 @@ From the treated counts `n` and `k` favourable (taken from the evaluation plus a
 | A control-arm intervention and no control estimate | `imprecise` |
 | Any rule refusal | that refusal |
 
-**Control holdouts.** A control-arm intervention is predicted from the control arm. Its `null` is the control arm's **upper** bound (capped at 0.98), and the monitor tests that the control's favourable rate stays at or below it.
+**Control holdouts.** A control-arm intervention is predicted from the control arm. Its `null` is the control arm's **upper** bound (clamped to [0.02, 0.98], symmetric with the treated arm), and the monitor tests that the control's favourable rate stays at or below it.
 
 **Conflicts (409).** The outcome for the hypothesis's key is already recorded, or the intervention already has a prediction in the same lineage.
 
@@ -88,10 +88,10 @@ Predictions are never evidence for a hypothesis.
 | Condition | Resolution | At |
 |---|---|---|
 | A strong-tier outcome observed by the deadline | `observed { favourable }` | `observed_at` |
-| Otherwise, once the deadline has passed | `missed`, which counts as unfavourable | `deadline` |
+| Otherwise, strictly after the deadline | `missed`, which counts as unfavourable | `deadline` |
 | Otherwise | pending | — |
 
-Self-assessed outcomes never resolve a prediction. An outcome that arrives after the deadline does not change a miss.
+Self-assessed outcomes never resolve a prediction. At the deadline instant itself a prediction is still pending, so a miss is only ever declared once no outcome can count, and an outcome can never turn a miss back into an observation.
 
 ## Monitor
 
@@ -155,3 +155,4 @@ With `threshold`, `gate` is `{ execute, reason, threshold, min_effect }`. `min_e
 | Contexts are opaque | Padding a context with easy cases dilutes the monitor. Context taxonomy is the caller's responsibility. |
 | The effect is monitored arm by arm | The monitored contract is "treated ≥ its lower bound and control ≤ its upper bound", which implies an effect of at least their difference. That is more conservative than the Newcombe bound the gate uses. A drift that shrinks the effect while both arms stay inside their own bounds is not detected until it crosses one of them. |
 | Holdouts are the caller's policy | Without control holdouts, a rising control rate is invisible. The substrate monitors holdouts when they are recorded; it does not schedule them. |
+| Reads and writes are not serialized | An outcome or prediction written concurrently with a read can land on the far side of a demotion or deadline from what the read saw. The read is consistent with the records it saw; the next read reflects the commit. The window is the duration of one write. |
