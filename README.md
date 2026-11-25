@@ -184,6 +184,10 @@ let hits = engine.recall(&ctx, RecallRequest {
 }).await?;
 ```
 
+### Use it from an MCP client
+
+`cs-mcp` serves the engine over the Model Context Protocol (stdio or Streamable HTTP) for one configured user. Claude Code, Cursor and other clients can then `remember`, `recall` with a trace id, `replay_recall`, `observe` and assert beliefs. It also accepts the reference memory server's `create_entities`, `add_observations` and `search_nodes`. See [`crates/cs-mcp`](crates/cs-mcp/README.md) for setup and the tool mapping.
+
 ## HTTP API (`/v1`)
 
 | Method | Path | Purpose |
@@ -254,6 +258,7 @@ A typed Python client (sync and async, built on `httpx`) lives in [`sdks/python`
 | `cs-postgres` | PostgreSQL + pgvector adapter, migrations | core, memory, storage |
 | `cs-engine` | The embeddable engine and public Rust API | core, memory, policy, storage |
 | `cs-server` | HTTP transport, service binary and in-process worker | engine, core |
+| `cs-mcp` | Model Context Protocol server (`cs-mcp` binary) | engine, core |
 | `cs-extractor-http` | Optional OpenAI-compatible / Ollama extractor | engine, memory |
 | `cs-embedder-http` | OpenAI-compatible and Ollama-native embedder | engine |
 | `cs-embedder-fastembed` | Local ONNX embedder (not built by default; server feature `fastembed`) | engine |
