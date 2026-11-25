@@ -239,6 +239,8 @@ Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-pro
 
 Errors are always `{"error": {"code": "...", "message": "..."}}`.
 
+A typed Python client (sync and async, built on `httpx`) lives in [`sdks/python`](sdks/python/README.md). It covers memories, recall and replay, evidence and beliefs, observations and proposals, hypotheses, interventions and predictions.
+
 ## Workspace
 
 | Crate | Responsibility | Depends on |
