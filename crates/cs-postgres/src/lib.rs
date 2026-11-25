@@ -36,6 +36,7 @@ mod m43;
 mod m44;
 mod m54;
 mod m62;
+mod m64;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -1677,6 +1678,22 @@ impl CognitiveStore for PgStore {
     ) -> Result<Vec<cs_memory::causal::Intervention>> {
         self.m62_interventions_for(access, environment, treatment, limit)
             .await
+    }
+
+    async fn insert_prediction(
+        &self,
+        p: &cs_memory::prediction::Prediction,
+        outcome_key: &str,
+        event: EventDraft,
+    ) -> Result<()> {
+        self.m64_insert_prediction(p, outcome_key, event).await
+    }
+
+    async fn predictions_for(
+        &self,
+        lineage: &str,
+    ) -> Result<Vec<cs_memory::prediction::Prediction>> {
+        self.m64_predictions_for(lineage).await
     }
 
     async fn insert_execution(

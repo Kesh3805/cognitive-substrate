@@ -21,6 +21,7 @@ use cs_memory::{
     derivation::{Derivation, DerivationStatus},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
     need::{InformationNeed, NeedStatus, TermStats},
+    prediction::Prediction,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -658,6 +659,22 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         treatment: &str,
         limit: u32,
     ) -> Result<Vec<Intervention>>;
+
+    // ---- bounded predictions (M6.4) -------------------------------------------
+
+    /// Insert a prediction, atomically with its event. `Conflict` if the
+    /// intervention already has a prediction in the same lineage, or
+    /// already has an outcome for `outcome_key` (a prediction is made at
+    /// intent, before the outcome is known).
+    async fn insert_prediction(
+        &self,
+        p: &Prediction,
+        outcome_key: &str,
+        event: EventDraft,
+    ) -> Result<()>;
+
+    /// Every prediction of one lineage, by `recorded_at`, then id.
+    async fn predictions_for(&self, lineage: &str) -> Result<Vec<Prediction>>;
 
     // ---- capabilities (M4.4) ------------------------------------------------
 

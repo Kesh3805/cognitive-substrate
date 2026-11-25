@@ -14,7 +14,7 @@ use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EdgeId, EntityId, EntityMentionId,
     Error, EvaluationCaseId, EventDraft, EventQuery, EvidenceId, ExecutionId, HypothesisId,
     InformationNeedId, InterventionId, JobId, MemoryId, MemoryRevisionId, ObservationId,
-    ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
+    PredictionId, ProposalId, RecallTraceId, Result, TenantId, temporal::truncate_micros,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -28,6 +28,7 @@ use cs_memory::{
         EntityStatus, KnowledgeEdge, Projection, entity_id_for, partition_scope,
     },
     need::{InformationNeed, NeedStatus, TermStats},
+    prediction::Prediction,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -70,6 +71,7 @@ struct State {
     need_sessions: HashSet<(InformationNeedId, String)>,
     hypotheses: BTreeMap<HypothesisId, Vec<Hypothesis>>,
     interventions: BTreeMap<InterventionId, Intervention>,
+    predictions: BTreeMap<PredictionId, Prediction>,
 }
 
 impl State {
@@ -1625,6 +1627,47 @@ impl CognitiveStore for InMemoryStore {
             .collect();
         v.sort_by_key(|i| (i.recorded_at, i.id));
         v.truncate(limit as usize);
+        Ok(v)
+    }
+
+    async fn insert_prediction(
+        &self,
+        p: &Prediction,
+        outcome_key: &str,
+        event: EventDraft,
+    ) -> Result<()> {
+        let mut s = self.lock();
+        let i = s
+            .interventions
+            .get(&p.intervention_id)
+            .ok_or_else(|| Error::not_found("intervention", p.intervention_id))?;
+        if i.outcomes.contains_key(outcome_key) {
+            return Err(Error::conflict(
+                "the outcome is already recorded; a prediction is made at intent",
+            ));
+        }
+        if s.predictions
+            .values()
+            .any(|x| x.intervention_id == p.intervention_id && x.lineage == p.lineage)
+        {
+            return Err(Error::conflict(
+                "this intervention already has a prediction in this lineage",
+            ));
+        }
+        s.predictions.insert(p.id, p.clone());
+        s.append(event);
+        Ok(())
+    }
+
+    async fn predictions_for(&self, lineage: &str) -> Result<Vec<Prediction>> {
+        let s = self.lock();
+        let mut v: Vec<Prediction> = s
+            .predictions
+            .values()
+            .filter(|p| p.lineage == lineage)
+            .cloned()
+            .collect();
+        v.sort_by_key(|p| (p.recorded_at, p.id));
         Ok(v)
     }
 
