@@ -10,6 +10,7 @@ pub mod counterfactual;
 pub mod debt;
 pub mod lexical;
 pub mod metacognition;
+pub mod prediction;
 pub mod resolve;
 pub mod scoring;
 

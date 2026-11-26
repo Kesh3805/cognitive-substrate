@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use cs_core::{
     AccessContext, BeliefId, CognitiveEvent, DerivationId, EntityId, EventDraft, EventQuery,
     EvidenceId, ExecutionId, HypothesisId, InformationNeedId, InterventionId, JobId, MemoryId,
-    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, ScopeFilter, TenantId,
+    MemoryRevisionId, ObservationId, ProposalId, RecallTraceId, Result, Scope, ScopeFilter,
+    TenantId,
 };
 use cs_memory::{
     Belief, BeliefDependency, BeliefEvidence, BeliefStatus, ClaimedJob, EmbeddingRecord, Evidence,
@@ -21,6 +22,7 @@ use cs_memory::{
     derivation::{Derivation, DerivationStatus},
     entity::{Entity, EntityAlias, EntityKind, EntityMention, KnowledgeEdge, Projection},
     need::{InformationNeed, NeedStatus, TermStats},
+    prediction::Prediction,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -523,6 +525,14 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
     /// When (if ever) a record was purged.
     async fn purged_at(&self, kind: PurgeKind, id: Uuid) -> Result<Option<OffsetDateTime>>;
 
+    /// The subset of `ids` that the purge ledger records as purged with
+    /// `kind`, in one lookup (replay classifies a whole candidate set).
+    async fn purged_among(
+        &self,
+        kind: PurgeKind,
+        ids: &[Uuid],
+    ) -> Result<std::collections::BTreeSet<Uuid>>;
+
     // ---- entities & graph (M4) ---------------------------------------------
 
     async fn get_entity(&self, id: EntityId) -> Result<Option<Entity>>;
@@ -658,6 +668,38 @@ pub trait CognitiveStore: Send + Sync + std::fmt::Debug + 'static {
         treatment: &str,
         limit: u32,
     ) -> Result<Vec<Intervention>>;
+
+    /// [`interventions_for`](Self::interventions_for) narrowed to one
+    /// lineage: interventions in exactly `scope` (all of its fields, not
+    /// merely readable) for one environment, treatment and context, by
+    /// `recorded_at`, then id; at most `limit`. Empty when the caller
+    /// cannot read `scope`. Because the scope is exact, every caller who
+    /// can read it gets the same rows.
+    async fn interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>>;
+
+    // ---- bounded predictions (M6.4) -------------------------------------------
+
+    /// Insert a prediction, atomically with its event. `Conflict` if the
+    /// intervention already has a prediction in the same lineage, or
+    /// already has an outcome for `outcome_key` (a prediction is made at
+    /// intent, before the outcome is known).
+    async fn insert_prediction(
+        &self,
+        p: &Prediction,
+        outcome_key: &str,
+        event: EventDraft,
+    ) -> Result<()>;
+
+    /// Every prediction of one lineage, by `recorded_at`, then id.
+    async fn predictions_for(&self, lineage: &str) -> Result<Vec<Prediction>>;
 
     // ---- capabilities (M4.4) ------------------------------------------------
 

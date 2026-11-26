@@ -17,6 +17,7 @@ mod embeddings;
 pub mod entities;
 pub mod extract;
 pub mod needs;
+pub mod predictions;
 mod processing;
 pub mod requests;
 pub mod worker;
@@ -926,6 +927,8 @@ impl CognitiveEngine {
         RecallTrace {
             id,
             tenant_id: ctx.tenant_id,
+            owner_user_id: ctx.user_id,
+            owner_agent_id: ctx.agent_id,
             data_snapshot: self.snapshot(&policy, &run.dense),
             query_text: policy.retain_query_text.then(|| query.to_owned()),
             // The query vector encodes the query: retained only with it.
@@ -1160,9 +1163,13 @@ impl CognitiveEngine {
         })
     }
 
+    /// A recall trace, readable only by the principal that ran the recall
+    /// (same tenant, user and agent; see [`RecallTrace::readable_by`]).
+    /// Anything else, including legacy traces without an owner, is
+    /// `not_found`.
     pub async fn get_trace(&self, ctx: &AccessContext, id: RecallTraceId) -> Result<RecallTrace> {
         match self.store.get_trace(id).await? {
-            Some(t) if t.tenant_id == ctx.tenant_id => Ok(t),
+            Some(t) if t.readable_by(ctx) => Ok(t),
             _ => Err(Error::not_found("recall trace", id)),
         }
     }
@@ -1213,11 +1220,44 @@ impl CognitiveEngine {
         let replayed_beliefs = pick_beliefs(&replay);
         let before: BTreeSet<MemoryId> = original_selected.iter().map(|(m, _)| *m).collect();
         let after: BTreeSet<MemoryId> = replayed_selected.iter().map(|(m, _)| *m).collect();
+        let identical =
+            original_selected == replayed_selected && original_beliefs == replayed_beliefs;
+
+        // Classify the original candidate set against the purge ledger in
+        // one lookup (bounded by `max_candidates`). Only ids the trace
+        // already holds are reported.
+        let mut seen = BTreeSet::new();
+        let candidate_ids: Vec<MemoryId> = original
+            .candidates
+            .iter()
+            .map(|c| c.memory_id)
+            .filter(|m| seen.insert(*m))
+            .collect();
+        let raw: Vec<uuid::Uuid> = candidate_ids.iter().map(|m| m.0).collect();
+        let purged = self
+            .store
+            .purged_among(cs_storage::PurgeKind::Memory, &raw)
+            .await?;
+        let purged_candidates: Vec<MemoryId> = candidate_ids
+            .into_iter()
+            .filter(|m| purged.contains(&m.0))
+            .collect();
+        let purged_selected: Vec<MemoryId> = purged_candidates
+            .iter()
+            .copied()
+            .filter(|m| before.contains(m))
+            .collect();
+        let fidelity = if !purged_candidates.is_empty() {
+            ReplayFidelity::DegradedByPurge
+        } else if identical {
+            ReplayFidelity::Exact
+        } else {
+            ReplayFidelity::Diverged
+        };
         Ok(ReplayReport {
             trace_id: id,
             counterfactual,
-            identical: original_selected == replayed_selected
-                && original_beliefs == replayed_beliefs,
+            identical,
             added: after.difference(&before).copied().collect(),
             removed: before.difference(&after).copied().collect(),
             original_selected,
@@ -1225,6 +1265,9 @@ impl CognitiveEngine {
             original_beliefs,
             replayed_beliefs,
             replay,
+            purged_candidates,
+            purged_selected,
+            fidelity,
         })
     }
 

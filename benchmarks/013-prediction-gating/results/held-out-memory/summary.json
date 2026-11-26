@@ -1,0 +1,367 @@
+{
+  "families": [
+    {
+      "family": "stationary",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": 0.6169,
+        "refuse": -0.25,
+        "global": -0.03453749999999999,
+        "per_context": 0.41922916666666676,
+        "per_context_probing": 0.6169,
+        "per_context_cusum": 0.5899541666666668,
+        "gate": 0.5872500000000003
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.029650000000000003,
+          "lower": -0.04267500000000001,
+          "upper": -0.01801666666666667
+        },
+        "refuse": {
+          "mean": 0.8372500000000003,
+          "lower": 0.8127291666666666,
+          "upper": 0.8613875
+        },
+        "global": {
+          "mean": 0.6217875,
+          "lower": 0.50275,
+          "upper": 0.7227333333333334
+        },
+        "per_context": {
+          "mean": 0.16802083333333334,
+          "lower": 0.12542083333333337,
+          "upper": 0.21274583333333327
+        },
+        "per_context_probing": {
+          "mean": -0.029650000000000003,
+          "lower": -0.04267500000000001,
+          "upper": -0.01801666666666667
+        },
+        "per_context_cusum": {
+          "mean": -0.00270416666666667,
+          "lower": -0.005629166666666674,
+          "upper": -0.0010291666666666672
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 0,
+      "detected": 0,
+      "median_delay": null,
+      "p90_delay": null,
+      "requalified": 0
+    },
+    {
+      "family": "cliff",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": 0.4123833333333334,
+        "refuse": -0.25,
+        "global": -0.10594166666666667,
+        "per_context": 0.2619666666666667,
+        "per_context_probing": 0.35734999999999995,
+        "per_context_cusum": 0.33763333333333334,
+        "gate": 0.3366166666666666
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.07576666666666665,
+          "lower": -0.08703749999999996,
+          "upper": -0.06531666666666666
+        },
+        "refuse": {
+          "mean": 0.5866166666666668,
+          "lower": 0.5590583333333334,
+          "upper": 0.6157458333333332
+        },
+        "global": {
+          "mean": 0.4425583333333335,
+          "lower": 0.39253333333333335,
+          "upper": 0.49375833333333335
+        },
+        "per_context": {
+          "mean": 0.07464999999999998,
+          "lower": 0.034062499999999996,
+          "upper": 0.11928333333333332
+        },
+        "per_context_probing": {
+          "mean": -0.020733333333333336,
+          "lower": -0.03122083333333333,
+          "upper": -0.011145833333333343
+        },
+        "per_context_cusum": {
+          "mean": -0.0010166666666666616,
+          "lower": -0.0021541666666666575,
+          "upper": 0.00014583333333333532
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 73,
+      "detected": 73,
+      "median_delay": 21.0,
+      "p90_delay": 33.0,
+      "requalified": 0
+    },
+    {
+      "family": "gradual",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": 0.4395375,
+        "refuse": -0.25,
+        "global": -0.0386875,
+        "per_context": 0.32183749999999994,
+        "per_context_probing": 0.41534166666666666,
+        "per_context_cusum": 0.3961875,
+        "gate": 0.39316666666666666
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.04637083333333333,
+          "lower": -0.06616666666666667,
+          "upper": -0.029699999999999997
+        },
+        "refuse": {
+          "mean": 0.6431666666666667,
+          "lower": 0.6090583333333333,
+          "upper": 0.6753124999999999
+        },
+        "global": {
+          "mean": 0.43185416666666676,
+          "lower": 0.36535416666666665,
+          "upper": 0.5003958333333334
+        },
+        "per_context": {
+          "mean": 0.07132916666666668,
+          "lower": 0.02925000000000001,
+          "upper": 0.11642083333333333
+        },
+        "per_context_probing": {
+          "mean": -0.022175,
+          "lower": -0.040654166666666665,
+          "upper": -0.007850000000000003
+        },
+        "per_context_cusum": {
+          "mean": -0.003020833333333328,
+          "lower": -0.006749999999999995,
+          "upper": -0.0007458333333333345
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 72,
+      "detected": 63,
+      "median_delay": 81.0,
+      "p90_delay": null,
+      "requalified": 0
+    },
+    {
+      "family": "recovery",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": 0.5528333333333334,
+        "refuse": -0.25,
+        "global": -0.10649583333333332,
+        "per_context": 0.23899166666666666,
+        "per_context_probing": 0.4601041666666667,
+        "per_context_cusum": 0.4336749999999999,
+        "gate": 0.4270625
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.12577083333333333,
+          "lower": -0.14452083333333327,
+          "upper": -0.10857500000000002
+        },
+        "refuse": {
+          "mean": 0.6770625000000001,
+          "lower": 0.6398416666666668,
+          "upper": 0.7113041666666665
+        },
+        "global": {
+          "mean": 0.5335583333333332,
+          "lower": 0.48716250000000005,
+          "upper": 0.5818333333333332
+        },
+        "per_context": {
+          "mean": 0.18807083333333335,
+          "lower": 0.1419583333333333,
+          "upper": 0.240375
+        },
+        "per_context_probing": {
+          "mean": -0.03304166666666666,
+          "lower": -0.05241249999999999,
+          "upper": -0.01607499999999999
+        },
+        "per_context_cusum": {
+          "mean": -0.006612500000000005,
+          "lower": -0.010658333333333336,
+          "upper": -0.002654166666666674
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 75,
+      "detected": 75,
+      "median_delay": 19.0,
+      "p90_delay": 31.0,
+      "requalified": 59
+    },
+    {
+      "family": "upward",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": 0.5718500000000001,
+        "refuse": -0.25,
+        "global": -0.23722916666666666,
+        "per_context": 0.24002916666666665,
+        "per_context_probing": 0.5281875000000001,
+        "per_context_cusum": 0.4542166666666666,
+        "gate": 0.4465833333333332
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.1252666666666667,
+          "lower": -0.14204583333333332,
+          "upper": -0.10900416666666665
+        },
+        "refuse": {
+          "mean": 0.6965833333333334,
+          "lower": 0.6668458333333334,
+          "upper": 0.7258749999999997
+        },
+        "global": {
+          "mean": 0.6838124999999999,
+          "lower": 0.6507166666666667,
+          "upper": 0.7160499999999999
+        },
+        "per_context": {
+          "mean": 0.20655416666666673,
+          "lower": 0.17712916666666667,
+          "upper": 0.23509999999999995
+        },
+        "per_context_probing": {
+          "mean": -0.08160416666666667,
+          "lower": -0.09869166666666665,
+          "upper": -0.0651625
+        },
+        "per_context_cusum": {
+          "mean": -0.007633333333333332,
+          "lower": -0.013429166666666664,
+          "upper": -0.0010791666666666686
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 0,
+      "detected": 0,
+      "median_delay": null,
+      "p90_delay": null,
+      "requalified": 0
+    },
+    {
+      "family": "global",
+      "runs": 40,
+      "supported": 40,
+      "utility": {
+        "oracle": -0.019966666666666667,
+        "refuse": -0.25,
+        "global": -0.14230416666666668,
+        "per_context": -0.06444166666666665,
+        "per_context_probing": -0.14634583333333331,
+        "per_context_cusum": -0.1750875,
+        "gate": -0.17357500000000003
+      },
+      "gate_minus": {
+        "oracle": {
+          "mean": -0.15360833333333332,
+          "lower": -0.1637375,
+          "upper": -0.14401250000000004
+        },
+        "refuse": {
+          "mean": 0.07642499999999999,
+          "lower": 0.0629625,
+          "upper": 0.08945416666666668
+        },
+        "global": {
+          "mean": -0.03127083333333333,
+          "lower": -0.07430833333333334,
+          "upper": 0.01291666666666667
+        },
+        "per_context": {
+          "mean": -0.10913333333333333,
+          "lower": -0.12319166666666667,
+          "upper": -0.09507916666666663
+        },
+        "per_context_probing": {
+          "mean": -0.027229166666666665,
+          "lower": -0.036708333333333336,
+          "upper": -0.018329166666666664
+        },
+        "per_context_cusum": {
+          "mean": 0.0015124999999999995,
+          "lower": -0.0001250000000000022,
+          "upper": 0.003429166666666667
+        }
+      },
+      "runs_with_false_demotion": 0,
+      "false_demotion_upper": 0.08762453925039232,
+      "shifted_contexts": 217,
+      "detected": 217,
+      "median_delay": 31.0,
+      "p90_delay": 72.0,
+      "requalified": 0
+    }
+  ],
+  "gates": [
+    {
+      "criterion": "G1 (superseded, reported) every harmful family: gate beats every existing arm",
+      "value": "Cliff vs PerContextProbing: Interval { mean: -0.020733333333333336, lower: -0.03122083333333333, upper: -0.011145833333333343 }; Gradual vs PerContextProbing: Interval { mean: -0.022175, lower: -0.040654166666666665, upper: -0.007850000000000003 }; Recovery vs PerContextProbing: Interval { mean: -0.03304166666666666, lower: -0.05241249999999999, upper: -0.01607499999999999 }; Global vs Global: Interval { mean: -0.03127083333333333, lower: -0.07430833333333334, upper: 0.01291666666666667 }; Global vs PerContext: Interval { mean: -0.10913333333333333, lower: -0.12319166666666667, upper: -0.09507916666666663 }; Global vs PerContextProbing: Interval { mean: -0.027229166666666665, lower: -0.036708333333333336, upper: -0.018329166666666664 }",
+      "passed": false,
+      "binding": false
+    },
+    {
+      "criterion": "G1 every harmful family: gate non-inferior (CI lower > −0.02) to every admissible existing arm",
+      "value": "admissible [PerContextProbing]; Cliff vs PerContextProbing: Interval { mean: -0.020733333333333336, lower: -0.03122083333333333, upper: -0.011145833333333343 }; Gradual vs PerContextProbing: Interval { mean: -0.022175, lower: -0.040654166666666665, upper: -0.007850000000000003 }; Recovery vs PerContextProbing: Interval { mean: -0.03304166666666666, lower: -0.05241249999999999, upper: -0.01607499999999999 }; Global vs PerContextProbing: Interval { mean: -0.027229166666666665, lower: -0.036708333333333336, upper: -0.018329166666666664 }",
+      "passed": false,
+      "binding": true
+    },
+    {
+      "criterion": "G2 stationary: gate non-inferior to every existing arm (CI lower > −0.02)",
+      "value": "vs PerContextProbing: Interval { mean: -0.029650000000000003, lower: -0.04267500000000001, upper: -0.01801666666666667 }",
+      "passed": false,
+      "binding": true
+    },
+    {
+      "criterion": "G3 stationary: runs with any false demotion ≤ 5%",
+      "value": "0/40 (Wilson upper 0.088)",
+      "passed": true,
+      "binding": true
+    },
+    {
+      "criterion": "G4 cliff and global: ≥ 95% of exposed shifted contexts demoted; median delay ≤ 20 (cliff), ≤ 40 (global)",
+      "value": "cliff 73/73 median Some(21.0) p90 Some(33.0); global 217/217 median Some(31.0) p90 Some(72.0)",
+      "passed": false,
+      "binding": true
+    },
+    {
+      "criterion": "G5 recovery: ≥ 80% of returned contexts acted on again from a re-earned rule",
+      "value": "59/75",
+      "passed": false,
+      "binding": true
+    },
+    {
+      "criterion": "G6 every family: gate non-inferior to the per-context CUSUM (CI lower > −0.02)",
+      "value": "all 6 families",
+      "passed": true,
+      "binding": true
+    }
+  ],
+  "adopt": false
+}

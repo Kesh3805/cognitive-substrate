@@ -98,6 +98,9 @@ Evaluating writes a new version, even when the status is unchanged. A stale `exp
 | POST | `/v1/interventions` | Record an intervention at intent (201) |
 | GET | `/v1/interventions/{id}` | Read an intervention |
 | POST | `/v1/interventions/{id}/outcomes` | `{ outcome, value, tier }`, once per outcome key |
+| GET | `/v1/interventions/{id}/counterfactual?hypothesis=` | Read-time bounds ([Counterfactuals](#counterfactuals-version-1-experimental)) |
+| POST | `/v1/interventions/{id}/predictions` | `{ hypothesis_id }`: record a prediction at intent (201), or a refusal (200) ([predictions](predictions.md)) |
+| GET | `/v1/hypotheses/{id}/rule?context=&threshold=&min_effect=` | The rule, its lineage's monitor and the gate ([predictions](predictions.md)) |
 
 ## Events
 

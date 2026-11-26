@@ -247,6 +247,36 @@ pub struct ReplayReport {
     #[serde(default)]
     pub replayed_beliefs: Vec<BeliefId>,
     pub replay: RecallTrace,
+    /// Memories in the original candidate set (selected or not) that have
+    /// since been purged, in original rank order. Identifiers only: replay
+    /// never reconstructs purged content.
+    #[serde(default)]
+    pub purged_candidates: Vec<MemoryId>,
+    /// The subset of `purged_candidates` that the original recall selected.
+    #[serde(default)]
+    pub purged_selected: Vec<MemoryId>,
+    /// How far the replay can be trusted to reproduce the original
+    /// (`docs/specifications/replay-and-purge.md`).
+    #[serde(default)]
+    pub fidelity: ReplayFidelity,
+}
+
+/// Whether a replay reproduced its original, and if not, why.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayFidelity {
+    /// Same selection, and every original candidate still exists.
+    #[default]
+    Exact,
+    /// Something in the original candidate set was purged since. The
+    /// selection may or may not have changed (`identical` says which); either
+    /// way the candidate set, and so component scores, differ.
+    DegradedByPurge,
+    /// The selection differs and nothing was purged. For an exact replay
+    /// this is a determinism failure to investigate (or the replay ran under
+    /// a principal that sees different data); for a counterfactual replay it
+    /// is the expected effect of the substituted policy.
+    Diverged,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

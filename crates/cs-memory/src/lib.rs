@@ -17,6 +17,7 @@ pub mod lexical;
 pub mod metacognition;
 pub mod need;
 pub mod observation;
+pub mod prediction;
 pub mod proposal;
 pub mod recall;
 pub mod record;

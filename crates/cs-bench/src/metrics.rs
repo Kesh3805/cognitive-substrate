@@ -67,6 +67,33 @@ pub struct Interval {
     pub upper: f64,
 }
 
+/// Paired bootstrap of the mean difference `b − a` with a two-sided
+/// `1 − alpha` percentile CI, resampling pairs with replacement.
+pub fn paired_bootstrap_at(
+    a: &[f64],
+    b: &[f64],
+    resamples: usize,
+    seed: u64,
+    alpha: f64,
+) -> Interval {
+    assert_eq!(a.len(), b.len(), "paired samples");
+    let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| y - x).collect();
+    let mut rng = Rng::new(seed);
+    let mut means: Vec<f64> = (0..resamples)
+        .map(|_| {
+            let s: f64 = (0..d.len()).map(|_| d[rng.below(d.len())]).sum();
+            s / d.len() as f64
+        })
+        .collect();
+    means.sort_by(f64::total_cmp);
+    let at = |q: f64| means[((q * resamples as f64) as usize).min(resamples - 1)];
+    Interval {
+        mean: mean(&d),
+        lower: at(alpha / 2.0),
+        upper: at(1.0 - alpha / 2.0),
+    }
+}
+
 /// Paired bootstrap of the mean difference `b − a` (95% percentile CI),
 /// resampling queries with replacement.
 pub fn paired_bootstrap(a: &[f64], b: &[f64], resamples: usize, seed: u64) -> Interval {

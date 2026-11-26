@@ -42,6 +42,19 @@ fn newcombe(p1: f64, (l1, u1): (f64, f64), p0: f64, (l0, u0): (f64, f64)) -> (f6
     )
 }
 
+/// Newcombe's hybrid score interval (95%) for the difference of two
+/// proportions `k1/n1 − k0/n0`: `(estimate, lower, upper)`. `None` when an
+/// arm is empty.
+pub fn difference_interval(k1: u32, n1: u32, k0: u32, n0: u32) -> Option<(f64, f64, f64)> {
+    if n1 == 0 || n0 == 0 {
+        return None;
+    }
+    let (p1, p0) = (f64::from(k1) / f64::from(n1), f64::from(k0) / f64::from(n0));
+    let w1 = wilson(f64::from(k1), f64::from(n1), Z)?;
+    let w0 = wilson(f64::from(k0), f64::from(n0), Z)?;
+    Some(newcombe(p1, w1, p0, w0))
+}
+
 /// `(estimate, lower, upper)` in the hypothesis's direction.
 fn signed(h: &Hypothesis, (d, l, u): (f64, f64, f64)) -> (f64, f64, f64) {
     match h.direction {

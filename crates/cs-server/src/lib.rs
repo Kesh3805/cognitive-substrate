@@ -160,7 +160,9 @@ pub fn router(state: AppState) -> Router {
         .route("/interventions", post(record_intervention))
         .route("/interventions/{id}", get(get_intervention))
         .route("/interventions/{id}/outcomes", post(observe_outcome))
-        .route("/interventions/{id}/counterfactual", get(counterfactual));
+        .route("/interventions/{id}/counterfactual", get(counterfactual))
+        .route("/interventions/{id}/predictions", post(predict))
+        .route("/hypotheses/{id}/rule", get(prediction_rule));
     Router::new()
         .nest("/v1", v1)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "no such route") })
@@ -973,5 +975,57 @@ async fn counterfactual(
         .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
     ok(s.engine
         .counterfactual(&ctx, InterventionId(id), HypothesisId(p.hypothesis))
+        .await?)
+}
+
+// ---- M6.4: bounded predictions ---------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct PredictRequest {
+    hypothesis_id: Uuid,
+}
+
+async fn predict(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    ApiJson(req): ApiJson<PredictRequest>,
+) -> ApiResult<cs_engine::predictions::PredictionResult> {
+    let r = s
+        .engine
+        .predict(&ctx, InterventionId(id), HypothesisId(req.hypothesis_id))
+        .await?;
+    let status = match r {
+        cs_engine::predictions::PredictionResult::Recorded { .. } => StatusCode::CREATED,
+        cs_engine::predictions::PredictionResult::Refused { .. } => StatusCode::OK,
+    };
+    Ok((status, Json(r)))
+}
+
+#[derive(Debug, Deserialize)]
+struct RuleParams {
+    context: String,
+    #[serde(default)]
+    threshold: Option<f64>,
+    #[serde(default)]
+    min_effect: Option<f64>,
+}
+
+async fn prediction_rule(
+    State(s): State<AppState>,
+    Caller(ctx): Caller,
+    Path(id): Path<Uuid>,
+    params: Result<Query<RuleParams>, QueryRejection>,
+) -> ApiResult<cs_engine::predictions::RuleView> {
+    let Query(p) = params
+        .map_err(|r| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", r.body_text()))?;
+    ok(s.engine
+        .prediction_rule(
+            &ctx,
+            HypothesisId(id),
+            &p.context,
+            p.threshold,
+            p.min_effect,
+        )
         .await?)
 }

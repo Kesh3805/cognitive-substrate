@@ -100,6 +100,7 @@ The substrate can now observe, extract, detect and propose. **It still never rew
 | **Answer, investigate or abstain (M6.1)** | A recall can ask whether to answer. It answers only from validated evidence that names what the question is about and accounts for what it asks. It investigates when evidence is about the subject but not the question, disagrees, or is unvalidated, and abstains when nothing is about it. The decision is in the trace and replays exactly. In experiment 010 it gave no wrong answers on held-out seeds, where answering by score margin was wrong 43% of the time. |
 | **Causal hypotheses (M6.2)** | Callers state hypotheses ("doing X raises Y") and record interventions at intent, declaring whether the arm was randomized. Only randomized, independently verified outcomes decide a status, and support speaks only for the contexts sampled. In experiment 011 the evaluation supported 0.4% of non-causes, where reading the agent's own confounded evidence supported 45%. |
 | **Counterfactuals (M6.3, experimental)** | For a randomized episode under a supported hypothesis, the system bounds whether the treatment was necessary or would have been sufficient. The answer is computed on read, labelled inferred with its assumptions, and never stored. In experiment 012 the bounds contained the truth 99.8% of the time but were too often uninformative, so the endpoint is experimental. |
+| **Bounded predictions (M6.4)** | A supported hypothesis becomes a rule for one context, but only where that context's own evidence supports it and is precise. Predictions are recorded at intent, and silence counts as failure. A sequential monitor that is safe to check after every outcome demotes over-optimistic rules. Only fresh randomized evidence re-earns them, and the gate refuses whenever there is no rule. An **effect gate** acts only where the treated-minus-control effect pays for the action's cost, and it monitors control holdouts so that an action becoming redundant is caught. Experiment 013 found both gates safe but **not adopted**: neither beat the best simpler per-context baseline ([results](benchmarks/013-prediction-gating/RESULTS.md)), so the endpoints are experimental. |
 | **Benchmark harness** | `cs-bench` regenerates a seeded corpus bit for bit, runs every strategy and reports paired bootstrap confidence intervals and pass/fail on each preregistered gate. |
 
 ## Quick start
@@ -183,6 +184,10 @@ let hits = engine.recall(&ctx, RecallRequest {
 }).await?;
 ```
 
+### Use it from an MCP client
+
+`cs-mcp` serves the engine over the Model Context Protocol (stdio or Streamable HTTP) for one configured user. Claude Code, Cursor and other clients can then `remember`, `recall` with a trace id, `replay_recall`, `observe` and assert beliefs. It also accepts the reference memory server's `create_entities`, `add_observations` and `search_nodes`. See [`crates/cs-mcp`](crates/cs-mcp/README.md) for setup and the tool mapping.
+
 ## HTTP API (`/v1`)
 
 | Method | Path | Purpose |
@@ -222,10 +227,25 @@ let hits = engine.recall(&ctx, RecallRequest {
 | `POST` `GET` | `/capabilities/{id}/executions` | Start an execution · list them |
 | `GET` | `/executions/{id}` | Execution with its verifications |
 | `POST` | `/executions/{id}/finish` · `/executions/{id}/verifications` | Finish once · record a verifier's verdict |
+| `POST` `GET` | `/information-needs` | Ask a question · list needs by priority |
+| `GET` | `/information-needs/{id}` | One need with its priority |
+| `POST` | `/information-needs/{id}/validate` · `/confirm` · `/dismiss` · `/weights` · `/purge` | Complete search · confirm a gap · dismiss · reweigh · erase |
+| `POST` `GET` | `/hypotheses` | Create a hypothesis · list them |
+| `GET` | `/hypotheses/{id}` · `/hypotheses/{id}/history` | Current version · every version |
+| `POST` | `/hypotheses/{id}/evaluate` · `/hypotheses/{id}/retire` | Version-checked evaluation · retirement |
+| `POST` | `/interventions` · `/interventions/{id}/outcomes` | Record at intent · observe an outcome once |
+| `GET` | `/interventions/{id}` | Intervention with its outcomes |
+| `GET` | `/interventions/{id}/counterfactual?hypothesis=` | Read-time counterfactual bounds (experimental) |
+| `POST` | `/interventions/{id}/predictions` | Record a prediction at intent (201) or a refusal (200) |
+| `GET` | `/hypotheses/{id}/rule?context=&threshold=&min_effect=` | Rule, lineage monitor and gate decision |
 
 Callers are identified by `x-cs-tenant`, `x-cs-user`, `x-cs-agent` and `x-cs-projects`. Set `CS_API_KEY` to also require `Authorization: Bearer <key>`. In production, put an identity-aware proxy in front of the service to set these headers. See [`crates/cs-server/src/auth.rs`](crates/cs-server/src/auth.rs).
 
 Errors are always `{"error": {"code": "...", "message": "..."}}`.
+
+The full API, with every parameter, schema and status code, is described in [`docs/api/openapi.yaml`](docs/api/openapi.yaml) (OpenAPI 3.1). A test keeps it in sync with the router. See [docs/api](docs/api/README.md) to view it or generate Python and TypeScript clients.
+
+A typed Python client (sync and async, built on `httpx`) lives in [`sdks/python`](sdks/python/README.md). It covers memories, recall and replay, evidence and beliefs, observations and proposals, hypotheses, interventions and predictions.
 
 ## Workspace
 
@@ -238,6 +258,7 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`.
 | `cs-postgres` | PostgreSQL + pgvector adapter, migrations | core, memory, storage |
 | `cs-engine` | The embeddable engine and public Rust API | core, memory, policy, storage |
 | `cs-server` | HTTP transport, service binary and in-process worker | engine, core |
+| `cs-mcp` | Model Context Protocol server (`cs-mcp` binary) | engine, core |
 | `cs-extractor-http` | Optional OpenAI-compatible / Ollama extractor | engine, memory |
 | `cs-embedder-http` | OpenAI-compatible and Ollama-native embedder | engine |
 | `cs-embedder-fastembed` | Local ONNX embedder (not built by default; server feature `fastembed`) | engine |
@@ -259,7 +280,8 @@ cargo run --release -p cs-bench -- 005 --store memory --dev   # development seed
 
 - [Architecture overview](docs/architecture/overview.md) and [invariants](docs/architecture/invariants.md)
 - [Architecture decision records](docs/adr/)
-- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md), [information needs](docs/specifications/information-needs.md)
+- [HTTP API reference (OpenAPI 3.1)](docs/api/README.md)
+- Specifications: [bitemporal semantics](docs/specifications/bitemporal-semantics.md), [scope & access](docs/specifications/scope-and-access.md), [recall scoring](docs/specifications/recall-scoring.md), [cognitive debt](docs/specifications/cognitive-debt.md), [resolution](docs/specifications/resolution.md), [embeddings](docs/specifications/embeddings.md), [entities & graph](docs/specifications/entities-and-graph.md), [compilation](docs/specifications/compilation.md), [capabilities](docs/specifications/capabilities.md), [information needs](docs/specifications/information-needs.md), [metacognition](docs/specifications/metacognition.md), [causal evidence](docs/specifications/causal-evidence.md), [predictions](docs/specifications/predictions.md)
 - [Research program](docs/research/research-program.md) and [roadmap](ROADMAP.md)
 
 ## Lineage

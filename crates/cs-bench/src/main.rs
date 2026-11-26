@@ -12,7 +12,7 @@
 
 use std::{io::Write, path::PathBuf, process::Command, sync::Arc};
 
-use cs_bench::{exp005, exp006, exp007, exp008, exp009, exp010, exp011, exp012};
+use cs_bench::{exp005, exp006, exp007, exp008, exp009, exp010, exp011, exp012, exp013, exp013b};
 use cs_storage::{CognitiveStore, InMemoryStore};
 use serde_json::json;
 
@@ -67,6 +67,12 @@ async fn main() -> Result<(), String> {
     }
     if experiment == "011" {
         return run_011(&args).await;
+    }
+    if experiment == "013" {
+        return run_013(&args).await;
+    }
+    if experiment == "013b" {
+        return run_013b(&args).await;
     }
     if experiment == "012" {
         return run_012(&args).await;
@@ -710,6 +716,236 @@ async fn run_012(args: &[String]) -> Result<(), String> {
         "in-scope refusals (insufficient evidence): {}",
         summary.insufficient
     );
+    for g in &summary.gates {
+        println!(
+            "[{}] {} — {}",
+            if g.passed { "pass" } else { "FAIL" },
+            g.criterion,
+            g.value
+        );
+    }
+    println!("adopt: {}", summary.adopt);
+    Ok(())
+}
+
+async fn run_013(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let all: Vec<u64> = if dev {
+        exp013::DEV_SEEDS.to_vec()
+    } else {
+        exp013::HELD_OUT_SEEDS.to_vec()
+    };
+    // `--seed S` runs one of them (seeds are independent, so they can run as
+    // separate processes and be merged with `--merge DIR...`).
+    let seeds: Vec<u64> = match arg(args, "--seed") {
+        Some(s) => {
+            let s: u64 = s.parse().map_err(|_| "--seed takes a number".to_owned())?;
+            if !all.contains(&s) {
+                return Err(format!("seed {s} is not in this split"));
+            }
+            vec![s]
+        }
+        None => all,
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/013-prediction-gating/results/{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    if let Some(i) = args.iter().position(|a| a == "--merge") {
+        // Summarize raw rows already written by per-seed runs.
+        for dir in &args[i + 1..] {
+            let text = std::fs::read_to_string(PathBuf::from(dir).join("raw.jsonl"))
+                .map_err(|e| format!("{dir}: {e}"))?;
+            for line in text.lines() {
+                rows.push(serde_json::from_str(line).map_err(|e| e.to_string())?);
+            }
+        }
+    } else {
+        for seed in &seeds {
+            eprintln!("seed {seed}: burn-in, evaluation, opportunities");
+            rows.extend(exp013::run_seed(store(&kind).await?, *seed).await?);
+        }
+    }
+    let summary = exp013::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "013-prediction-gating",
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "prediction_version": cs_policy::prediction::PREDICTION_VERSION,
+        "evaluation_version": cs_memory::causal::CAUSAL_EVALUATION_VERSION,
+        "per_family": exp013::PER_FAMILY,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    for f in &summary.families {
+        println!(
+            "{:<10} supported {}/{} false-demotion runs {} detected {}/{} median {:?} p90 {:?} requalified {}",
+            format!("{:?}", f.family),
+            f.supported,
+            f.runs,
+            f.runs_with_false_demotion,
+            f.detected,
+            f.shifted_contexts,
+            f.median_delay,
+            f.p90_delay,
+            f.requalified
+        );
+        for (a, u) in &f.utility {
+            let d = f
+                .gate_minus
+                .get(a)
+                .map(|i| {
+                    format!(
+                        "gate-this {:+.3} [{:+.3}, {:+.3}]",
+                        i.mean, i.lower, i.upper
+                    )
+                })
+                .unwrap_or_default();
+            println!("    {:<20} utility {u:+.3}  {d}", format!("{a:?}"));
+        }
+    }
+    for g in &summary.gates {
+        println!(
+            "[{}] {} — {}",
+            if g.passed { "pass" } else { "FAIL" },
+            g.criterion,
+            g.value
+        );
+    }
+    println!("adopt: {}", summary.adopt);
+    Ok(())
+}
+
+async fn run_013b(args: &[String]) -> Result<(), String> {
+    let kind = arg(args, "--store").unwrap_or_else(|| "memory".into());
+    let dev = args.iter().any(|a| a == "--dev");
+    let all: Vec<u64> = if dev {
+        exp013b::DEV_SEEDS.to_vec()
+    } else {
+        exp013b::HELD_OUT_SEEDS.to_vec()
+    };
+    let seeds: Vec<u64> = match arg(args, "--seed") {
+        Some(s) => {
+            let s: u64 = s.parse().map_err(|_| "--seed takes a number".to_owned())?;
+            if !all.contains(&s) {
+                return Err(format!("seed {s} is not in this split"));
+            }
+            vec![s]
+        }
+        None => all,
+    };
+    // `--holdout H` overrides the holdout rate, on development seeds only.
+    let holdout = match arg(args, "--holdout") {
+        Some(h) if dev => h
+            .parse::<f64>()
+            .ok()
+            .filter(|h| (0.0..1.0).contains(h))
+            .ok_or_else(|| "--holdout takes a rate in [0, 1)".to_owned())?,
+        Some(_) => return Err("--holdout is for development seeds only".into()),
+        None => exp013b::HOLDOUT,
+    };
+    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| {
+        format!(
+            "benchmarks/013-prediction-gating/results/b-{}-{kind}",
+            if dev { "dev" } else { "held-out" }
+        )
+    }));
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    if let Some(i) = args.iter().position(|a| a == "--merge") {
+        for dir in &args[i + 1..] {
+            let text = std::fs::read_to_string(PathBuf::from(dir).join("raw.jsonl"))
+                .map_err(|e| format!("{dir}: {e}"))?;
+            for line in text.lines() {
+                rows.push(serde_json::from_str(line).map_err(|e| e.to_string())?);
+            }
+        }
+    } else {
+        for seed in &seeds {
+            eprintln!("seed {seed}: burn-in, evaluation, opportunities");
+            rows.extend(exp013b::run_seed_with(store(&kind).await?, *seed, holdout).await?);
+        }
+    }
+    let summary = exp013b::summarize(&rows);
+    let mut raw = std::fs::File::create(out.join("raw.jsonl")).map_err(|e| e.to_string())?;
+    for r in &rows {
+        writeln!(
+            raw,
+            "{}",
+            serde_json::to_string(r).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let manifest = json!({
+        "experiment": "013b-effect-gating",
+        "holdout": holdout,
+        "seeds": seeds,
+        "held_out": !dev,
+        "store": kind,
+        "prediction_version": cs_policy::prediction::PREDICTION_VERSION,
+        "evaluation_version": cs_memory::causal::CAUSAL_EVALUATION_VERSION,
+        "per_family": exp013b::PER_FAMILY,
+        "commit": command_output("git", &["rev-parse", "HEAD"]),
+        "rustc": command_output("rustc", &["--version"]),
+    });
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    for f in &summary.families {
+        println!(
+            "{:<15} supported {}/{} exposed shifted {} detected {}",
+            format!("{:?}", f.family),
+            f.supported,
+            f.runs,
+            f.exposed_shifted,
+            f.detected
+        );
+        for (a, u) in &f.utility {
+            let d = f
+                .effect_gate_minus
+                .get(a)
+                .map(|i| {
+                    format!(
+                        "effect-this {:+.3} [{:+.3}, {:+.3}]",
+                        i.mean, i.lower, i.upper
+                    )
+                })
+                .unwrap_or_default();
+            println!("    {:<16} utility {u:+.3}  {d}", format!("{a:?}"));
+        }
+    }
     for g in &summary.gates {
         println!(
             "[{}] {} — {}",

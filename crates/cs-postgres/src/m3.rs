@@ -978,6 +978,25 @@ impl PgStore {
             .map_err(db_err)
     }
 
+    pub(crate) async fn m3_purged_among(
+        &self,
+        kind: PurgeKind,
+        ids: &[Uuid],
+    ) -> Result<std::collections::BTreeSet<Uuid>> {
+        if ids.is_empty() {
+            return Ok(std::collections::BTreeSet::new());
+        }
+        let rows: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT record_id FROM purge_ledger WHERE kind = $1 AND record_id = ANY($2::uuid[])",
+        )
+        .bind(kind.as_str())
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(rows.into_iter().collect())
+    }
+
     pub(crate) async fn m3_purge_evidence(
         &self,
         id: EvidenceId,

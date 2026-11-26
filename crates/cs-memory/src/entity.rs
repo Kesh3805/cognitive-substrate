@@ -361,12 +361,11 @@ pub fn project_memory(m: &MemoryRecord) -> Projection {
             mention(s, MentionRole::Subject),
             normalize_relation(p),
             mention(o, MentionRole::Object),
-        ) {
-            if from.key != to.key {
-                mentions.push(from.clone());
-                mentions.push(to.clone());
-                edges.push(ProjectedEdge { from, relation, to });
-            }
+        ) && from.key != to.key
+        {
+            mentions.push(from.clone());
+            mentions.push(to.clone());
+            edges.push(ProjectedEdge { from, relation, to });
         }
     };
     match &m.content {

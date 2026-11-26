@@ -97,4 +97,6 @@ id_type!(
     HypothesisId,
     /// One deliberate or observed application of a treatment (M6.2).
     InterventionId,
+    /// One prediction made from a rule, at an intervention's intent (M6.4).
+    PredictionId,
 );

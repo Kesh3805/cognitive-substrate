@@ -5,7 +5,8 @@
 //! lives in `cs-policy`.
 
 use cs_core::{
-    BeliefId, Error, MemoryId, MemoryRevisionId, RecallTraceId, Result, ScopeFilter, TenantId,
+    AccessContext, AgentId, BeliefId, Error, MemoryId, MemoryRevisionId, RecallTraceId, Result,
+    ScopeFilter, TenantId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -321,6 +322,14 @@ pub struct RecallCandidate {
 pub struct RecallTrace {
     pub id: RecallTraceId,
     pub tenant_id: TenantId,
+    /// The user that ran the recall (with `owner_agent_id`, the principal
+    /// the trace belongs to). Traces recorded before owners were kept have
+    /// neither, and are readable by no one (see [`RecallTrace::readable_by`]).
+    #[serde(default)]
+    pub owner_user_id: Option<UserId>,
+    /// The agent that ran the recall.
+    #[serde(default)]
+    pub owner_agent_id: Option<AgentId>,
     /// Fully resolved policy (as-of times filled in).
     pub policy: RecallPolicy,
     pub scoring_version: u32,
@@ -359,6 +368,18 @@ impl RecallTrace {
     pub fn selected(&self) -> impl Iterator<Item = &RecallCandidate> {
         self.candidates.iter().filter(|c| c.selected)
     }
+
+    /// A trace is readable only by the principal that ran the recall: same
+    /// tenant, same user and same agent. A trace that names neither a user
+    /// nor an agent (recorded before owners were kept, or run by a caller
+    /// that identified only its tenant) is readable by no one: it may hold
+    /// ids and scores from scopes that another caller cannot read.
+    pub fn readable_by(&self, ctx: &AccessContext) -> bool {
+        self.tenant_id == ctx.tenant_id
+            && (self.owner_user_id.is_some() || self.owner_agent_id.is_some())
+            && self.owner_user_id == ctx.user_id
+            && self.owner_agent_id == ctx.agent_id
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +398,42 @@ mod tests {
             ..RecallPolicy::default()
         };
         assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn traces_are_readable_only_by_their_principal() {
+        let tenant = TenantId::new_v7();
+        let alice = UserId::new_v7();
+        // A trace recorded before owners were kept: no user, no agent.
+        let legacy: RecallTrace = serde_json::from_value(serde_json::json!({
+            "id": RecallTraceId::new_v7(),
+            "tenant_id": tenant,
+            "policy": {},
+            "scoring_version": 1,
+            "query_hash": "h",
+            "candidates": [],
+            "data_snapshot": "s",
+            "executed_at": "2026-06-01T09:00:00Z"
+        }))
+        .unwrap();
+        assert!(!legacy.readable_by(&AccessContext::user(tenant, alice)));
+        assert!(!legacy.readable_by(&AccessContext {
+            tenant_id: tenant,
+            user_id: None,
+            agent_id: None,
+            project_ids: Vec::new(),
+        }));
+
+        let owned = RecallTrace {
+            owner_user_id: Some(alice),
+            ..legacy.clone()
+        };
+        assert!(owned.readable_by(&AccessContext::user(tenant, alice)));
+        assert!(!owned.readable_by(&AccessContext::user(tenant, UserId::new_v7())));
+        assert!(!owned.readable_by(&AccessContext::user(TenantId::new_v7(), alice)));
+        let mut via_agent = AccessContext::user(tenant, alice);
+        via_agent.agent_id = Some(AgentId::new_v7());
+        assert!(!owned.readable_by(&via_agent));
     }
 
     #[test]

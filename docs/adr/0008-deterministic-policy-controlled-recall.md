@@ -12,7 +12,7 @@ In the predecessor's experiments, research-memory retrieval had a 0% hit rate, h
 - Recall runs under an explicit `RecallPolicy` value: domains, scope filter, as-of valid and transaction times, candidate and result limits, token budget, weights, recency half-life, minimum score, and inclusion of superseded or candidate revisions.
 - Scoring version 1 is `S = w_d·D + w_l·L + w_r·R`, with weights summing to 1 (see `docs/specifications/recall-scoring.md`).
 - Scoring is **exact over the filtered candidate set**. No ANN is used, so the candidate set does not vary between runs. Ties break on `(memory_id, revision_id)`.
-- Every recall persists a `RecallTrace`: the resolved policy, query hash (and text, unless disabled), embedding model, data snapshot, and every candidate with its component scores and selection reason.
+- Every recall persists a `RecallTrace`: the resolved policy, query hash (and text, unless disabled), embedding model, data snapshot, and every candidate with its component scores and selection reason. The trace records the principal that ran the recall, and only that principal can read or replay it (invariant 32).
 - **Exact replay** re-executes against the recorded as-of times. **Counterfactual replay** substitutes policy parameters and reports which memories were added or removed.
 - The built-in embedder is a deterministic hashing baseline. Learned embedders are adapters behind the `Embedder` trait.
 

@@ -36,6 +36,7 @@ mod m43;
 mod m44;
 mod m54;
 mod m62;
+mod m64;
 
 /// Embedded migrations (`/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -1227,8 +1228,10 @@ impl CognitiveStore for PgStore {
         sqlx::query(
             "INSERT INTO recall_traces (id, tenant_id, policy, scoring_version, query_hash, \
              query_text, embedding_model, embedding_version, data_snapshot, executed_at, \
-             belief_candidates, dense, query_embedding, budget, metacognition) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+             belief_candidates, dense, query_embedding, budget, metacognition, \
+             owner_user_id, owner_agent_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+             $16, $17)",
         )
         .bind(t.id.0)
         .bind(t.tenant_id.0)
@@ -1245,6 +1248,8 @@ impl CognitiveStore for PgStore {
         .bind(t.query_embedding.clone().map(pgvector::Vector::from))
         .bind(t.budget.map(Json))
         .bind(t.metacognition.as_ref().map(Json))
+        .bind(t.owner_user_id.map(|u| u.0))
+        .bind(t.owner_agent_id.map(|a| a.0))
         .execute(&mut *tx)
         .await
         .map_err(db_err)?;
@@ -1336,6 +1341,14 @@ impl CognitiveStore for PgStore {
         Ok(Some(RecallTrace {
             id,
             tenant_id: TenantId(row.try_get("tenant_id").map_err(db_err)?),
+            owner_user_id: row
+                .try_get::<Option<Uuid>, _>("owner_user_id")
+                .map_err(db_err)?
+                .map(cs_core::UserId),
+            owner_agent_id: row
+                .try_get::<Option<Uuid>, _>("owner_agent_id")
+                .map_err(db_err)?
+                .map(cs_core::AgentId),
             policy,
             scoring_version: u32::try_from(
                 row.try_get::<i32, _>("scoring_version").map_err(db_err)?,
@@ -1679,6 +1692,35 @@ impl CognitiveStore for PgStore {
             .await
     }
 
+    async fn interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
+        limit: u32,
+    ) -> Result<Vec<cs_memory::causal::Intervention>> {
+        self.m62_interventions_in_context(access, scope, environment, treatment, context, limit)
+            .await
+    }
+
+    async fn insert_prediction(
+        &self,
+        p: &cs_memory::prediction::Prediction,
+        outcome_key: &str,
+        event: EventDraft,
+    ) -> Result<()> {
+        self.m64_insert_prediction(p, outcome_key, event).await
+    }
+
+    async fn predictions_for(
+        &self,
+        lineage: &str,
+    ) -> Result<Vec<cs_memory::prediction::Prediction>> {
+        self.m64_predictions_for(lineage).await
+    }
+
     async fn insert_execution(
         &self,
         execution: &cs_memory::capability::Execution,
@@ -1792,6 +1834,14 @@ impl CognitiveStore for PgStore {
         id: Uuid,
     ) -> Result<Option<OffsetDateTime>> {
         self.m3_purged_at(kind, id).await
+    }
+
+    async fn purged_among(
+        &self,
+        kind: cs_storage::PurgeKind,
+        ids: &[Uuid],
+    ) -> Result<std::collections::BTreeSet<Uuid>> {
+        self.m3_purged_among(kind, ids).await
     }
 
     async fn purge_evidence(

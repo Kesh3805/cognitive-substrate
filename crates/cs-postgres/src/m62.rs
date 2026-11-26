@@ -226,4 +226,49 @@ impl PgStore {
         .map_err(db_err)?;
         Ok(rows.into_iter().map(|Json(i)| i).collect())
     }
+
+    /// As [`Self::m62_interventions_for`], narrowed to one context and
+    /// exactly one scope (served by `idx_interventions_context`).
+    pub(crate) async fn m62_interventions_in_context(
+        &self,
+        access: &AccessContext,
+        scope: &Scope,
+        environment: &str,
+        treatment: &str,
+        context: &str,
+        limit: u32,
+    ) -> Result<Vec<Intervention>> {
+        let clause = access_sql(super::TABLE_ACCESS_COLS, [1, 2, 3, 4]);
+        let (tenant, owner, agent, project, vis) = scope_cols(scope);
+        let rows: Vec<Json<Intervention>> = sqlx::query_scalar(&format!(
+            "SELECT body FROM interventions WHERE {clause} \
+               AND environment = $5 AND treatment = $6 \
+               AND (body->>'context') = $7 \
+               AND tenant_id = $8 \
+               AND owner_user_id IS NOT DISTINCT FROM $9 \
+               AND agent_id IS NOT DISTINCT FROM $10 \
+               AND project_id IS NOT DISTINCT FROM $11 \
+               AND visibility = $12::visibility \
+               AND (body->'scope'->>'conversation_id') IS NOT DISTINCT FROM $13 \
+             ORDER BY recorded_at, id LIMIT $14"
+        ))
+        .bind(access.tenant_id.0)
+        .bind(access.user_id.map(|u| u.0))
+        .bind(access.agent_id.map(|a| a.0))
+        .bind(project_ids(access))
+        .bind(environment)
+        .bind(treatment)
+        .bind(context)
+        .bind(tenant)
+        .bind(owner)
+        .bind(agent)
+        .bind(project)
+        .bind(vis)
+        .bind(scope.conversation_id.map(|c| c.0.to_string()))
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(rows.into_iter().map(|Json(i)| i).collect())
+    }
 }

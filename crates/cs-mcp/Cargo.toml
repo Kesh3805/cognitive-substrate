@@ -1,0 +1,36 @@
+[package]
+name = "cs-mcp"
+description = "Model Context Protocol server for Cognitive Substrate."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cs-mcp"
+path = "src/main.rs"
+
+[dependencies]
+cs-core.workspace = true
+cs-memory.workspace = true
+cs-engine.workspace = true
+cs-policy.workspace = true
+cs-storage.workspace = true
+cs-postgres.workspace = true
+cs-extractor-http.workspace = true
+cs-embedder-http.workspace = true
+rmcp = { version = "3.11", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+schemars = "1"
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

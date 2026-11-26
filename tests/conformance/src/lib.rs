@@ -17,6 +17,8 @@ pub mod m5;
 pub mod m54;
 pub mod m6;
 pub mod m62;
+pub mod m64;
+pub mod traces;
 
 use std::sync::Arc;
 
@@ -922,4 +924,14 @@ pub async fn run_all(make: impl Fn() -> Arc<dyn CognitiveStore>) {
     scenario!(recalls_answer_investigate_or_abstain);
     use m62::*;
     scenario!(hypotheses_follow_randomized_evidence);
+    use m64::*;
+    scenario!(
+        predictions_are_scored_and_demote_their_rules,
+        lineages_read_their_own_scope_and_context,
+    );
+    use traces::*;
+    scenario!(
+        traces_are_readable_only_by_their_principal,
+        replay_after_purge_reports_purged_candidates,
+    );
 }

@@ -31,6 +31,10 @@ The scope must also be structurally valid. `private` needs an owner or agent, `a
 
 Records the caller cannot read are reported as `not_found`, so that scoped data is not revealed to exist. Attempts to write into a foreign scope return `forbidden`.
 
+## Recall traces
+
+A recall trace is not a scoped record: it belongs to the principal that ran the recall. `RecallTrace::readable_by` requires the same tenant, the same user and the same agent, and at least one of them to be recorded. Everyone else, including callers who can read every memory the trace names, gets `not_found` from reads and replays. See [replay and purge](replay-and-purge.md#who-may-replay).
+
 ## Narrowing
 
 `ScopeFilter` (project, conversation, agent) can only narrow results the caller is already authorized to see.

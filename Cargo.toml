@@ -8,6 +8,7 @@ members = [
     "crates/cs-postgres",
     "crates/cs-engine",
     "crates/cs-server",
+    "crates/cs-mcp",
     "crates/cs-extractor-http",
     "crates/cs-embedder-http",
     "crates/cs-embedder-fastembed",
@@ -24,6 +25,7 @@ default-members = [
     "crates/cs-postgres",
     "crates/cs-engine",
     "crates/cs-server",
+    "crates/cs-mcp",
     "crates/cs-extractor-http",
     "crates/cs-embedder-http",
     "crates/cs-bench",
@@ -33,7 +35,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/Kesh3805/cognitive-substrate"
 authors = ["Kesh3805"]
@@ -64,6 +66,7 @@ axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
 http-body-util = "0.1"
+serde_yaml_ng = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [workspace.lints.rust]

@@ -23,8 +23,9 @@ Deleting a source must erase what was derived from it. It must not destroy facts
 ## Consequences
 
 - Exact replay of a recall made before a purge reports `identical: false` when purged content had been selected. The original trace still holds the original component scores.
+- Replay checks the original candidate set against the purge ledger and reports `purged_candidates`, `purged_selected` and `fidelity: degraded_by_purge`, also when only a non-selected candidate was purged and the selection is unchanged. See [replay and purge](../specifications/replay-and-purge.md).
 - BM25 statistics over the candidate set naturally reflect the purge.
 
 ## Verification
 
-Conformance scenarios: `evidence_purge_flags_beliefs`, `observation_purge_keeps_corroborated_facts` and `purge_during_extraction_discards_effects`.
+Conformance scenarios: `evidence_purge_flags_beliefs`, `observation_purge_keeps_corroborated_facts`, `purge_during_extraction_discards_effects` and `replay_after_purge_reports_purged_candidates`.
